@@ -1,11 +1,11 @@
 # Cool ERP
 
-[![GitHub license](https://img.shields.io/github/license/username/cool-erp)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/username/cool-erp)](https://github.com/username/cool-erp/stargazers)
+[![GitHub license](https://img.shields.io/github/license/levtrilev/cool-erp)](LICENSE)
+<!-- [![GitHub stars](https://img.shields.io/github/stars/levtrilev/cool-erp)](https://github.com/levtrilev/cool-erp/stargazers) -->
 
 **Cool ERP** (https://coolerp.ru) — это модульная, легко расширяемая ERP-система с открытым кодом, специально адаптированная для надежной ИИ-генерации новых функций. Монорепозиторий FastAPI/Orval + Vite/React/TailwindCSS/TanStackQuery.
 
-🌐 **Официальный сайт проекта:** [coolerp.com](https://coolerp.ru) (under construction)
+🌐 **Официальный сайт проекта:** [coolerp.ru](https://coolerp.ru) (under construction)
 
 ---
 
@@ -20,8 +20,8 @@
 
 ## 🛠️ Стек технологий
 
-* **Backend: FastAPI/Orval
-* **Frontend: Vite/React/TailwindCSS/TanStackQuery
+* **Backend:** FastAPI/Orval
+* **Frontend:** Vite/React/TailwindCSS/TanStackQuery
 * **База данных:** PostgreSQL
 
 ---
