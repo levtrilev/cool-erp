@@ -1,0 +1,88 @@
+# ==========================================
+# Системные файлы операционных систем и IDE
+# ==========================================
+# Windows
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS (на случай, если коллеги работают на Mac)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Редакторы кода и IDE (VS Code, PyCharm / WebStorm)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# Бэкенд (Python / FastAPI)
+# ==========================================
+# Кэш компиляции Python
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальные окружения (скрытые и обычные папки)
+.venv/
+venv/
+ENV/
+env/
+backend/.venv/
+backend/venv/
+
+# Кэш инструментов статического анализа и линтеров
+.black
+.flake8
+.isort.cfg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pyrightpy/
+
+# Логи бэкенда
+*.log
+backend/*.log
+
+# Конфиденциальные данные (Файлы окружения)
+# ВАЖНО: backend/.env содержит пароли и ключи, его нельзя пушить в Git!
+backend/.env
+.env
+.env.local
+.env.*.local
+
+# Бэкапы и временные файлы разработки
+backend/requirements_bak.txt
+*.bak
+
+# ==========================================
+# Фронтенд (Node.js / React / Vite)
+# ==========================================
+# Зависимости JavaScript (создаются после npm install)
+**/node_modules/
+node_modules/
+
+# Папки сборки (Production build артефакты)
+frontend/dist/
+frontend/build/
+frontend/out/
+
+# Логи npm / vite
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Кэш сборщиков и TypeScript
+.npm/
+.eslintcache
+frontend/.tsbuildinfo
+
+# сгенерированный по OpenAPI код фронтенда
+# РЕКОМЕНДАЦИЯ: Если папка frontend/src/api/generated полностью создается 
+frontend/src/api/generated/

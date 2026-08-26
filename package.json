@@ -1,0 +1,19 @@
+{
+  "name": "my-awesome-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && ./venv/bin/uvicorn app.main:app --reload",
+    "dev:frontend": "cd frontend && npm run dev",
+    
+    "api:download": "curl http://localhost:8000/openapi.json -o ./frontend/openapi.json",
+    "api:generate": "cd frontend && npm run api:generate",
+    
+    "build": "cd frontend && npm run build",
+    "lint": "cd frontend && npm run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

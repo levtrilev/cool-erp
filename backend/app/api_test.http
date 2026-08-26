@@ -1,0 +1,71 @@
+
+
+GET http://localhost:8000/auth/user
+
+###
+
+post http://localhost:8000/auth/logout
+
+###
+
+POST http://localhost:8000/auth/register
+Content-Type: application/json
+
+{
+    "name": "kolya2@yandex.ru",
+    "email": "kolya2@yandex.ru",
+    "password": "kolya2-pwd",
+    "tenant_id": "38d6532a-e1b7-45c5-ab41-11317528d85e",
+    "is_admin": false,
+    "is_superadmin": false
+}
+
+###
+
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+    "email": "superadmin@yandex.ru",
+    "password": "lev43856"
+}
+
+###
+
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+    "email": "kolya1@yandex.ru",
+    "password": "kolya1-pwd"
+}
+
+###
+
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+    "email": "vasya@yandex.ru",
+    "password": "123456"
+}
+
+###
+# /users/?skip=0&limit=2&search=алекс
+GET http://localhost:8000/users/?skip=0&limit=20
+# GET http://localhost:8000/users/33
+# GET http://localhost:8000/users/?skip=0&limit=20&search=sup
+# GET http://localhost:8000/users/4c3dbf43-69de-4b3d-b137-68e3d1ef1871
+
+###
+
+DELETE http://localhost:8000/users/07eab684-8469-4a99-8a24-c75c655c9c73
+
+###
+
+PUT http://localhost:8000/auth/ba5fc4ea-9707-4000-b53a-0a356bceac44
+Content-Type: application/json
+
+{
+    "name": "kolya11@yandex.ru"
+}
