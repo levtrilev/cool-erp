@@ -1,22 +1,18 @@
 from contextlib import asynccontextmanager
-import uuid
+from typing import Any
 import bcrypt
-from fastapi import FastAPI, Cookie, Response, HTTPException, status, Depends
-from pydantic import BaseModel, EmailStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import select, text
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 from app.core.config import settings
-from app.core.database import async_session, get_db
+from app.core.database import async_session
 from app.core.auth.models import UserModel
-from app.core.auth.schemas import UserLoginSchema, UserRegisterSchema
 from app.core.auth.user_router import router as user_router
 from app.core.auth.auth_router import router as auth_router
 
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
-sessions_storage = {}
+sessions_storage: dict[str, Any] = {}
 
 # ==========================================
 # 4. СОВРЕМЕННЫЙ LIFESPAN (Жизненный цикл)
@@ -51,28 +47,21 @@ async def lifespan(app: FastAPI):
     print("🛑 Сервер останавливается. Очистка ресурсов...")
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173"
+    ],  # Разрешаем запросы с нашего фронтенда
+    allow_credentials=True,
+    allow_methods=["*"],  # Разрешаем все методы (GET, POST, PUT, DELETE, OPTIONS)
+    allow_headers=["*"],  # Разрешаем все заголовки (включая Content-Type)
+)
+
 app.include_router(user_router)
 app.include_router(auth_router)
-# ==========================================
-# 6. ВЫДЕЛЕННЫЕ ЗАВИСИМОСТИ (DEPENDENCIES)
-# ==========================================
-# Позволяет получать данные сессии одной строчкой в любом роуте
-async def get_current_session(session_token: str | None = Cookie(default=None)) -> dict:
-    if not session_token or session_token not in sessions_storage:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Вы не авторизованы или сессия истекла"
-        )
-    return sessions_storage[session_token]
 
-# Расширенная зависимость: пустит только если пользователь админ
-async def require_admin(current_user: dict = Depends(get_current_session)):
-    if not current_user.get("is_admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Недостаточно прав доступа (требуются права администратора)"
-        )
-    return current_user
 
 # ==========================================
 # 7. МАРШРУТЫ ПРИЛОЖЕНИЯ (ENDPOINTS)

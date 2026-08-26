@@ -104,7 +104,7 @@ async def login(
 
 
 @router.get("/user")
-async def get_user(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)):
+async def get_user(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, Any]: 
     """Получение профиля текущего пользователя"""
     return {"status": "Доступ разрешен", "user": current_user}
 

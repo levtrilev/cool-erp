@@ -38,7 +38,7 @@
 1. Склонируйте репозиторий:
    ```bash
    git clone https://github.com/levtrilev/cool-erp.git
-   cd cool-erp
+   cd coolerp
    ```
 
 2. Установите зависимости:
