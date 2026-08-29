@@ -1,41 +1,78 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HomePage } from "@/core/HomePage";
-import { RegisterPage } from "@/core/auth/RegisterPage";
-import { LoginPage } from "@/core/LoginPage";
-import { AppLayout } from "./core/AppLayout";
-import { ProfilePage } from "./core/ProfilePage";
+import { AppLayout } from "@/core/AppLayout";
+import { ProtectedRoute } from "@/core/ProtectedRoute";
 
-// Создаем клиент TanStack Query один раз для всего приложения
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+// Публичные страницы
+import { PublicHomePage } from "@/core/PublicHomePage";
+import { LoginPage } from "@/core/LoginPage";
+
+// Защищённые страницы
+import { DashboardPage } from "@/core/DashboardPage";
+import { ProfilePage } from "@/core/ProfilePage";
+import { AdminPage } from "@/core/admin/AdminPage";
+import { SuperAdminPage } from "@/core/admin/SuperAdminPage";
+import { Toaster } from "@/components/ui/toaster";
+import { AdminUsersPage } from "@/core/admin/AdminUsersPage";
+
+const queryClient = new QueryClient();
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          {/* Страницы БЕЗ Layout (авторизация) */}
+          {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
+          <Route path="/" element={<PublicHomePage />} />
           <Route path="/auth/login" element={<LoginPage />} />
-          <Route path="/auth/register" element={<RegisterPage />} />
-          
-          {/* Страницы С Layout (все остальные) */}
+          {/* <Route path="/auth/register" element={<RegisterPage />} /> */}
+
+          {/* === ЗАЩИЩЁННЫЕ РОУТЫ (с Layout) === */}
           <Route element={<AppLayout />}>
-            <Route path="/" element={<HomePage />} />
+            {/* Dashboard — главная для залогиненных */}
+            <Route path="/dashboard" element={<DashboardPage />} />
+
+            {/* Профиль */}
             <Route path="/profile" element={<ProfilePage />} />
-            {/* Сюда позже добавим /profile и другие защищенные страницы */}
+
+            {/* Админ-панель: только для admin/superadmin */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminUsersPage />
+                </ProtectedRoute>
+              }
+            />
+            {/* Супер-админ: только для superadmin */}
+            <Route
+              path="/superadmin"
+              element={
+                <ProtectedRoute requiredRole="superadmin">
+                  <SuperAdminPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Сюда добавляйте сотни будущих страниц с RBAC */}
+            {/* <Route element={<ProtectedRoute requiredRole="manager" />}>
+              <Route path="/projects" element={<ProjectsPage />} />
+            </Route> */}
           </Route>
-          
-          {/* Fallback */}
-          <Route path="*" element={<HomePage />} />
+
+          {/* Редирект для неизвестных путей */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      <Toaster />
     </QueryClientProvider>
   );
 }

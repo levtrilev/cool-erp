@@ -12,12 +12,12 @@ POST http://localhost:8000/auth/register
 Content-Type: application/json
 
 {
-    "name": "kolya2@yandex.ru",
-    "email": "kolya2@yandex.ru",
-    "password": "kolya2-pwd",
+    "name": "kolya1@yandex.ru",
+    "email": "kolya1@yandex.ru",
+    "password": "123456",
     "tenant_id": "38d6532a-e1b7-45c5-ab41-11317528d85e",
     "is_admin": false,
-    "is_superadmin": false
+    "is_superadmin": true
 }
 
 ###

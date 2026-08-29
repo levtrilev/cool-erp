@@ -1,14 +1,16 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/components/ui/use-toast"; // ✅ Импортируем toast
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CheckCircle, AlertCircle } from "lucide-react";
 
+// Импортируем сгенерированные хуки
 import { 
   useGetUserAuthUserGet, 
   useUpdateUserAuthUserIdPut 
@@ -25,8 +27,8 @@ type ProfileFormData = z.infer<typeof profileSchema>;
 
 export const ProfilePage = () => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { toast } = useToast(); // ✅ Хук для уведомлений
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Получаем данные текущего пользователя
   const { data: userData, isLoading: isLoadingUser } = useGetUserAuthUserGet();
@@ -51,13 +53,12 @@ export const ProfilePage = () => {
 
   const onSubmit = (data: ProfileFormData) => {
     if (!userData?.data?.id) {
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description: "Не удалось получить ID пользователя",
-      });
+      setErrorMessage("Не удалось получить ID пользователя");
       return;
     }
+
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
     // Готовим данные для отправки (убираем пустой пароль)
     const updateData = {
@@ -73,16 +74,7 @@ export const ProfilePage = () => {
       },
       {
         onSuccess: () => {
-          // ✅ Красивое уведомление об успехе
-          toast({
-            title: "Профиль обновлен",
-            description: "Ваши изменения успешно сохранены",
-          });
-          
-          // Инвалидируем кэш
-          queryClient.invalidateQueries({ queryKey: ["getUserAuthUserGet"] });
-          
-          // Сбрасываем форму с новыми значениями
+          setSuccessMessage("Профиль успешно обновлен");
           reset({
             name: data.name,
             email: data.email,
@@ -90,21 +82,17 @@ export const ProfilePage = () => {
           });
         },
         onError: (error: unknown) => {
-          // ✅ Красивое уведомление об ошибке
-          let message = "Ошибка обновления профиля";
-          
-          if (error && typeof error === 'object' && 'response' in error) {
+        // Безопасное извлечение сообщения об ошибке
+        let message = "Ошибка обновления профиля";
+        
+        if (error && typeof error === 'object' && 'response' in error) {
             const response = (error as { response?: { data?: { detail?: string } } }).response;
             if (response?.data?.detail) {
-              message = response.data.detail;
+            message = response.data.detail;
             }
-          }
-          
-          toast({
-            variant: "destructive",
-            title: "Ошибка",
-            description: message,
-          });
+        }
+        
+        setErrorMessage(message);
         },
       }
     );
@@ -121,11 +109,10 @@ export const ProfilePage = () => {
   if (!userData?.data) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-destructive">Не удалось загрузить данные профиля</p>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>Не удалось загрузить данные профиля</AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -141,6 +128,20 @@ export const ProfilePage = () => {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {/* Уведомления */}
+            {successMessage && (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>{successMessage}</AlertDescription>
+              </Alert>
+            )}
+            {errorMessage && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            )}
+
             {/* Имя */}
             <div className="space-y-2">
               <Label htmlFor="name">Имя</Label>

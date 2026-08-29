@@ -21,10 +21,10 @@ export const AppLayout = () => {
   // data содержит ответ от сервера (имя, email и т.д.)
   const { data: user, isError, isLoading } = useGetUserAuthUserGet();
 
-// ✅ ВРЕМЕННЫЙ ЛОГ ДЛЯ ДИАГНОСТИКИ
-console.log("=== ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ===", user);
-console.log("Тип данных:", typeof user);
-console.log("Ключи:", user ? Object.keys(user) : "нет данных");
+  // ✅ ВРЕМЕННЫЙ ЛОГ ДЛЯ ДИАГНОСТИКИ
+  console.log("=== ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ===", user);
+  console.log("Тип данных:", typeof user);
+  console.log("Ключи:", user ? Object.keys(user) : "нет данных");
 
   const logoutMutation = useLogoutAuthLogoutPost();
 
@@ -41,12 +41,12 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
       {
         onSuccess: () => {
           console.log("Успешный выход");
-          navigate("/auth/login");
+          navigate("/");
         },
         onError: (error) => {
           console.error("Ошибка выхода:", error);
           // Даже при ошибке редиректим на логин
-          navigate("/auth/login");
+          navigate("/");
         },
       },
     );
@@ -56,7 +56,9 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-muted-foreground animate-pulse">Проверка авторизации...</div>
+        <div className="text-muted-foreground animate-pulse">
+          Проверка авторизации...
+        </div>
       </div>
     );
   }
@@ -67,7 +69,7 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
       <header className="border-b bg-card shadow-sm">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link to="/" className="text-xl font-bold text-primary">
+            <Link to="/dashboard" className="text-xl font-bold text-primary">
               Cool ERP
             </Link>
             <nav className="hidden md:flex items-center gap-4">
@@ -77,7 +79,27 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
               >
                 Главная
               </Link>
-              {/* Сюда позже добавим пункты меню */}
+              {/* Сюда добавляем пункты меню */}
+
+              {/* Ссылка на админ-панель (видна только админам) */}
+              {(user?.data?.is_admin || user?.data?.is_superadmin) && (
+                <Link
+                  to="/admin"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Админ-панель
+                </Link>
+              )}
+
+              {/* Ссылка на супер-админ панель (видна только супер-админам) */}
+              {user?.data?.is_superadmin && (
+                <Link
+                  to="/superadmin"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Супер-админ
+                </Link>
+              )}
             </nav>
           </div>
 
@@ -85,7 +107,10 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
           <div className="flex items-center gap-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-auto px-3 justify-start gap-2">
+                <Button
+                  variant="ghost"
+                  className="relative h-10 w-auto px-3 justify-start gap-2"
+                >
                   <UserCircle className="h-5 w-5" />
                   {/* ✅ ПОКАЗЫВАЕМ ИМЯ ПОЛЬЗОВАТЕЛЯ, если оно есть */}
                   <span className="hidden md:inline-block font-medium">
@@ -112,7 +137,7 @@ console.log("Ключи:", user ? Object.keys(user) : "нет данных");
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   onClick={handleLogout}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
