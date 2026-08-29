@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import async_session
 from app.core.auth.models import UserModel
-from app.core.auth.user_router import router as user_router
+# from app.core.auth.user_router import router as user_router
 from app.core.auth.auth_router import router as auth_router
 
 
@@ -15,7 +15,7 @@ from app.core.auth.auth_router import router as auth_router
 sessions_storage: dict[str, Any] = {}
 
 # ==========================================
-# 4. СОВРЕМЕННЫЙ LIFESPAN (Жизненный цикл)
+#  LIFESPAN (Жизненный цикл)
 # ==========================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,7 +46,11 @@ async def lifespan(app: FastAPI):
     # Код выполняется строго ПРИ ОСТАНОВКЕ сервера
     print("🛑 Сервер останавливается. Очистка ресурсов...")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    # openapi_version="3.0.3",
+)
+# print("!!! УСПЕХ: FastAPI инициализирован с openapi_version=3.0.3 !!!")
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,102 +63,6 @@ app.add_middleware(
     allow_headers=["*"],  # Разрешаем все заголовки (включая Content-Type)
 )
 
-app.include_router(user_router)
+# app.include_router(user_router)
 app.include_router(auth_router)
 
-
-# ==========================================
-# 7. МАРШРУТЫ ПРИЛОЖЕНИЯ (ENDPOINTS)
-# ==========================================
-
-# @app.post("/register", status_code=status.HTTP_201_CREATED)
-# async def register(user: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
-#     result = await db.execute(select(UserModel).where(UserModel.email == user.email))
-#     if result.scalar_one_or_none():
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Пользователь с таким email уже существует"
-#         )
-    
-#     salt = bcrypt.gensalt()
-#     hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), salt)
-    
-#     new_user = UserModel(
-#         name=user.name,
-#         email=user.email,
-#         password=hashed_password.decode('utf-8'),
-#         tenant_id=user.tenant_id,
-#         is_admin=False,
-#         is_superadmin=False,
-#         role_ids=[]
-#     )
-#     db.add(new_user)
-#     try:
-#         await db.commit()
-#     except Exception:
-#         await db.rollback()
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Ошибка создания. Убедитесь, что tenant_id существует в вашей БД."
-#         )
-    
-#     return {"message": f"Пользователь {user.name} успешно зарегистрирован"}
-
-
-# @app.post("/login")
-# async def login(user: UserLoginSchema, response: Response, db: AsyncSession = Depends(get_db)):
-#     result = await db.execute(select(UserModel).where(UserModel.email == user.email))
-#     db_user = result.scalar_one_or_none()
-    
-#     if not db_user:
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail=f"Неверный email или пароль"
-#         )
-    
-#     stored_hash_bytes = db_user.password.encode('utf-8')
-#     if not bcrypt.checkpw(user.password.encode('utf-8'), stored_hash_bytes):
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail=f"Неверный email или пароль! email:{user.email}"
-#         )
-    
-#     session_token = str(uuid.uuid4())
-#     sessions_storage[session_token] = {
-#         "user_id": str(db_user.id),
-#         "name": db_user.name,
-#         "email": db_user.email,
-#         "tenant_id": str(db_user.tenant_id),
-#         "is_admin": db_user.is_admin,
-#         "is_superadmin": db_user.is_superadmin,
-#         "role_ids": db_user.role_ids
-#     }
-    
-#     response.set_cookie(
-#         key="session_token",
-#         value=session_token,
-#         httponly=True,
-#         samesite="lax"
-#     )
-#     return {"message": "Успешная авторизация"}
-
-
-# @app.get("/user")
-# # Используем нашу зависимость: код чистый, дублирования проверок больше нет
-# async def get_user(current_user: dict = Depends(get_current_session)):
-#     return {"status": "Доступ разрешен", "user": current_user}
-
-
-# @app.get("/admin/dashboard")
-# # Пример защищенного маршрута только для админов
-# async def get_admin_dashboard(current_admin: dict = Depends(require_admin)):
-#     return {"message": f"Добро пожаловать в админ-панель, {current_admin['name']}!"}
-
-
-# @app.post("/logout")
-# async def logout(response: Response, session_token: str | None = Cookie(default=None)):
-#     if session_token and session_token in sessions_storage:
-#         del sessions_storage[session_token]
-        
-#     response.delete_cookie(key="session_token", httponly=True, samesite="lax")
-#     return {"message": "Вы успешно вышли из системы"}

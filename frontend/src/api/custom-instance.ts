@@ -6,6 +6,7 @@ export const AXIOS_INSTANCE = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // <-- ОБЯЗАТЕЛЬНО для HttpOnly куки!
 });
 
 // Функция-обертка, которую ожидает Orval для интеграции с React Query.

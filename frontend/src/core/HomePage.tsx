@@ -1,26 +1,26 @@
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const HomePage = () => {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold">Добро пожаловать!</h1>
+        <p className="text-muted-foreground mt-2">
+          Это главная страница вашего приложения
+        </p>
+      </div>
+      
+      <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Добро пожаловать!</CardTitle>
+          <CardTitle>Начало работы</CardTitle>
           <CardDescription>
-            Это главная страница вашего приложения
+            Здесь может быть дашборд, список задач или любое другое содержимое
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground">
-            Здесь может быть список пользователей, дашборд или любое другое содержимое.
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Используйте меню в верхней части страницы для навигации.
           </p>
-          <Link to="/auth/register">
-            <Button className="w-full">
-              Перейти к регистрации
-            </Button>
-          </Link>
         </CardContent>
       </Card>
     </div>

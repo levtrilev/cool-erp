@@ -86,3 +86,11 @@
 
 * **Email:** levtrishankov@yandex.ru
 * **Telegram:** [@coolerp_community](https://t.me/coolerp) (under construction)
+
+## Кратко резюмируем, что у нас работает (27.08.2026):
+✅ FastAPI отдает OpenAPI-схему и корректно обрабатывает CORS.
+✅ Orval автоматически генерирует строгие TypeScript-типы, Zod-схемы валидации и React Query хуки.
+✅ React Hook Form + Zod перехватывают и валидируют ввод на клиенте до отправки.
+✅ TanStack Query управляет состоянием запроса (loading, error, success).
+✅ React Router управляет навигацией и редиректом после успеха.
+✅ shadcn/ui + Tailwind обеспечивают красивый и доступный интерфейс

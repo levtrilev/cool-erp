@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AxiosError } from "axios";
 
 // Импортируем КОНСТАНТУ Zod-схемы (проверьте точное имя файла в папке zod!)
 import { registerAuthRegisterPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
@@ -22,6 +23,15 @@ import { useRegisterAuthRegisterPost } from "@/api/generated/authentication/auth
 
 // Выводим тип TypeScript напрямую из Zod-схемы
 type UserRegisterFormValues = z.infer<typeof registerAuthRegisterPostBody>;
+
+// Тип для ошибки от FastAPI
+interface FastAPIValidationError {
+  detail: Array<{
+    loc: string[];
+    msg: string;
+    type: string;
+  }>;
+}
 
 export const UserRegisterForm = () => {
   const navigate = useNavigate(); // Хук для редиректа
@@ -38,18 +48,69 @@ export const UserRegisterForm = () => {
 
   const registerMutation = useRegisterAuthRegisterPost();
 
+  // const onSubmit = (data: UserRegisterFormValues) => {
+  //   registerMutation.mutate(
+  //     { data },
+  //     {
+  //       onSuccess: () => {
+  //         console.log("Успешная регистрация!", data);
+  //         form.reset();
+  //         // Редирект на главную страницу после успешной регистрации
+  //         navigate("/");
+  //       },
+  //       onError: (error) => {
+  //         console.error("Ошибка регистрации:", error);
+  //       },
+  //     }
+  //   );
+  // };
+
   const onSubmit = (data: UserRegisterFormValues) => {
     registerMutation.mutate(
       { data },
       {
         onSuccess: () => {
-          console.log("Успешная регистрация!", data);
+          console.log("Успешная регистрация!");
           form.reset();
-          // Редирект на главную страницу после успешной регистрации
           navigate("/");
         },
         onError: (error) => {
-          console.error("Ошибка регистрации:", error);
+          // Проверяем, что это ошибка от axios со статусом 422
+          if (error instanceof AxiosError && error.response?.status === 422) {
+            const errorData = error.response.data as FastAPIValidationError;
+            
+            // Список всех возможных полей нашей формы для строгой типизации
+            const validFieldNames: (keyof UserRegisterFormValues)[] = [
+              "name",
+              "email",
+              "password",
+              "tenant_id",
+            ];
+            
+            // Проходим по всем ошибкам от бэкенда
+            errorData.detail?.forEach((err) => {
+              // err.loc обычно выглядит как ["body", "имя_поля"]
+              // Нас интересуют только ошибки тела запроса (body)
+              if (err.loc[0] === "body") {
+                const fieldName = err.loc[1] as keyof UserRegisterFormValues;
+                
+                // Проверяем, что это поле действительно существует в нашей форме
+                if (validFieldNames.includes(fieldName)) {
+                  form.setError(fieldName, {
+                    type: "server",
+                    message: err.msg,
+                  });
+                }
+              }
+            });
+          } else {
+            // Для других ошибок (500, сеть и т.д.) показываем общее сообщение
+            console.error("Ошибка регистрации:", error);
+            form.setError("root", {
+              type: "server",
+              message: "Произошла ошибка при регистрации. Попробуйте позже.",
+            });
+          }
         },
       }
     );

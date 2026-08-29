@@ -1,33 +1,52 @@
-# app/core/auth/router.py
-from typing import Any
-
-from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+from typing import Optional
+from datetime import datetime, timedelta, timezone
 import uuid
-from app.core.auth.schemas import UserLoginSchema, UserRegisterSchema, UserUpdateSchema, UserResponseSchema
-from app.core.auth.crud import crud_user, sessions_storage
-from app.core.auth.dependencies import get_current_session, require_admin
 
-# Создаем роутер для авторизации. Префикс /auth объединит все эндпоинты входа/регистрации
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+
+from app.core.database import get_db
+from app.core.auth.schemas import (
+    UserLoginSchema,
+    UserRegisterSchema,
+    UserUpdateSchema,
+    UserResponseSchema,
+)
+from app.core.auth.crud import crud_user
+# from app.core.auth.dependencies import require_admin
+from app.core.auth.security import get_current_session
+from app.core.auth.models import UserModel as User, UserSession
+from app.core.schemas import ApiResponse, PaginatedResponse
+
+# Создаем роутер для авторизации
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+SESSION_LIFETIME_DAYS = 7
 
+
+# ==========================================
+# РЕГИСТРАЦИЯ
+# ==========================================
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
-    # 1. Бизнес-проверка через CRUD-сервис
+    """Регистрация нового пользователя"""
     existing_user = await crud_user.get_by_email(db, email=user_in.email)
     if existing_user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Пользователь с таким email уже существует",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=[
+                {
+                    "loc": ["body", "email"],
+                    "msg": "Пользователь с таким email уже существует",
+                    "type": "value_error",
+                }
+            ],
         )
 
-    # 2. Выполнение регистрации
     try:
         new_user = await crud_user.register_new_user(db, user_in=user_in)
     except Exception:
-        # Перехватываем ошибку внешнего ключа tenant_id
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
@@ -36,100 +55,174 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
     return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
 
 
+# ==========================================
+# АУТЕНТИФИКАЦИЯ
+# ==========================================
+@router.post("/login", status_code=status.HTTP_200_OK)
+async def login(
+    request: Request,
+    user_in: UserLoginSchema,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Авторизация пользователя с созданием сессии в БД"""
+    db_user = await crud_user.get_by_email(db, email=user_in.email)
+
+    if not db_user or not crud_user.authenticate(db_user, user_in.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный email или пароль",
+        )
+
+    session_token = uuid.uuid4().hex
+    expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_LIFETIME_DAYS)
+
+    new_session = UserSession(
+        session_token=session_token,
+        user_id=db_user.id,
+        expires_at=expires_at,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "")[:512],
+    )
+    db.add(new_session)
+    await db.commit()
+
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=SESSION_LIFETIME_DAYS * 24 * 60 * 60,
+        path="/",
+    )
+
+    return {"message": "Успешная авторизация"}
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Выход из системы: удаляет сессию из БД и очищает куку"""
+    session_token = request.cookies.get("session_token")
+
+    if session_token:
+        await db.execute(
+            delete(UserSession).where(UserSession.session_token == session_token)  # type: ignore
+        )
+        await db.commit()
+
+    response.delete_cookie(
+        key="session_token",
+        path="/",
+        samesite="lax",
+    )
+
+    return {"message": "Успешный выход"}
+
+
+# ==========================================
+# ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
+# ==========================================
+# @router.get("/user", response_model=UserResponseSchema)
+# async def get_user(current_user: User = Depends(get_current_session)):
+#     """Получение профиля текущего пользователя"""
+#     # ✅ Явная конвертация ORM → Pydantic (критично для Orval!)
+#     return UserResponseSchema.model_validate(current_user)
+@router.get("/user", response_model=ApiResponse[UserResponseSchema])
+async def get_user(current_user: User = Depends(get_current_session)):
+    """Получение профиля текущего пользователя во вложенной обертке"""
+    
+    # 1. Конвертируем ORM в Pydantic
+    user_data = UserResponseSchema.model_validate(current_user)
+    
+    # 2. Явно создаем экземпляр обертки (Orval это обожает)
+    return ApiResponse[UserResponseSchema](
+        success=True,
+        message="Пользователь успешно получен",
+        data=user_data
+    )
+
+# ==========================================
+# CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
+# ==========================================
+# @router.get("/", response_model=PaginatedUserResponse)
+# async def read_users(
+#     skip: int = 0,
+#     limit: int = 100,
+#     search: Optional[str] = None,
+#     db: AsyncSession = Depends(get_db),
+# ):
+#     """Получение списка пользователей с пагинацией"""
+#     items, total = await crud_user.get_multi_paginated(
+#         db, skip=skip, limit=limit, search=search
+#     )
+#     # ✅ Явная конвертация списка ORM → список Pydantic
+#     return PaginatedUserResponse(
+#         items=[UserResponseSchema.model_validate(item) for item in items],
+#         total=total
+#     )
+@router.get("/", response_model=PaginatedResponse[UserResponseSchema])
+async def read_users(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Получение списка пользователей с пагинацией"""
+    items, total = await crud_user.get_multi_paginated(
+        db, skip=skip, limit=limit, search=search
+    )
+    
+    # Явно создаем экземпляр дженерика
+    return PaginatedResponse[UserResponseSchema](
+        items=[UserResponseSchema.model_validate(item) for item in items],
+        total=total,
+        page=(skip // limit) + 1,
+        size=limit
+    )
+
+@router.get("/{user_id}", response_model=UserResponseSchema)
+async def read_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Получение одного пользователя по UUID"""
+    db_user = await crud_user.get(db, id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    # ✅ Явная конвертация ORM → Pydantic
+    return UserResponseSchema.model_validate(db_user)
+
+
 @router.put("/{user_id}", response_model=UserResponseSchema)
 async def update_user(
     user_id: uuid.UUID,
     user_changes: UserUpdateSchema,
     db: AsyncSession = Depends(get_db),
 ):
-    # 1. Проверяем, существует ли пользователь в базе данных
+    """Обновление пользователя"""
     db_user = await crud_user.get(db, id=user_id)
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # 2. Выполнение обновления
+
     try:
-        updated_user = await crud_user.update_user(db, db_user=db_user, user_changes=user_changes)
+        updated_user = await crud_user.update_user(
+            db, db_user=db_user, user_changes=user_changes
+        )
     except Exception:
-        # Перехватываем ошибку внешнего ключа tenant_id
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ошибка обновления. Возможно ошибка БД.",
         )
 
-    return updated_user
-    
+    # ✅ Явная конвертация ORM → Pydantic
+    return UserResponseSchema.model_validate(updated_user)
 
-    # # 1. Проверяем, существует ли пользователь в базе данных
-    # db_user = await crud_user.get(db, id=user_id)
-    # if db_user is None:
-    #     raise HTTPException(status_code=404, detail="User not found")
-
-    # # 2. Передаем объект из БД и схему обновлений в базовый CRUD.
-    # # Он автоматически обновит измененные поля и сделает безопасный commit/rollback.
-    # updated_user = await crud_user.update(db, db_obj=db_user, obj_in=user_in)
-    # return updated_user
-
-
-@router.post("/login")
-async def login(
-    user_in: UserLoginSchema, response: Response, db: AsyncSession = Depends(get_db)
-):
-    # 1. Поиск пользователя через слой CRUD
-    db_user = await crud_user.get_by_email(db, email=user_in.email)
-
-    # 2. Проверка подлинности
-    if not db_user or not crud_user.authenticate(db_user, user_in.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный email или пароль"
-        )
-
-    # 3. Генерация токена сессии
-    session_token = str(uuid.uuid4())
-    sessions_storage[session_token] = {
-        "user_id": str(db_user.id),
-        "name": db_user.name,
-        "email": db_user.email,
-        "tenant_id": str(db_user.tenant_id),
-        "is_admin": db_user.is_admin,
-        "is_superadmin": db_user.is_superadmin,
-        "role_ids": db_user.role_ids,
-    }
-
-    # 4. Установка httpOnly куки
-    response.set_cookie(
-        key="session_token", value=session_token, httponly=True, samesite="lax"
-    )
-    return {"message": "Успешная авторизация"}
-
-
-@router.get("/user")
-async def get_user(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, Any]: 
-    """Получение профиля текущего пользователя"""
-    return {"status": "Доступ разрешен", "user": current_user}
-
-
-@router.get("/admin/dashboard")
-async def get_admin_dashboard(current_admin: dict[str, dict[str, Any]] = Depends(require_admin)):
-    """Защищенный маршрут только для администраторов"""
-    return {"message": f"Добро пожаловать в админ-панель, {current_admin['name']}!"}
-
-
-@router.post("/logout")
-async def logout(response: Response, session_token: str | None = Cookie(default=None)):
-    """Выход из системы с очисткой сессии"""
-    if session_token and session_token in sessions_storage:
-        del sessions_storage[session_token]
-
-    response.delete_cookie(key="session_token", httponly=True, samesite="lax")
-    return {"message": "Вы успешно вышли из системы"}
 
 @router.delete("/{user_id}", status_code=status.HTTP_200_OK)
 async def delete_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Удаление пользователя из базы данных.
-    """
-    # метод crud_user.remove сам проверит существование,
-    # удалит запись, выполнит коммит и вернет удаленный объект (или None)
+    """Удаление пользователя из базы данных"""
     deleted_user = await crud_user.remove(db, id=user_id)
 
     if deleted_user is None:
