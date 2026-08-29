@@ -23,36 +23,50 @@ export const PublicHomePage = () => {
   const [registerOpen, setRegisterOpen] = useState(false);
 
   // Проверяем, залогинен ли пользователь
-  const { data: userData, isLoading } = useGetUserAuthUserGet();
+  const { data: userData, isError } = useGetUserAuthUserGet();
   const logoutMutation = useLogoutAuthLogoutPost();
 
+  //   const handleLogout = () => {
+  //     logoutMutation.mutate(undefined, {
+  //       onSuccess: async () => {
+  //         await queryClient.invalidateQueries({
+  //           queryKey: ["getUserAuthUserGet"],
+  //         });
+  //         navigate("/", { replace: true });
+  //       },
+  //       onError: async () => {
+  //         await queryClient.invalidateQueries({
+  //           queryKey: ["getUserAuthUserGet"],
+  //         });
+  //         navigate("/", { replace: true });
+  //       },
+  //     });
+  //   };
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: ["getUserAuthUserGet"],
-        });
+        // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+        queryClient.clear();
+
+        // Небольшая задержка, чтобы кэш гарантированно очистился
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
         navigate("/", { replace: true });
       },
       onError: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: ["getUserAuthUserGet"],
-        });
+        // Даже если бэкенд упал, очищаем кэш
+        queryClient.clear();
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
         navigate("/", { replace: true });
       },
     });
   };
 
-  // Показываем загрузку, пока проверяем авторизацию
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-muted-foreground animate-pulse">Загрузка...</div>
-      </div>
-    );
-  }
-
-  const isLoggedIn = !!userData?.data;
+  // ✅ По умолчанию считаем, что пользователь не залогинен.
+  // Когда запрос завершится, React автоматически перерисует компонент с актуальными данными.
+  const isLoggedIn = !!userData?.data && !isError;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted">
@@ -115,7 +129,9 @@ export const PublicHomePage = () => {
                 <Button variant="ghost" onClick={() => setLoginOpen(true)}>
                   Войти
                 </Button>
-                <Button onClick={() => setRegisterOpen(true)}>Регистрация</Button>
+                <Button onClick={() => setRegisterOpen(true)}>
+                  Регистрация
+                </Button>
               </>
             )}
           </div>
@@ -141,7 +157,11 @@ export const PublicHomePage = () => {
                 <Button size="lg" onClick={() => setRegisterOpen(true)}>
                   Начать бесплатно
                 </Button>
-                <Button size="lg" variant="outline" onClick={() => setLoginOpen(true)}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setLoginOpen(true)}
+                >
                   У меня есть аккаунт
                 </Button>
               </>

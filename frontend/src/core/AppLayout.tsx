@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UserCircle, LogOut } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { useLogoutAuthLogoutPost } from "@/api/generated/authentication/authentication";
@@ -16,15 +17,15 @@ import { useEffect } from "react";
 
 export const AppLayout = () => {
   const navigate = useNavigate();
-
+  const queryClient = useQueryClient();
   // Запрашиваем данные пользователя.
   // data содержит ответ от сервера (имя, email и т.д.)
   const { data: user, isError, isLoading } = useGetUserAuthUserGet();
 
   // ✅ ВРЕМЕННЫЙ ЛОГ ДЛЯ ДИАГНОСТИКИ
-  console.log("=== ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ===", user);
-  console.log("Тип данных:", typeof user);
-  console.log("Ключи:", user ? Object.keys(user) : "нет данных");
+  // console.log("=== ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ===", user);
+  // console.log("Тип данных:", typeof user);
+  // console.log("Ключи:", user ? Object.keys(user) : "нет данных");
 
   const logoutMutation = useLogoutAuthLogoutPost();
 
@@ -35,23 +36,43 @@ export const AppLayout = () => {
     }
   }, [isError, navigate]);
 
+  // const handleLogout = () => {
+  //   logoutMutation.mutate(
+  //     undefined, // Пустой объект, так как у logout нет body
+  //     {
+  //       onSuccess: () => {
+  //         console.log("Успешный выход");
+  //         navigate("/");
+  //       },
+  //       onError: (error) => {
+  //         console.error("Ошибка выхода:", error);
+  //         // Даже при ошибке редиректим на логин
+  //         navigate("/");
+  //       },
+  //     },
+  //   );
+  // };
   const handleLogout = () => {
-    logoutMutation.mutate(
-      undefined, // Пустой объект, так как у logout нет body
-      {
-        onSuccess: () => {
-          console.log("Успешный выход");
-          navigate("/");
-        },
-        onError: (error) => {
-          console.error("Ошибка выхода:", error);
-          // Даже при ошибке редиректим на логин
-          navigate("/");
-        },
-      },
-    );
-  };
+    logoutMutation.mutate(undefined, {
+      onSuccess: async () => {
+        // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+        queryClient.clear();
 
+        // Небольшая задержка, чтобы кэш гарантированно очистился
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        navigate("/", { replace: true });
+      },
+      onError: async () => {
+        // Даже если бэкенд упал, очищаем кэш
+        queryClient.clear();
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        navigate("/", { replace: true });
+      },
+    });
+  };
   // Показываем загрузку, пока проверяем сессию
   if (isLoading) {
     return (
