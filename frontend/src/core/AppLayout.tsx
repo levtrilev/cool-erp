@@ -36,22 +36,6 @@ export const AppLayout = () => {
     }
   }, [isError, navigate]);
 
-  // const handleLogout = () => {
-  //   logoutMutation.mutate(
-  //     undefined, // Пустой объект, так как у logout нет body
-  //     {
-  //       onSuccess: () => {
-  //         console.log("Успешный выход");
-  //         navigate("/");
-  //       },
-  //       onError: (error) => {
-  //         console.error("Ошибка выхода:", error);
-  //         // Даже при ошибке редиректим на логин
-  //         navigate("/");
-  //       },
-  //     },
-  //   );
-  // };
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: async () => {
@@ -88,14 +72,14 @@ export const AppLayout = () => {
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
       <header className="border-b bg-card shadow-sm">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="container mx-auto px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link to="/dashboard" className="text-xl font-bold text-primary">
+            <Link to="/" className="text-l font-bold text-primary">
               Cool ERP
             </Link>
             <nav className="hidden md:flex items-center gap-4">
               <Link
-                to="/"
+                to="/dashboard"
                 className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 Главная
@@ -172,16 +156,16 @@ export const AppLayout = () => {
       </header>
 
       {/* Main content */}
-      <main className="flex-1 container mx-auto px-4 py-8">
+      <main className="flex-1 container mx-auto px-4 mt-2 py-1">
         <Outlet /> {/* Здесь будет рендериться содержимое дочерних роутов */}
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-card py-4">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          © 2026 Cool ERP. Все права защищены.
-        </div>
-      </footer>
+<footer className="border-t bg-background py-3 mt-auto">
+  <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
+    © 2026 Cool ERP. Все права защищены.
+  </div>
+</footer>
     </div>
   );
 };

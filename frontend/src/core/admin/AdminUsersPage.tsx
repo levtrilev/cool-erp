@@ -29,7 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Trash2, Search, Loader2, Shield, User, Edit } from "lucide-react";
+import { Trash2, Search, Loader2, Shield, User } from "lucide-react";
 import {
   useReadUsersAuthGet,
   useDeleteUserAuthUserIdDelete,
@@ -39,7 +39,9 @@ import { EditUserModal } from "@/core/admin/EditUserModal";
 import { z } from "zod";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
 
-type UserResponseSchema = z.infer<typeof readUsersAuthGetResponse>["items"][number];
+type UserResponseSchema = z.infer<
+  typeof readUsersAuthGetResponse
+>["items"][number];
 
 export const AdminUsersPage = () => {
   const { toast } = useToast();
@@ -48,12 +50,14 @@ export const AdminUsersPage = () => {
   const [limit] = useState(10);
   const [search, setSearch] = useState("");
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
-  
+
   const [editUser, setEditUser] = useState<UserResponseSchema | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  
+
   // ✅ Единственное состояние для подсветки
-  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(null);
+  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(
+    null,
+  );
 
   const skip = (page - 1) * limit;
 
@@ -76,69 +80,6 @@ export const AdminUsersPage = () => {
   }, [highlightedUserId]);
 
   // ✅ Основная логика: обработка после обновления
-//   const handleUserUpdated = async (userId: string, userName: string) => {
-//     // 1. Перезапрашиваем данные — refetch возвращает свежие данные!
-//     const result = await refetch();
-//     const updatedItems = result.data?.items || [];
-
-//     // 2. Проверяем, есть ли пользователь на текущей странице
-//     const userExists = updatedItems.some((u) => u.id === userId);
-
-//     if (userExists) {
-//       // ✅ Пользователь на текущей странице — подсвечиваем
-//       setHighlightedUserId(userId);
-//       return;
-//     }
-
-//     // 3. Пользователь переместился на другую страницу — ищем его
-//     try {
-//       const searchResult = await fetch(
-//         `/auth/?search=${encodeURIComponent(userName)}&limit=1000&skip=0`
-//       );
-//       const searchData = await searchResult.json();
-
-//       if (searchData.items) {
-//         const userIndex = searchData.items.findIndex(
-//           (u: UserResponseSchema) => u.id === userId
-//         );
-
-//         if (userIndex !== -1) {
-//           const targetPage = Math.floor(userIndex / limit) + 1;
-
-//           // ✅ Показываем Toast с кнопкой перехода
-//           toast({
-//             title: "Пользователь обновлен",
-//             description: `Запись "${userName}" переместилась на страницу ${targetPage}`,
-//             action: (
-//               <Button
-//                 variant="outline"
-//                 size="sm"
-//                 onClick={() => {
-//                   setPage(targetPage);
-//                   // После перехода на страницу, подсветим пользователя
-//                   setTimeout(() => {
-//                     setHighlightedUserId(userId);
-//                   }, 500);
-//                 }}
-//               >
-//                 Перейти
-//               </Button>
-//             ),
-//           });
-//           return;
-//         }
-//       }
-
-//       // Если не нашли — простое уведомление
-//       toast({
-//         title: "Пользователь обновлен",
-//         description: "Запись переместилась на другую страницу",
-//       });
-//     } catch (error) {
-//       console.error("Ошибка поиска пользователя:", error);
-//     }
-//   };
-  // ✅ Основная логика: обработка после обновления
   const handleUserUpdated = async (userId: string, userName: string) => {
     // 1. Перезапрашиваем данные текущей страницы
     const result = await refetch();
@@ -154,23 +95,68 @@ export const AdminUsersPage = () => {
     }
 
     // 3. Пользователь переместился на другую страницу — ищем его через Orval-функцию
+    // try {
+    //   const searchData = await readUsersAuthGet({
+    //     search: userName, // Ищем по новому имени
+    //     limit: 1000, // Берем с запасом, чтобы найти позицию
+    //     skip: 0,
+    //   });
+
+    //   if (searchData?.items) {
+    //     const userIndex = searchData.items.findIndex(
+    //       (u: UserResponseSchema) => u.id === userId,
+    //     );
+
+    //     if (userIndex !== -1) {
+    //       // Вычисляем номер страницы (индекс / лимит + 1)
+    //       const targetPage = Math.floor(userIndex / limit) + 1;
+
+    //       // ✅ Показываем Toast с кнопкой перехода
+    //       toast({
+    //         title: "Пользователь обновлен",
+    //         description: `Запись "${userName}" переместилась на страницу ${targetPage}`,
+    //         action: (
+    //           <Button
+    //             variant="outline"
+    //             size="sm"
+    //             onClick={() => {
+    //               setPage(targetPage);
+    //               // После смены страницы подсветим пользователя
+    //               setTimeout(() => {
+    //                 setHighlightedUserId(userId);
+    //               }, 500);
+    //             }}
+    //           >
+    //             Перейти
+    //           </Button>
+    //         ),
+    //       });
+    //       return;
+    //     }
+    //   }
+
+    //   // Если вдруг не нашли (например, изменили имя на то, что не попадает в поиск)
+    //   toast({
+    //     title: "Пользователь обновлен",
+    //     description: "Запись переместилась на другую страницу",
+    //   });
+    // }
+    // 3. Пользователь переместился на другую страницу — ищем его по ID
     try {
-      const searchData = await readUsersAuthGet({
-        search: userName, // Ищем по новому имени
-        limit: 1000,      // Берем с запасом, чтобы найти позицию
+      // ✅ Запрашиваем все записи без фильтрации, чтобы найти точную позицию
+      const allUsersData = await readUsersAuthGet({
+        limit: 1000, // Берем с запасом
         skip: 0,
       });
 
-      if (searchData?.items) {
-        const userIndex = searchData.items.findIndex(
-          (u: UserResponseSchema) => u.id === userId
+      if (allUsersData?.items) {
+        const userIndex = allUsersData.items.findIndex(
+          (u: UserResponseSchema) => u.id === userId,
         );
 
         if (userIndex !== -1) {
-          // Вычисляем номер страницы (индекс / лимит + 1)
           const targetPage = Math.floor(userIndex / limit) + 1;
 
-          // ✅ Показываем Toast с кнопкой перехода
           toast({
             title: "Пользователь обновлен",
             description: `Запись "${userName}" переместилась на страницу ${targetPage}`,
@@ -180,7 +166,6 @@ export const AdminUsersPage = () => {
                 size="sm"
                 onClick={() => {
                   setPage(targetPage);
-                  // После смены страницы подсветим пользователя
                   setTimeout(() => {
                     setHighlightedUserId(userId);
                   }, 500);
@@ -194,7 +179,6 @@ export const AdminUsersPage = () => {
         }
       }
 
-      // Если вдруг не нашли (например, изменили имя на то, что не попадает в поиск)
       toast({
         title: "Пользователь обновлен",
         description: "Запись переместилась на другую страницу",
@@ -207,6 +191,14 @@ export const AdminUsersPage = () => {
         description: "Не удалось определить новое местоположение записи",
       });
     }
+    // catch (error) {
+    //   console.error("Ошибка поиска пользователя:", error);
+    //   toast({
+    //     variant: "destructive",
+    //     title: "Ошибка",
+    //     description: "Не удалось определить новое местоположение записи",
+    //   });
+    // }
   };
 
   const handleDelete = async (userId: string) => {
@@ -228,7 +220,7 @@ export const AdminUsersPage = () => {
             description: "Не удалось удалить пользователя",
           });
         },
-      }
+      },
     );
   };
 
@@ -263,14 +255,16 @@ export const AdminUsersPage = () => {
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+    <div className="container mx-auto px-4 py-3">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <User className="h-8 w-8 text-primary" />
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <User className="h-6 w-6 text-primary" />
             Управление пользователями
           </h1>
-          <p className="text-muted-foreground mt-1">Всего пользователей: {total}</p>
+          <p className="text-muted-foreground mt-1">
+            Всего пользователей: {total}
+          </p>
         </div>
 
         <form onSubmit={handleSearch} className="flex gap-2 w-full md:w-auto">
@@ -291,16 +285,19 @@ export const AdminUsersPage = () => {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Имя</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Роль</TableHead>
-              <TableHead className="text-right">Действия</TableHead>
+              <TableHead className="h-10 py-2">Имя</TableHead>
+              <TableHead className="h-10 py-2">Email</TableHead>
+              <TableHead className="h-10 py-2">Роль</TableHead>
+              <TableHead className="h-10 py-2 text-right">Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                <TableCell
+                  colSpan={4}
+                  className="text-center text-muted-foreground py-8"
+                >
                   Пользователи не найдены
                 </TableCell>
               </TableRow>
@@ -314,34 +311,35 @@ export const AdminUsersPage = () => {
                       : ""
                   }
                 >
-                  <TableCell className="font-medium">{user.name}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>
+                  <TableCell className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(user)}
+                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left font-medium"
+                    >
+                      {user.name}
+                    </button>
+                  </TableCell>
+                  <TableCell className="py-1">{user.email}</TableCell>
+                  <TableCell className="py-1">
                     <div className="flex items-center gap-2">
                       {user.is_superadmin ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                           <Shield className="h-3 w-3 mr-1" /> Супер-админ
                         </span>
                       ) : user.is_admin ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          Админ
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                          <Shield className="h-3 w-3 mr-1" /> Админ
                         </span>
                       ) : (
-                        <span className="text-muted-foreground text-sm">Пользователь</span>
+                        <span className="text-muted-foreground text-sm">
+                          Пользователь
+                        </span>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="py-1 text-right">
                     <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(user)}
-                        className="hover:bg-primary/10"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-
                       <AlertDialog
                         open={deleteUserId === user.id}
                         onOpenChange={(open) => !open && setDeleteUserId(null)}
@@ -361,7 +359,8 @@ export const AdminUsersPage = () => {
                             <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
                             <AlertDialogDescription>
                               Это действие нельзя отменить. Пользователь{" "}
-                              <strong>{user.name}</strong> будет безвозвратно удален из системы.
+                              <strong>{user.name}</strong> будет безвозвратно
+                              удален из системы.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -371,7 +370,9 @@ export const AdminUsersPage = () => {
                               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                               disabled={deleteUserMutation.isPending}
                             >
-                              {deleteUserMutation.isPending ? "Удаление..." : "Удалить"}
+                              {deleteUserMutation.isPending
+                                ? "Удаление..."
+                                : "Удалить"}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
@@ -392,7 +393,11 @@ export const AdminUsersPage = () => {
               <PaginationItem>
                 <PaginationPrevious
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  className={
+                    page === 1
+                      ? "pointer-events-none opacity-50"
+                      : "cursor-pointer"
+                  }
                 />
               </PaginationItem>
 
@@ -419,7 +424,11 @@ export const AdminUsersPage = () => {
               <PaginationItem>
                 <PaginationNext
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className={page === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  className={
+                    page === totalPages
+                      ? "pointer-events-none opacity-50"
+                      : "cursor-pointer"
+                  }
                 />
               </PaginationItem>
             </PaginationContent>
