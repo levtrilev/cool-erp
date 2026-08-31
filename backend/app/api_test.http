@@ -69,3 +69,7 @@ Content-Type: application/json
 {
     "name": "kolya11@yandex.ru"
 }
+
+###
+
+GET http://localhost:8000/tenants

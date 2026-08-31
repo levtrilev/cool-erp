@@ -23,7 +23,12 @@ class UserModel(Base):
     password: Mapped[str] = mapped_column(nullable=False)
 
     is_admin: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
-    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("tenants.id"), 
+        nullable=False, 
+        index=True
+    )
     role_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=True
     )

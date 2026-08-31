@@ -52,7 +52,8 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
             detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
         )
 
-    return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
+    # return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
+    return new_user
 
 
 # ==========================================

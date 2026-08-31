@@ -29,7 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Trash2, Search, Loader2, Shield, User } from "lucide-react";
+import { Trash2, Search, Loader2, Shield, User, Plus } from "lucide-react";
 import {
   useReadUsersAuthGet,
   useDeleteUserAuthUserIdDelete,
@@ -38,6 +38,7 @@ import {
 import { EditUserModal } from "@/core/admin/EditUserModal";
 import { z } from "zod";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
+import { CreateUserModal } from "@/core/admin/CreateUserModal";
 
 type UserResponseSchema = z.infer<
   typeof readUsersAuthGetResponse
@@ -53,6 +54,7 @@ export const AdminUsersPage = () => {
 
   const [editUser, setEditUser] = useState<UserResponseSchema | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   // ✅ Единственное состояние для подсветки
   const [highlightedUserId, setHighlightedUserId] = useState<string | null>(
@@ -94,54 +96,6 @@ export const AdminUsersPage = () => {
       return;
     }
 
-    // 3. Пользователь переместился на другую страницу — ищем его через Orval-функцию
-    // try {
-    //   const searchData = await readUsersAuthGet({
-    //     search: userName, // Ищем по новому имени
-    //     limit: 1000, // Берем с запасом, чтобы найти позицию
-    //     skip: 0,
-    //   });
-
-    //   if (searchData?.items) {
-    //     const userIndex = searchData.items.findIndex(
-    //       (u: UserResponseSchema) => u.id === userId,
-    //     );
-
-    //     if (userIndex !== -1) {
-    //       // Вычисляем номер страницы (индекс / лимит + 1)
-    //       const targetPage = Math.floor(userIndex / limit) + 1;
-
-    //       // ✅ Показываем Toast с кнопкой перехода
-    //       toast({
-    //         title: "Пользователь обновлен",
-    //         description: `Запись "${userName}" переместилась на страницу ${targetPage}`,
-    //         action: (
-    //           <Button
-    //             variant="outline"
-    //             size="sm"
-    //             onClick={() => {
-    //               setPage(targetPage);
-    //               // После смены страницы подсветим пользователя
-    //               setTimeout(() => {
-    //                 setHighlightedUserId(userId);
-    //               }, 500);
-    //             }}
-    //           >
-    //             Перейти
-    //           </Button>
-    //         ),
-    //       });
-    //       return;
-    //     }
-    //   }
-
-    //   // Если вдруг не нашли (например, изменили имя на то, что не попадает в поиск)
-    //   toast({
-    //     title: "Пользователь обновлен",
-    //     description: "Запись переместилась на другую страницу",
-    //   });
-    // }
-    // 3. Пользователь переместился на другую страницу — ищем его по ID
     try {
       // ✅ Запрашиваем все записи без фильтрации, чтобы найти точную позицию
       const allUsersData = await readUsersAuthGet({
@@ -191,16 +145,87 @@ export const AdminUsersPage = () => {
         description: "Не удалось определить новое местоположение записи",
       });
     }
-    // catch (error) {
-    //   console.error("Ошибка поиска пользователя:", error);
-    //   toast({
-    //     variant: "destructive",
-    //     title: "Ошибка",
-    //     description: "Не удалось определить новое местоположение записи",
-    //   });
-    // }
   };
+  // ✅ Обработка создания нового пользователя с умной навигацией
+  const handleUserCreated = async (newId: string) => {
+    console.log("🔍 handleUserCreated вызван с ID:", newId);
+    
+    // ✅ Запрашиваем ВСЕ записи без пагинации, чтобы найти точную позицию
+    const allUsersData = await readUsersAuthGet({
+      limit: 1000, // Берем с запасом
+      skip: 0,
+    });
+    
+    console.log("🔍 Результат запроса всех пользователей:", allUsersData);
+    
+    if (!allUsersData?.items) {
+      console.log("❌ Нет items в allUsersData.data");
+      toast({
+        title: "Создано",
+        description: "Запись успешно добавлена в систему",
+      });
+      return;
+    }
 
+    const itemIndex = allUsersData.items.findIndex(
+      (u: UserResponseSchema) => u.id === newId
+    );
+
+    console.log("🔍 Найденный индекс в полном списке:", itemIndex);
+    console.log("🔍 Текущая страница:", page);
+    console.log("🔍 Лимит:", limit);
+
+    if (itemIndex === -1) {
+      console.log("❌ Пользователь не найден в полном списке");
+      toast({
+        title: "Создано",
+        description: "Запись успешно добавлена в систему",
+      });
+      return;
+    }
+
+    const targetPage = Math.floor(itemIndex / limit) + 1;
+    console.log("🔍 Целевая страница:", targetPage);
+
+    if (targetPage === page) {
+      console.log("✅ Пользователь на текущей странице, подсвечиваем");
+      setHighlightedUserId(newId);
+      
+      toast({
+        title: "Создано",
+        description: "Запись добавлена и выделена в списке",
+      });
+      
+      setTimeout(() => {
+        setHighlightedUserId(null);
+      }, 3000);
+      
+      return;
+    }
+
+    console.log("✅ Пользователь на другой странице, показываем toast с кнопкой");
+    toast({
+      title: "Создано",
+      description: `Запись переместилась на страницу ${targetPage}`,
+      action: (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setPage(targetPage);
+            setTimeout(() => {
+              setHighlightedUserId(newId);
+              setTimeout(() => {
+                setHighlightedUserId(null);
+              }, 3000);
+            }, 500);
+          }}
+        >
+          Перейти
+        </Button>
+      ),
+    });
+  };
   const handleDelete = async (userId: string) => {
     deleteUserMutation.mutate(
       { userId },
@@ -256,7 +281,7 @@ export const AdminUsersPage = () => {
 
   return (
     <div className="container mx-auto px-4 py-3">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+      {/* <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <User className="h-6 w-6 text-primary" />
@@ -279,8 +304,38 @@ export const AdminUsersPage = () => {
             Найти
           </Button>
         </form>
-      </div>
+      </div> */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-2">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <User className="h-5 w-5 text-primary" />
+            Управление пользователями
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">Всего: {total}</p>
+        </div>
 
+        <div className="flex gap-2 w-full md:w-auto">
+          <Button onClick={() => setCreateModalOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Создать
+          </Button>
+          <form
+            onSubmit={handleSearch}
+            className="flex gap-2 flex-1 md:flex-initial"
+          >
+            <Input
+              placeholder="Поиск по имени или email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full md:w-64"
+            />
+            <Button type="submit" variant="secondary">
+              <Search className="h-4 w-4 mr-2" />
+              Найти
+            </Button>
+          </form>
+        </div>
+      </div>
       <div className="rounded-md border bg-card">
         <Table>
           <TableHeader>
@@ -441,6 +496,11 @@ export const AdminUsersPage = () => {
         onOpenChange={setEditModalOpen}
         user={editUser}
         onUserUpdated={handleUserUpdated}
+      />
+      <CreateUserModal
+        open={createModalOpen}
+        onOpenChange={setCreateModalOpen}
+        onUserCreated={handleUserCreated}
       />
     </div>
   );

@@ -9,6 +9,7 @@ from app.core.database import async_session
 from app.core.auth.models import UserModel
 # from app.core.auth.user_router import router as user_router
 from app.core.auth.auth_router import router as auth_router
+from app.core.admin.tenant_router import router as tenant_router
 
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
@@ -65,4 +66,5 @@ app.add_middleware(
 
 # app.include_router(user_router)
 app.include_router(auth_router)
+app.include_router(tenant_router)
 
