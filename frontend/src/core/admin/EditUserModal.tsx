@@ -1,5 +1,4 @@
-import { useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -16,17 +15,27 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { useUpdateUserAuthUserIdPut } from "@/api/generated/authentication/authentication";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
+import { ReferenceSelect } from "@/core/ReferenceSelect";
+import { getTenantsTenantsGet } from "@/api/generated/tenants/tenants";
+import { useEffect } from "react";
 
 const editUserSchema = z.object({
   name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
   email: z.string().email("Некорректный email"),
-  password: z.string().min(8, "Пароль должен содержать минимум 8 символов").optional().or(z.literal("")),
+  password: z
+    .string()
+    .min(8, "Пароль должен содержать минимум 8 символов")
+    .optional()
+    .or(z.literal("")),
+  tenant_id: z.string().uuid("Выберите организацию"),
 });
 
 type EditUserFormData = z.infer<typeof editUserSchema>;
 
 // ✅ Извлекаем тип из Zod-схемы (гарантированно работает)
-type UserResponseSchema = z.infer<typeof readUsersAuthGetResponse>["items"][number];
+type UserResponseSchema = z.infer<
+  typeof readUsersAuthGetResponse
+>["items"][number];
 
 interface EditUserModalProps {
   open: boolean;
@@ -36,21 +45,28 @@ interface EditUserModalProps {
   onUserUpdated: (userId: string, userName: string) => Promise<void>;
 }
 
-export const EditUserModal = ({ open, onOpenChange, user, onUserUpdated }: EditUserModalProps) => {
+export const EditUserModal = ({
+  open,
+  onOpenChange,
+  user,
+  onUserUpdated,
+}: EditUserModalProps) => {
   const { toast } = useToast();
   const updateUserMutation = useUpdateUserAuthUserIdPut();
 
   const {
     register,
     handleSubmit,
+    control, // ✅ Добавляем control для Controller
     formState: { errors, isDirty },
     reset,
   } = useForm<EditUserFormData>({
     resolver: zodResolver(editUserSchema),
-    values: {
-      name: user?.name || "",
-      email: user?.email || "",
+    defaultValues: {
+      name: "",
+      email: "",
       password: "",
+      tenant_id: "",
     },
   });
 
@@ -60,17 +76,19 @@ export const EditUserModal = ({ open, onOpenChange, user, onUserUpdated }: EditU
         name: user.name,
         email: user.email,
         password: "",
+        tenant_id: user.tenant_id || "", // ✅ Controller автоматически подхватит это значение
       });
     }
   }, [open, user, reset]);
-
   const onSubmit = (data: EditUserFormData) => {
+    
     if (!user?.id) return;
 
     const updateData = {
       name: data.name,
       email: data.email,
       ...(data.password ? { password: data.password } : {}),
+      tenant_id: data.tenant_id,
     };
 
     updateUserMutation.mutate(
@@ -94,7 +112,9 @@ export const EditUserModal = ({ open, onOpenChange, user, onUserUpdated }: EditU
           let message = "Ошибка обновления пользователя";
 
           if (error && typeof error === "object" && "response" in error) {
-            const response = (error as { response?: { data?: { detail?: string } } }).response;
+            const response = (
+              error as { response?: { data?: { detail?: string } } }
+            ).response;
             if (response?.data?.detail) {
               message = response.data.detail;
             }
@@ -106,7 +126,7 @@ export const EditUserModal = ({ open, onOpenChange, user, onUserUpdated }: EditU
             description: message,
           });
         },
-      }
+      },
     );
   };
 
@@ -144,17 +164,60 @@ export const EditUserModal = ({ open, onOpenChange, user, onUserUpdated }: EditU
                 (оставьте пустым, если не хотите менять)
               </span>
             </Label>
-            <Input id="edit-password" type="password" {...register("password")} />
+            <Input
+              id="edit-password"
+              type="password"
+              {...register("password")}
+            />
             {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
+              <p className="text-sm text-destructive">
+                {errors.password.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Организация</Label>
+
+            {/* ✅ Controller связывает Generic-компонент с формой, не нарушая его универсальность */}
+            <Controller
+              name="tenant_id"
+              control={control}
+              render={({ field }) => (
+                <ReferenceSelect
+                  fetchFn={async () => {
+                    const tenants = await getTenantsTenantsGet({
+                      active_only: true,
+                    });
+                    return tenants || [];
+                  }}
+                  queryKey={["tenants", "active"]} // ✅ Чистый ключ кэша, без специфики пользователя
+                  value={field.value || ""} // ✅ Значение берется напрямую из формы
+                  onValueChange={field.onChange} // ✅ Изменение сразу идет в форму
+                  placeholder="Выберите организацию"
+                />
+              )}
+            />
+
+            {errors.tenant_id && (
+              <p className="text-sm text-destructive">
+                {errors.tenant_id.message}
+              </p>
             )}
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               Отмена
             </Button>
-            <Button type="submit" disabled={updateUserMutation.isPending || !isDirty}>
+            <Button
+              type="submit"
+              disabled={updateUserMutation.isPending || !isDirty}
+            >
               {updateUserMutation.isPending ? "Сохранение..." : "Сохранить"}
             </Button>
           </DialogFooter>
