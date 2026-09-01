@@ -15,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { useUpdateUserAuthUserIdPut } from "@/api/generated/authentication/authentication";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
-import { ReferenceSelect } from "@/core/ReferenceSelect";
-import { getTenantsTenantsGet } from "@/api/generated/tenants/tenants";
+import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
+import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 import { useEffect } from "react";
 
 const editUserSchema = z.object({
@@ -81,7 +81,6 @@ export const EditUserModal = ({
     }
   }, [open, user, reset]);
   const onSubmit = (data: EditUserFormData) => {
-    
     if (!user?.id) return;
 
     const updateData = {
@@ -186,10 +185,10 @@ export const EditUserModal = ({
               render={({ field }) => (
                 <ReferenceSelect
                   fetchFn={async () => {
-                    const tenants = await getTenantsTenantsGet({
+                    const response = await readTenantsTenantsGet({
                       active_only: true,
                     });
-                    return tenants || [];
+                    return response?.items || [];
                   }}
                   queryKey={["tenants", "active"]} // ✅ Чистый ключ кэша, без специфики пользователя
                   value={field.value || ""} // ✅ Значение берется напрямую из формы

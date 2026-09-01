@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle } from "lucide-react";
-import { useRegisterAuthRegisterPost } from "@/api/generated/authentication/authentication";
+import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
 
 const registerSchema = z
   .object({
@@ -40,7 +40,7 @@ export const RegisterModal = ({ open, onOpenChange, onSwitchToLogin }: RegisterM
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const registerMutation = useRegisterAuthRegisterPost();
+  const registerMutation = useRegisterUsersRegisterPost();
 
   const {
     register,

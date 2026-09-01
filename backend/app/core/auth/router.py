@@ -7,53 +7,123 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 
 from app.core.database import get_db
-from app.core.auth.schemas import (
+from app.core.user.schemas import (
+    # PublicRegisterSchema,
+    # PublicRegisterSchema,
     UserLoginSchema,
-    UserRegisterSchema,
+    # UserRegisterSchema,
     UserUpdateSchema,
     UserResponseSchema,
 )
-from app.core.auth.crud import crud_user
+from app.core.user.crud import crud_user
 # from app.core.auth.dependencies import require_admin
 from app.core.auth.security import get_current_session
-from app.core.auth.models import UserModel as User, UserSession
+from app.core.auth.models import UserSession
+from app.core.user.models import UserModel
 from app.core.schemas import ApiResponse, PaginatedResponse
+# from app.core.tenant.crud import crud_tenant
+from app.core.auth.crud import crud_auth
+
+# from app.core.admin.models import TenantModel
 
 # Создаем роутер для авторизации
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 SESSION_LIFETIME_DAYS = 7
 
+# ==========================================
+# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Создание Tenant + User)
+# ==========================================
+# @router.post("/public/register", status_code=status.HTTP_201_CREATED)
+# async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)):
+#     """
+#     Публичная регистрация гостя.
+#     Автоматически создает новую организацию (Tenant) и делает пользователя её админом.
+#     """
+#     # 1. Проверяем, нет ли уже пользователя с таким email
+#     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+#     if existing_user:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=[
+#                 {
+#                     "loc": ["body", "email"],
+#                     "msg": "Пользователь с таким email уже существует",
+#                     "type": "value_error",
+#                 }
+#             ],
+#         )
+
+#     # 2. Проверяем, нет ли уже организации с таким названием
+#     existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
+#     if existing_tenant:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Организация с таким названием уже существует. Пожалуйста, выберите другое.",
+#         )
+
+#     # 3. Создаем новую организацию и пользователя в одной транзакции
+#     try:
+#         # 3a. Создаем Tenant (flush внутри crud_tenant.create)
+#         new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
+
+#         # 3b. Формируем данные для внутреннего метода создания пользователя
+#         user_register_data = UserRegisterSchema(
+#             name=user_in.name,
+#             email=user_in.email,
+#             password=user_in.password,
+#             tenant_id=new_tenant.id,
+#             is_admin=True,        # Гость становится админом своей организации
+#             is_superadmin=False,
+#         )
+
+#         # 3c. Создаем пользователя через существующий CRUD
+#         new_user = await crud_user.register_new_user(db, user_in=user_register_data)
+
+#         # 3d. Коммитим транзакцию (если register_new_user не коммитит сам)
+#         await db.commit()
+#         await db.refresh(new_user)
+
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         await db.rollback()
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Ошибка при создании организации и пользователя: {str(e)}",
+#         )
+
+#     return UserResponseSchema.model_validate(new_user)
 
 # ==========================================
 # РЕГИСТРАЦИЯ
 # ==========================================
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
-    """Регистрация нового пользователя"""
-    existing_user = await crud_user.get_by_email(db, email=user_in.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=[
-                {
-                    "loc": ["body", "email"],
-                    "msg": "Пользователь с таким email уже существует",
-                    "type": "value_error",
-                }
-            ],
-        )
+# @router.post("/register", status_code=status.HTTP_201_CREATED)
+# async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
+#     """Регистрация нового пользователя"""
+#     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+#     if existing_user:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=[
+#                 {
+#                     "loc": ["body", "email"],
+#                     "msg": "Пользователь с таким email уже существует",
+#                     "type": "value_error",
+#                 }
+#             ],
+#         )
 
-    try:
-        new_user = await crud_user.register_new_user(db, user_in=user_in)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
-        )
+#     try:
+#         new_user = await crud_user.register_new_user(db, user_in=user_in)
+#     except Exception:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
+#         )
 
-    # return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
-    return new_user
+#     # return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
+#     return new_user
 
 
 # ==========================================
@@ -69,7 +139,7 @@ async def login(
     """Авторизация пользователя с созданием сессии в БД"""
     db_user = await crud_user.get_by_email(db, email=user_in.email)
 
-    if not db_user or not crud_user.authenticate(db_user, user_in.password):
+    if not db_user or not crud_auth.authenticate(db_user, user_in.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
@@ -134,7 +204,7 @@ async def logout(
 #     # ✅ Явная конвертация ORM → Pydantic (критично для Orval!)
 #     return UserResponseSchema.model_validate(current_user)
 @router.get("/user", response_model=ApiResponse[UserResponseSchema])
-async def get_user(current_user: User = Depends(get_current_session)):
+async def get_user(current_user: UserModel = Depends(get_current_session)):
     """Получение профиля текущего пользователя во вложенной обертке"""
     
     # 1. Конвертируем ORM в Pydantic
@@ -211,7 +281,9 @@ async def update_user(
         updated_user = await crud_user.update_user(
             db, db_user=db_user, user_changes=user_changes
         )
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.error(f"Ошибка обновления пользователя {user_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ошибка обновления. Возможно ошибка БД.",

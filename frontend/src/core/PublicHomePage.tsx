@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LoginModal } from "@/core/auth/LoginModal";
-import { RegisterModal } from "@/core/auth/RegisterModal";
+import { RegisterModal } from "@/core/users/RegisterModal";
 import { Shield, Users, Zap, UserCircle, LogOut } from "lucide-react";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { useLogoutAuthLogoutPost } from "@/api/generated/authentication/authentication";

@@ -14,11 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { ReferenceSelect } from "@/core/ReferenceSelect";
+import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 
 // ✅ Импортируем Orval-хуки (проверьте точные имена в сгенерированных файлах)
-import { useRegisterAuthRegisterPost } from "@/api/generated/authentication/authentication";
-import { getTenantsTenantsGet } from "@/api/generated/tenants/tenants";
+import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
+import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 
 // Схема валидации
 const createUserSchema = z.object({
@@ -44,7 +44,7 @@ export const CreateUserModal = ({
   const { toast } = useToast();
   const [tenantId, setTenantId] = useState<string | undefined>(undefined);
 
-  const createUserMutation = useRegisterAuthRegisterPost();
+  const createUserMutation = useRegisterUsersRegisterPost();
 
   const {
     register,
@@ -122,20 +122,23 @@ export const CreateUserModal = ({
             // if (response?.data?.detail) {
             //   message = details[0].msg || message;
             // }
-            
+
             // ✅ Парсим специфичный формат ошибок FastAPI (422 Unprocessable Entity)
             if (response?.data?.detail) {
               const details = response.data.detail;
               if (Array.isArray(details) && details.length > 0) {
                 message = details[0].msg || message; // Берем первое сообщение (наш текст про email)
-              } else if (typeof details === 'string') {
+              } else if (typeof details === "string") {
                 message = details;
               }
-            } else if (error && typeof error === "object" && "message" in error) {
+            } else if (
+              error &&
+              typeof error === "object" &&
+              "message" in error
+            ) {
               message = String(error.message);
             }
           }
-
 
           toast({
             variant: "destructive",
@@ -200,10 +203,11 @@ export const CreateUserModal = ({
             <Label>Организация</Label>
             <ReferenceSelect
               fetchFn={async () => {
-                const tenants = await getTenantsTenantsGet({
+                const response = await readTenantsTenantsGet({
                   active_only: true,
                 });
-                return tenants || [];
+                //
+                return response?.items || [];
               }}
               queryKey={["tenants", "active"]}
               value={tenantId}

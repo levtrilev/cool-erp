@@ -7,9 +7,9 @@ from pydantic import BaseModel
 
 from app.core.config import load_config
 from app.docs.logger import logger
-from app.core.auth.models import UserMsg
-from app.core.auth.models import User
-from app.core.auth.models import UserAge
+from backend.app.core.user.models import UserMsg
+from backend.app.core.user.models import User
+from backend.app.core.user.models import UserAge
 
 my_app = FastAPI()
 

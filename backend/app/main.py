@@ -1,15 +1,18 @@
 from contextlib import asynccontextmanager
 from typing import Any
 import bcrypt
+# ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
+# import app.core - это запустит __init__.py и импортирует все модели
+import app.core # pyright: ignore[reportUnusedImport]
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import async_session
-from app.core.auth.models import UserModel
-# from app.core.auth.user_router import router as user_router
-from app.core.auth.auth_router import router as auth_router
-from app.core.admin.tenant_router import router as tenant_router
+from app.core.user.models import UserModel
+from app.core.user.router import router as user_router
+from app.core.auth.router import router as auth_router
+from app.core.tenant.router import router as tenant_router
 
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
@@ -49,7 +52,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    # openapi_version="3.0.3",
 )
 # print("!!! УСПЕХ: FastAPI инициализирован с openapi_version=3.0.3 !!!")
 
@@ -64,7 +66,15 @@ app.add_middleware(
     allow_headers=["*"],  # Разрешаем все заголовки (включая Content-Type)
 )
 
-# app.include_router(user_router)
-app.include_router(auth_router)
-app.include_router(tenant_router)
+# ==========================================
+# РЕГИСТРАЦИЯ РОУТЕРОВ
+# Версия API задаётся ТОЛЬКО здесь через prefix.
+# Домены (core/user, inventory/product и т.д.) 
+# НЕ знают о версиях.
+# При создании v2: добавить router_v2.py в домене,
+# неизменившиеся роутеры переиспользовать из v1.
+# ==========================================
+app.include_router(tenant_router)   #, prefix="/api/v1")
+app.include_router(auth_router)     #, prefix="/api/v1")
+app.include_router(user_router)     #, prefix="/api/v1")
 

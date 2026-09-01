@@ -21,7 +21,7 @@
 ## 🛠️ Стек технологий
 
 * **Backend:** FastAPI + SQLAlchemy 2.0 async + Pydantic v2
-* **Frontend:** React + TS + Vite + Tailwind + shadcn/ui + RHF + Zod + React Query + Orval
+* **Frontend:** React + TS + Vite + Tailwind + shadcn/ui + RHF + Zod + React Query (TanStack) + Orval
 * **База данных:** PostgreSQL
 
 ---

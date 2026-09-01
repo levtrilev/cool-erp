@@ -1,5 +1,5 @@
 // import { useNavigate } from "react-router-dom";
-import { UserRegisterForm } from "@/core/auth/UserRegisterForm";
+import { UserRegisterForm } from "@/core/users/UserRegisterForm";
 
 export const RegisterPage = () => {
   return (

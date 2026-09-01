@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 import uuid
 from typing import Optional
 
@@ -22,6 +22,12 @@ class UserRegisterSchema(UserBaseSchema):
     is_admin: bool = False
     is_superadmin: bool = False
 
+class PublicRegisterSchema(BaseModel):
+    """Схема для публичной регистрации гостя (создает новый тенант)"""
+    name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    password: str = Field(..., min_length=8)
+    tenant_name: str = Field(..., min_length=2, max_length=128, description="Название новой организации")
 
 class UserLoginSchema(BaseModel):
     """Схема для входа в систему"""

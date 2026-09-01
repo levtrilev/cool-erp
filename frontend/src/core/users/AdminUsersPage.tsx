@@ -35,10 +35,10 @@ import {
   useDeleteUserAuthUserIdDelete,
   readUsersAuthGet,
 } from "@/api/generated/authentication/authentication";
-import { EditUserModal } from "@/core/admin/EditUserModal";
+import { EditUserModal } from "@/core/users/EditUserModal";
 import { z } from "zod";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
-import { CreateUserModal } from "@/core/admin/CreateUserModal";
+import { CreateUserModal } from "@/core/users/CreateUserModal";
 
 type UserResponseSchema = z.infer<
   typeof readUsersAuthGetResponse
@@ -149,15 +149,15 @@ export const AdminUsersPage = () => {
   // ✅ Обработка создания нового пользователя с умной навигацией
   const handleUserCreated = async (newId: string) => {
     console.log("🔍 handleUserCreated вызван с ID:", newId);
-    
+
     // ✅ Запрашиваем ВСЕ записи без пагинации, чтобы найти точную позицию
     const allUsersData = await readUsersAuthGet({
       limit: 1000, // Берем с запасом
       skip: 0,
     });
-    
+
     console.log("🔍 Результат запроса всех пользователей:", allUsersData);
-    
+
     if (!allUsersData?.items) {
       console.log("❌ Нет items в allUsersData.data");
       toast({
@@ -168,7 +168,7 @@ export const AdminUsersPage = () => {
     }
 
     const itemIndex = allUsersData.items.findIndex(
-      (u: UserResponseSchema) => u.id === newId
+      (u: UserResponseSchema) => u.id === newId,
     );
 
     console.log("🔍 Найденный индекс в полном списке:", itemIndex);
@@ -190,20 +190,22 @@ export const AdminUsersPage = () => {
     if (targetPage === page) {
       console.log("✅ Пользователь на текущей странице, подсвечиваем");
       setHighlightedUserId(newId);
-      
+
       toast({
         title: "Создано",
         description: "Запись добавлена и выделена в списке",
       });
-      
+
       setTimeout(() => {
         setHighlightedUserId(null);
       }, 3000);
-      
+
       return;
     }
 
-    console.log("✅ Пользователь на другой странице, показываем toast с кнопкой");
+    console.log(
+      "✅ Пользователь на другой странице, показываем toast с кнопкой",
+    );
     toast({
       title: "Создано",
       description: `Запись переместилась на страницу ${targetPage}`,

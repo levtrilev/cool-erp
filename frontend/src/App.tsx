@@ -1,19 +1,19 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLayout } from "@/core/AppLayout";
-import { ProtectedRoute } from "@/core/ProtectedRoute";
+import { ProtectedRoute } from "@/core/auth/ProtectedRoute";
 
 // Публичные страницы
 import { PublicHomePage } from "@/core/PublicHomePage";
-import { LoginPage } from "@/core/LoginPage";
+import { LoginPage } from "@/core/auth/LoginPage";
 
 // Защищённые страницы
-import { DashboardPage } from "@/core/DashboardPage";
-import { ProfilePage } from "@/core/ProfilePage";
-import { AdminPage } from "@/core/admin/AdminPage";
-import { SuperAdminPage } from "@/core/admin/SuperAdminPage";
+import { DashboardPage } from "@/core/pages/DashboardPage";
+import { ProfilePage } from "@/core/users/ProfilePage";
+import { AdminPage } from "@/core/pages/AdminPage";
+import { SuperAdminPage } from "@/core/pages/SuperAdminPage";
 import { Toaster } from "@/components/ui/toaster";
-import { AdminUsersPage } from "@/core/admin/AdminUsersPage";
+import { AdminUsersPage } from "@/core/users/AdminUsersPage";
 
 const queryClient = new QueryClient();
 

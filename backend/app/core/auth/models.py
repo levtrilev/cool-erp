@@ -1,54 +1,15 @@
-import uuid
 from typing import cast
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy import Column, DateTime, ForeignKey, Index, String, text
+from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, ForeignKey, Index, String
 from app.core.database import Base
 from datetime import datetime, timezone
-
-# ==========================================
-# СТРУКТУРА ТАБЛИЦЫ (SQLAlchemy Модель)
-# ==========================================
-
-
-class UserModel(Base):
-    __tablename__ = "users"
-    __table_args__ = {"schema": "public"}
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()")
-    )
-    name: Mapped[str] = mapped_column(nullable=False)
-    email: Mapped[str] = mapped_column(unique=True, nullable=False)
-    password: Mapped[str] = mapped_column(nullable=False)
-
-    is_admin: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), 
-        ForeignKey("tenants.id"), 
-        nullable=False, 
-        index=True
-    )
-    role_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
-        ARRAY(UUID(as_uuid=True)), nullable=True
-    )
-    is_superadmin: Mapped[bool | None] = mapped_column(
-        default=False, server_default=text("false")
-    )
-
-        # Связь с сессиями
-    sessions = relationship(
-        "UserSession",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
 
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
     session_token = Column(String(64), primary_key=True, index=True)
-    
+
     # ✅ ИСПРАВЛЕНО: "public.users.id" вместо "users.id"
     user_id = Column(
         UUID(as_uuid=True),
@@ -56,15 +17,15 @@ class UserSession(Base):
         nullable=False,
         index=True,
     )
-    
+
     # ✅ Используем timezone-aware datetime
     created_at = Column(
-        DateTime(timezone=True), 
-        default=lambda: datetime.now(timezone.utc), 
-        nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    
+
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(512), nullable=True)
     is_active = Column(String(1), default="1", nullable=False)

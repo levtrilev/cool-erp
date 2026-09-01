@@ -1,5 +1,5 @@
 from app.core.database import Base
-from app.core.auth.models import UserModel, UserSession
+from backend.app.core.user.models import UserModel, UserSession
 
 print("Таблицы в Base.metadata:")
 for table_name in Base.metadata.tables.keys():
