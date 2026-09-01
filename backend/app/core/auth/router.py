@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 
 from app.core.database import get_db
-from app.core.user.schemas import (
+from app.core.users.schemas import (
     # PublicRegisterSchema,
     # PublicRegisterSchema,
     UserLoginSchema,
@@ -15,11 +15,11 @@ from app.core.user.schemas import (
     UserUpdateSchema,
     UserResponseSchema,
 )
-from app.core.user.crud import crud_user
+from app.core.users.crud import crud_user
 # from app.core.auth.dependencies import require_admin
 from app.core.auth.security import get_current_session
 from app.core.auth.models import UserSession
-from app.core.user.models import UserModel
+from app.core.users.models import UserModel
 from app.core.schemas import ApiResponse, PaginatedResponse
 # from app.core.tenant.crud import crud_tenant
 from app.core.auth.crud import crud_auth

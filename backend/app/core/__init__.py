@@ -5,6 +5,6 @@ from app.core.tenant.models import TenantModel
 from app.core.auth.models import UserSession
 
 # Потом импортируем UserModel (он зависит от UserSession и TenantModel через relationship)
-from app.core.user.models import UserModel
+from app.core.users.models import UserModel
 
 __all__ = ["TenantModel", "UserSession", "UserModel"]

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.auth.models import UserSession
-from app.core.user.models import UserModel as User
+from app.core.users.models import UserModel as User
 
 async def get_current_session(
     request: Request,

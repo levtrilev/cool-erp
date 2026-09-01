@@ -4,8 +4,8 @@ from typing import Optional, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crud.base import CRUDBase
-from app.core.user.models import UserModel
-from app.core.user.schemas import UserRegisterSchema, UserUpdateSchema
+from app.core.users.models import UserModel
+from app.core.users.schemas import UserRegisterSchema, UserUpdateSchema
 
 # Глобальное хранилище сессий (в памяти: {session_id: {"user_id": UUID, ...}})
 sessions_storage: dict[str, dict[str, Any]] = {}

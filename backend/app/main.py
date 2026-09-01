@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import async_session
-from app.core.user.models import UserModel
-from app.core.user.router import router as user_router
+from app.core.users.models import UserModel
+from app.core.users.router import router as user_router
 from app.core.auth.router import router as auth_router
 from app.core.tenant.router import router as tenant_router
 

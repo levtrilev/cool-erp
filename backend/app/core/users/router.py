@@ -7,19 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # from sqlalchemy import delete
 
 from app.core.database import get_db
-from app.core.user.schemas import (
+from app.core.users.schemas import (
     PublicRegisterSchema,
     UserRegisterSchema,
     UserUpdateSchema,
     UserResponseSchema,
 )
-from app.core.user.crud import crud_user
+from app.core.users.crud import crud_user
 # from app.core.auth.dependencies import require_admin
 # from app.core.auth.security import get_current_session
 # from app.core.user.models import UserModel  as User
 from app.core.schemas import PaginatedResponse  # , ApiResponse
 from app.core.tenant.crud import crud_tenant
 # from app.core.admin.models import TenantModel
+from app.core.users.schemas import PublicRegisterResponseSchema
 
 # Создаем роутер для авторизации
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -27,13 +28,14 @@ router = APIRouter(prefix="/users", tags=["Users"])
 SESSION_LIFETIME_DAYS = 7
 
 # ==========================================
-# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Создание Tenant + User)
+# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика)
 # ==========================================
-@router.post("/public/register", status_code=status.HTTP_201_CREATED)
+@router.post("/public/register", status_code=status.HTTP_201_CREATED, response_model=PublicRegisterResponseSchema)
 async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)):
     """
     Публичная регистрация гостя.
-    Автоматически создает новую организацию (Tenant) и делает пользователя её админом.
+    - Если организация с таким именем существует → регистрирует как рядового пользователя.
+    - Если не существует → создает новую организацию и регистрирует как администратора.
     """
     # 1. Проверяем, нет ли уже пользователя с таким email
     existing_user = await crud_user.get_by_email(db, email=user_in.email)
@@ -49,46 +51,131 @@ async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depe
             ],
         )
 
-    # 2. Проверяем, нет ли уже организации с таким названием
+    # 2. Ищем организацию по имени
     existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
+    
+    is_new_tenant = False
+    tenant_id = None
+    is_admin = False
+
     if existing_tenant:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Организация с таким названием уже существует. Пожалуйста, выберите другое.",
-        )
+        # ✅ Организация существует → рядовой пользователь
+        tenant_id = existing_tenant.id
+        is_admin = False
+    else:
+        # ✅ Организация не существует → создаем новую, пользователь будет админом
+        try:
+            new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
+            tenant_id = new_tenant.id
+            is_admin = True
+            is_new_tenant = True
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка при создании организации: {str(e)}",
+            )
 
-    # 3. Создаем новую организацию и пользователя в одной транзакции
+    # 3. Создаем пользователя
+    print(f"📝 Создаём пользователя с is_admin={is_admin}")
     try:
-        # 3a. Создаем Tenant (flush внутри crud_tenant.create)
-        new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
-
-        # 3b. Формируем данные для внутреннего метода создания пользователя
         user_register_data = UserRegisterSchema(
             name=user_in.name,
             email=user_in.email,
             password=user_in.password,
-            tenant_id=new_tenant.id,
-            is_admin=True,        # Гость становится админом своей организации
+            tenant_id=tenant_id,
+            is_admin=is_admin,
             is_superadmin=False,
         )
-
-        # 3c. Создаем пользователя через существующий CRUD
         new_user = await crud_user.register_new_user(db, user_in=user_register_data)
-
-        # 3d. Коммитим транзакцию (если register_new_user не коммитит сам)
+        print(f"📝 Данные для CRUD: tenant_id={user_register_data.tenant_id}, is_admin={user_register_data.is_admin}")
+        
         await db.commit()
         await db.refresh(new_user)
-
-    except HTTPException:
-        raise
     except Exception as e:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при создании организации и пользователя: {str(e)}",
+            detail=f"Ошибка при создании пользователя: {str(e)}",
         )
 
-    return UserResponseSchema.model_validate(new_user)
+    # 4. Формируем ответ с дополнительной информацией
+    return PublicRegisterResponseSchema(
+        id=new_user.id,
+        name=new_user.name,
+        email=new_user.email,
+        tenant_id=new_user.tenant_id,
+        is_admin=new_user.is_admin,
+        is_superadmin=new_user.is_superadmin or False,
+        is_new_tenant=is_new_tenant,
+        tenant_name=user_in.tenant_name,
+    )
+
+
+
+# ==========================================
+# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Создание Tenant + User)
+# ==========================================
+# @router.post("/public/register", status_code=status.HTTP_201_CREATED)
+# async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)):
+#     """
+#     Публичная регистрация гостя.
+#     Автоматически создает новую организацию (Tenant) и делает пользователя её админом.
+#     """
+#     # 1. Проверяем, нет ли уже пользователя с таким email
+#     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+#     if existing_user:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=[
+#                 {
+#                     "loc": ["body", "email"],
+#                     "msg": "Пользователь с таким email уже существует",
+#                     "type": "value_error",
+#                 }
+#             ],
+#         )
+
+#     # 2. Проверяем, нет ли уже организации с таким названием
+#     existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
+#     if existing_tenant:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Организация с таким названием уже существует. Пожалуйста, выберите другое.",
+#         )
+
+#     # 3. Создаем новую организацию и пользователя в одной транзакции
+#     try:
+#         # 3a. Создаем Tenant (flush внутри crud_tenant.create)
+#         new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
+
+#         # 3b. Формируем данные для внутреннего метода создания пользователя
+#         user_register_data = UserRegisterSchema(
+#             name=user_in.name,
+#             email=user_in.email,
+#             password=user_in.password,
+#             tenant_id=new_tenant.id,
+#             is_admin=True,        # Гость становится админом своей организации
+#             is_superadmin=False,
+#         )
+
+#         # 3c. Создаем пользователя через существующий CRUD
+#         new_user = await crud_user.register_new_user(db, user_in=user_register_data)
+
+#         # 3d. Коммитим транзакцию (если register_new_user не коммитит сам)
+#         await db.commit()
+#         await db.refresh(new_user)
+
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         await db.rollback()
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Ошибка при создании организации и пользователя: {str(e)}",
+#         )
+
+#     return UserResponseSchema.model_validate(new_user)
 
 # ==========================================
 # РЕГИСТРАЦИЯ

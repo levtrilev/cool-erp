@@ -60,6 +60,17 @@ class UserResponseSchema(BaseModel):
 
     model_config = {"from_attributes": True}  # Pydantic v2 стиль
 
+class PublicRegisterResponseSchema(BaseModel):
+    """Схема ответа для публичной регистрации (включает информацию о создании организации)"""
+    id: uuid.UUID
+    name: str
+    email: str
+    tenant_id: uuid.UUID
+    is_admin: bool
+    is_superadmin: bool = False
+    is_new_tenant: bool = Field(..., description="True, если организация была создана заново")
+    tenant_name: str = Field(..., description="Название организации для отображения в UI")
+                             
 class PaginatedUserResponse(BaseModel):
     """Конкретная схема пагинации для пользователей (Orval это любит)"""
     items: list[UserResponseSchema]

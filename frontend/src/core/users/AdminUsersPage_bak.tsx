@@ -49,22 +49,20 @@ export const AdminUsersPage = () => {
 
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
-  
-  // ✅ РАЗДЕЛЯЕМ СОСТОЯНИЯ:
-  const [searchInput, setSearchInput] = useState(""); // То, что пользователь печатает прямо сейчас
-  const [search, setSearch] = useState(""); // То, что реально отправляется в API
-  
+  const [search, setSearch] = useState("");
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
 
   const [editUser, setEditUser] = useState<UserResponseSchema | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
-  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(null);
+  // ✅ Единственное состояние для подсветки
+  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(
+    null,
+  );
 
   const skip = (page - 1) * limit;
 
-  // ✅ Запрос срабатывает только при изменении подтвержденного `search`
   const { data, isLoading, isError, refetch } = useReadUsersAuthGet({
     skip,
     limit,
@@ -73,6 +71,7 @@ export const AdminUsersPage = () => {
 
   const deleteUserMutation = useDeleteUserAuthUserIdDelete();
 
+  // ✅ Автоматически убираем подсветку через 3 секунды
   useEffect(() => {
     if (highlightedUserId) {
       const timer = setTimeout(() => {
@@ -82,20 +81,25 @@ export const AdminUsersPage = () => {
     }
   }, [highlightedUserId]);
 
+  // ✅ Основная логика: обработка после обновления
   const handleUserUpdated = async (userId: string, userName: string) => {
+    // 1. Перезапрашиваем данные текущей страницы
     const result = await refetch();
     const updatedItems = result.data?.items || [];
 
+    // 2. Проверяем, есть ли пользователь на текущей странице
     const userExists = updatedItems.some((u) => u.id === userId);
 
     if (userExists) {
+      // ✅ Пользователь на текущей странице — просто подсвечиваем
       setHighlightedUserId(userId);
       return;
     }
 
     try {
+      // ✅ Запрашиваем все записи без фильтрации, чтобы найти точную позицию
       const allUsersData = await readUsersAuthGet({
-        limit: 1000,
+        limit: 1000, // Берем с запасом
         skip: 0,
       });
 
@@ -142,12 +146,13 @@ export const AdminUsersPage = () => {
       });
     }
   };
-
+  // ✅ Обработка создания нового пользователя с умной навигацией
   const handleUserCreated = async (newId: string) => {
     console.log("🔍 handleUserCreated вызван с ID:", newId);
 
+    // ✅ Запрашиваем ВСЕ записи без пагинации, чтобы найти точную позицию
     const allUsersData = await readUsersAuthGet({
-      limit: 1000,
+      limit: 1000, // Берем с запасом
       skip: 0,
     });
 
@@ -223,7 +228,6 @@ export const AdminUsersPage = () => {
       ),
     });
   };
-
   const handleDelete = async (userId: string) => {
     deleteUserMutation.mutate(
       { userId },
@@ -252,11 +256,9 @@ export const AdminUsersPage = () => {
     setEditModalOpen(true);
   };
 
-  // ✅ ОБНОВЛЕННАЯ ЛОГИКА ПОИСКА
   const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault(); // Предотвращаем перезагрузку страницы
-    setSearch(searchInput); // Синхронизируем запрос с введенным текстом
-    setPage(1); // Сбрасываем на первую страницу результатов
+    e.preventDefault();
+    setPage(1);
   };
 
   if (isLoading) {
@@ -295,13 +297,14 @@ export const AdminUsersPage = () => {
             <Plus className="h-4 w-4 mr-2" />
             Создать
           </Button>
-          
-          {/* ✅ Оборачиваем в form для перехвата нажатия Enter */}
-          <form onSubmit={handleSearch} className="flex gap-2 flex-1 md:flex-initial">
+          <form
+            onSubmit={handleSearch}
+            className="flex gap-2 flex-1 md:flex-initial"
+          >
             <Input
               placeholder="Поиск по имени или email..."
-              value={searchInput} // Используем локальный стейт
-              onChange={(e) => setSearchInput(e.target.value)} // Обновляем только локально, без запроса к API
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full md:w-64"
             />
             <Button type="submit" variant="secondary">
@@ -311,7 +314,6 @@ export const AdminUsersPage = () => {
           </form>
         </div>
       </div>
-
       <div className="rounded-md border bg-card">
         <Table>
           <TableHeader>

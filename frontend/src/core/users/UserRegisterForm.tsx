@@ -16,13 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AxiosError } from "axios";
 
 // Импортируем КОНСТАНТУ Zod-схемы (проверьте точное имя файла в папке zod!)
-import { registerAuthRegisterPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
+import { registerUsersRegisterPostBody } from "@/api/generated/zod/users/users.schema"; 
 
 // Импортируем хук мутации
-import { useRegisterAuthRegisterPost } from "@/api/generated/authentication/authentication";
+import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
 
 // Выводим тип TypeScript напрямую из Zod-схемы
-type UserRegisterFormValues = z.infer<typeof registerAuthRegisterPostBody>;
+type UserRegisterFormValues = z.infer<typeof registerUsersRegisterPostBody>;
 
 // Тип для ошибки от FastAPI
 interface FastAPIValidationError {
@@ -37,7 +37,7 @@ export const UserRegisterForm = () => {
   const navigate = useNavigate(); // Хук для редиректа
   
   const form = useForm<UserRegisterFormValues>({
-    resolver: zodResolver(registerAuthRegisterPostBody),
+    resolver: zodResolver(registerUsersRegisterPostBody),
     defaultValues: {
       name: "",
       email: "",
@@ -46,7 +46,7 @@ export const UserRegisterForm = () => {
     },
   });
 
-  const registerMutation = useRegisterAuthRegisterPost();
+  const registerMutation = useRegisterUsersRegisterPost();
 
   // const onSubmit = (data: UserRegisterFormValues) => {
   //   registerMutation.mutate(

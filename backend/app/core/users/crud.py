@@ -5,8 +5,8 @@ from typing import Optional, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crud.base import CRUDBase
-from app.core.user.models import UserModel
-from app.core.user.schemas import UserRegisterSchema, UserUpdateSchema
+from app.core.users.models import UserModel
+from app.core.users.schemas import UserRegisterSchema, UserUpdateSchema
 
 # Глобальное хранилище сессий (в памяти: {session_id: {"user_id": UUID, ...}})
 sessions_storage: dict[str, dict[str, Any]] = {}
@@ -31,8 +31,8 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             email=user_in.email,
             password=hashed_password.decode("utf-8"),
             tenant_id=user_in.tenant_id,
-            is_admin=False,
-            is_superadmin=False,
+            is_admin=user_in.is_admin,
+            is_superadmin=user_in.is_superadmin,
             role_ids=[],
         )
 
@@ -43,46 +43,49 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
         return db_obj
 
     async def update_user(
-            self, db: AsyncSession, db_user: UserModel, user_changes: UserUpdateSchema
-        ) -> UserModel:
-            """Обновление с авто-хешированием пароля и точечной очисткой сессий."""
-            
-            # 1. Извлекаем данные из схемы в словарь, исключая неустановленные значения
-            update_data = user_changes.model_dump(exclude_unset=True)
+        self, db: AsyncSession, db_user: UserModel, user_changes: UserUpdateSchema
+    ) -> UserModel:
+        """Обновление с авто-хешированием пароля и точечной очисткой сессий."""
 
-            # 2. Проверяем, передан ли пароль, и хешируем его только если он есть
-            if "password" in update_data and update_data["password"] is not None:
-                salt = bcrypt.gensalt()
-                hashed_password = bcrypt.hashpw(update_data["password"].encode("utf-8"), salt)
-                update_data["password"] = hashed_password.decode("utf-8")
-            else:
-                # Если пароль пришел как None или отсутствовал в запросе, удаляем поле из обновления
-                update_data.pop("password", None)
+        # 1. Извлекаем данные из схемы в словарь, исключая неустановленные значения
+        update_data = user_changes.model_dump(exclude_unset=True)
 
-            # ФЛАГ КРИТИЧЕСКИХ ИЗМЕНЕНИЙ: проверяем, меняются ли имя, email или пароль
-            # Сравниваем новые значения с текущими значениями в db_user
-            trigger_logout = False
-            critical_fields = ["name", "email", "password"]
-            
-            for field in critical_fields:
-                if field in update_data and update_data[field] != getattr(db_user, field):
-                    trigger_logout = True
-                    break
+        # 2. Проверяем, передан ли пароль, и хешируем его только если он есть
+        if "password" in update_data and update_data["password"] is not None:
+            salt = bcrypt.gensalt()
+            hashed_password = bcrypt.hashpw(
+                update_data["password"].encode("utf-8"), salt
+            )
+            update_data["password"] = hashed_password.decode("utf-8")
+        else:
+            # Если пароль пришел как None или отсутствовал в запросе, удаляем поле из обновления
+            update_data.pop("password", None)
 
-            # 3. Обновляем поля существующего объекта db_user динамически
-            for field, value in update_data.items():
-                setattr(db_user, field, value)
+        # ФЛАГ КРИТИЧЕСКИХ ИЗМЕНЕНИЙ: проверяем, меняются ли имя, email или пароль
+        # Сравниваем новые значения с текущими значениями в db_user
+        trigger_logout = False
+        critical_fields = ["name", "email", "password"]
 
-            # 4. Сохраняем изменения в базе данных
-            db.add(db_user)
-            await db.commit()
-            await db.refresh(db_user)
+        for field in critical_fields:
+            if field in update_data and update_data[field] != getattr(db_user, field):
+                trigger_logout = True
+                break
 
-            # 5. РАЗЛОГИН: удаляем сессии только при изменении критических данных
-            if trigger_logout:
-                self._clear_user_sessions(db_user.id)
+        # 3. Обновляем поля существующего объекта db_user динамически
+        for field, value in update_data.items():
+            setattr(db_user, field, value)
 
-            return db_user
+        # 4. Сохраняем изменения в базе данных
+        db.add(db_user)
+        await db.commit()
+        await db.refresh(db_user)
+
+        # 5. РАЗЛОГИН: удаляем сессии только при изменении критических данных
+        if trigger_logout:
+            self._clear_user_sessions(db_user.id)
+
+        return db_user
+
     # def authenticate(self, db_user: Optional[UserModel], plain_password: str) -> bool:
     #     """Проверка пароля пользователя"""
     #     if not db_user:

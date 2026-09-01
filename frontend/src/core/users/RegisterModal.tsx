@@ -1,5 +1,6 @@
+// frontend/src/core/RegisterModal.tsx
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -13,11 +14,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, CheckCircle } from "lucide-react";
-import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
+import { AlertCircle, Shield, Users } from "lucide-react"; // , CheckCircle
+
+// ⚠️ Проверьте точное имя хука после npm run gen!
+import { usePublicRegisterUsersPublicRegisterPost } from "@/api/generated/users/users";
 
 const registerSchema = z
   .object({
+    tenant_name: z.string().min(2, "Название организации должно содержать минимум 2 символа"),
     name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
     email: z.string().email("Некорректный email"),
     password: z.string().min(8, "Пароль должен содержать минимум 8 символов"),
@@ -39,12 +43,15 @@ interface RegisterModalProps {
 export const RegisterModal = ({ open, onOpenChange, onSwitchToLogin }: RegisterModalProps) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false); // Флаг для отображения иконки
+//   const [tenantName, setTenantName] = useState(""); // Название организации для сообщения
 
-  const registerMutation = useRegisterUsersRegisterPost();
+  const registerMutation = usePublicRegisterUsersPublicRegisterPost();
 
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
     reset,
   } = useForm<RegisterFormData>({
@@ -56,43 +63,47 @@ export const RegisterModal = ({ open, onOpenChange, onSwitchToLogin }: RegisterM
     setSuccessMessage(null);
 
     registerMutation.mutate(
-    {
+      {
         data: {
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        // Временно захардкодим tenant_id — потом заменим на выбор
-        tenant_id: "00000000-0000-0000-0000-000000000001",
-        is_admin: false,
-        is_superadmin: false,
+          name: data.name,
+          email: data.email,
+          password: data.password,
+          tenant_name: data.tenant_name,
         },
-    },
-    {
-        onSuccess: () => {
-        setSuccessMessage("Регистрация успешна! Теперь войдите в систему.");
-        reset();
-        setTimeout(() => {
-            onOpenChange(false);
-            onSwitchToLogin();
-        }, 1500);
+      },
+      {
+        onSuccess: (response) => {
+          // ✅ Сохраняем данные для отображения
+          setIsAdmin(response.is_admin);
+        //   setTenantName(response.tenant_name);
+          
+          // ✅ Формируем сообщение
+          if (response.is_new_tenant) {
+            setSuccessMessage(
+              `Добавлена новая организация "${response.tenant_name}". Вы зарегистрированы как АДМИНИСТРАТОР.`
+            );
+          } else {
+            setSuccessMessage(
+              `Вы зарегистрированы как пользователь в организации "${response.tenant_name}".`
+            );
+          }
+          reset();
+          // ✅ НЕ закрываем диалог — пользователь сам нажмёт кнопку
         },
         onError: (error: unknown) => {
-        let message = "Ошибка регистрации";
-        
-        if (error && typeof error === 'object' && 'response' in error) {
+          let message = "Ошибка регистрации";
+          if (error && typeof error === "object" && "response" in error) {
             const response = (error as { response?: { data?: { detail?: unknown } } }).response;
             const detail = response?.data?.detail;
-            
             if (Array.isArray(detail)) {
-            message = detail[0]?.msg || message;
+              message = detail[0]?.msg || message;
             } else if (typeof detail === "string") {
-            message = detail;
+              message = detail;
             }
-        }
-        
-        setErrorMessage(message);
+          }
+          setErrorMessage(message);
         },
-    }
+      }
     );
   };
 
@@ -102,72 +113,131 @@ export const RegisterModal = ({ open, onOpenChange, onSwitchToLogin }: RegisterM
         <DialogHeader>
           <DialogTitle>Регистрация</DialogTitle>
           <DialogDescription>
-            Создайте новый аккаунт в системе
+            {successMessage ? "Регистрация завершена" : "Создайте новый аккаунт и вашу организацию"}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {errorMessage && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{errorMessage}</AlertDescription>
-            </Alert>
-          )}
-          {successMessage && (
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>{successMessage}</AlertDescription>
-            </Alert>
-          )}
+        {/* ✅ УСЛОВНЫЙ РЕНДЕРИНГ: если есть успех — показываем только сообщение */}
+        {successMessage ? (
+          <div className="space-y-6 py-4">
+            {/* Большая иконка в зависимости от роли */}
+            <div className="flex justify-center">
+              {isAdmin ? (
+                <div className="rounded-full bg-purple-100 p-4">
+                  <Shield className="h-12 w-12 text-purple-600" />
+                </div>
+              ) : (
+                <div className="rounded-full bg-blue-100 p-4">
+                  <Users className="h-12 w-12 text-blue-600" />
+                </div>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="register-name">Имя</Label>
-            <Input id="register-name" {...register("name")} />
-            {errors.name && (
-              <p className="text-sm text-destructive">{errors.name.message}</p>
-            )}
-          </div>
+            {/* Сообщение */}
+            <div className="text-center space-y-2">
+              <p className="text-lg font-semibold text-foreground">
+                {successMessage}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Теперь вы можете войти в систему
+              </p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="register-email">Email</Label>
-            <Input id="register-email" type="email" {...register("email")} />
-            {errors.email && (
-              <p className="text-sm text-destructive">{errors.email.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="register-password">Пароль</Label>
-            <Input id="register-password" type="password" {...register("password")} />
-            {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="register-confirm">Подтвердите пароль</Label>
-            <Input id="register-confirm" type="password" {...register("confirmPassword")} />
-            {errors.confirmPassword && (
-              <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Button type="submit" disabled={registerMutation.isPending} className="w-full">
-              {registerMutation.isPending ? "Регистрация..." : "Зарегистрироваться"}
-            </Button>
+            {/* Кнопка перехода к входу */}
             <Button
               type="button"
-              variant="link"
               onClick={() => {
                 onOpenChange(false);
                 onSwitchToLogin();
               }}
+              className="w-full"
+              size="lg"
             >
-              Уже есть аккаунт? Войти
+              Перейти к входу →
             </Button>
           </div>
-        </form>
+        ) : (
+          /* ✅ Обычная форма регистрации */
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {errorMessage && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Поле: Название организации */}
+            <div className="space-y-2">
+              <Label htmlFor="register-tenant">Название организации</Label>
+              <Controller
+                name="tenant_name"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    id="register-tenant"
+                    placeholder="ООО «Моя Компания»"
+                    {...field}
+                  />
+                )}
+              />
+              {errors.tenant_name && (
+                <p className="text-sm text-destructive">{errors.tenant_name.message}</p>
+              )}
+            </div>
+
+            {/* Поле: Имя */}
+            <div className="space-y-2">
+              <Label htmlFor="register-name">Имя</Label>
+              <Input id="register-name" {...register("name")} />
+              {errors.name && (
+                <p className="text-sm text-destructive">{errors.name.message}</p>
+              )}
+            </div>
+
+            {/* Поле: Email */}
+            <div className="space-y-2">
+              <Label htmlFor="register-email">Email</Label>
+              <Input id="register-email" type="email" {...register("email")} />
+              {errors.email && (
+                <p className="text-sm text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+
+            {/* Поле: Пароль */}
+            <div className="space-y-2">
+              <Label htmlFor="register-password">Пароль</Label>
+              <Input id="register-password" type="password" {...register("password")} />
+              {errors.password && (
+                <p className="text-sm text-destructive">{errors.password.message}</p>
+              )}
+            </div>
+
+            {/* Поле: Подтверждение пароля */}
+            <div className="space-y-2">
+              <Label htmlFor="register-confirm">Подтвердите пароль</Label>
+              <Input id="register-confirm" type="password" {...register("confirmPassword")} />
+              {errors.confirmPassword && (
+                <p className="text-sm text-destructive">{errors.confirmPassword.message}</p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Button type="submit" disabled={registerMutation.isPending} className="w-full">
+                {registerMutation.isPending ? "Создание..." : "Зарегистрироваться"}
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                onClick={() => {
+                  onOpenChange(false);
+                  onSwitchToLogin();
+                }}
+              >
+                Уже есть аккаунт? Войти
+              </Button>
+            </div>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
