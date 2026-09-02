@@ -198,11 +198,7 @@ async def logout(
 # ==========================================
 # ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
 # ==========================================
-# @router.get("/user", response_model=UserResponseSchema)
-# async def get_user(current_user: User = Depends(get_current_session)):
-#     """Получение профиля текущего пользователя"""
-#     # ✅ Явная конвертация ORM → Pydantic (критично для Orval!)
-#     return UserResponseSchema.model_validate(current_user)
+
 @router.get("/user", response_model=ApiResponse[UserResponseSchema])
 async def get_user(current_user: UserModel = Depends(get_current_session)):
     """Получение профиля текущего пользователя во вложенной обертке"""
@@ -220,22 +216,7 @@ async def get_user(current_user: UserModel = Depends(get_current_session)):
 # ==========================================
 # CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
 # ==========================================
-# @router.get("/", response_model=PaginatedUserResponse)
-# async def read_users(
-#     skip: int = 0,
-#     limit: int = 100,
-#     search: Optional[str] = None,
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     """Получение списка пользователей с пагинацией"""
-#     items, total = await crud_user.get_multi_paginated(
-#         db, skip=skip, limit=limit, search=search
-#     )
-#     # ✅ Явная конвертация списка ORM → список Pydantic
-#     return PaginatedUserResponse(
-#         items=[UserResponseSchema.model_validate(item) for item in items],
-#         total=total
-#     )
+
 @router.get("/", response_model=PaginatedResponse[UserResponseSchema])
 async def read_users(
     skip: int = 0,

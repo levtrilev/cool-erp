@@ -55,10 +55,12 @@ class UserResponseSchema(BaseModel):
     name: str
     email: str
     tenant_id: uuid.UUID
+    tenant_name: Optional[str] = None
     is_admin: bool
     is_superadmin: bool = False
 
     model_config = {"from_attributes": True}  # Pydantic v2 стиль
+
 
 class PublicRegisterResponseSchema(BaseModel):
     """Схема ответа для публичной регистрации (включает информацию о создании организации)"""

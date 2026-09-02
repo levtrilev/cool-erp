@@ -194,8 +194,8 @@ export const ProfilePage = () => {
                   <span className="font-mono text-xs">{userData.data.id}</span>
                 </p>
                 <p>
-                  <span className="text-muted-foreground">Tenant ID:</span>{" "}
-                  <span className="font-mono text-xs">{userData.data.tenant_id}</span>
+                  <span className="text-muted-foreground">Организация:</span>{" "}
+                  <span className="font-mono text-xs">{userData.data.tenant_name}</span>
                 </p>
                 <p>
                   <span className="text-muted-foreground">Роль:</span>{" "}

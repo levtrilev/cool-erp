@@ -44,3 +44,9 @@ class UserModel(Base):
         back_populates="users",
         lazy="selectin",
     )
+
+    # ✅ Property для автоматического извлечения tenant_name
+    @property
+    def tenant_name(self) -> str | None:
+        """Название организации (автоматически извлекается из relationship)"""
+        return self.tenant.name if self.tenant else None
