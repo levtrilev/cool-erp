@@ -14,6 +14,7 @@ import { AdminPage } from "@/core/pages/AdminPage";
 import { SuperAdminPage } from "@/core/pages/SuperAdminPage";
 import { Toaster } from "@/components/ui/toaster";
 import { AdminUsersPage } from "@/core/users/AdminUsersPage";
+import { AdminTenantsPage } from "./core/tenants/AdminTenantsPage";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole="admin">
                   <AdminUsersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/tenants"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTenantsPage />
                 </ProtectedRoute>
               }
             />

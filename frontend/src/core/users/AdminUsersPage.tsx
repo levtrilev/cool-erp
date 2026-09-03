@@ -49,18 +49,20 @@ export const AdminUsersPage = () => {
 
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
-  
+
   // ✅ РАЗДЕЛЯЕМ СОСТОЯНИЯ:
   const [searchInput, setSearchInput] = useState(""); // То, что пользователь печатает прямо сейчас
   const [search, setSearch] = useState(""); // То, что реально отправляется в API
-  
+
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
 
   const [editUser, setEditUser] = useState<UserResponseSchema | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
-  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(null);
+  const [highlightedUserId, setHighlightedUserId] = useState<string | null>(
+    null,
+  );
 
   const skip = (page - 1) * limit;
 
@@ -295,9 +297,12 @@ export const AdminUsersPage = () => {
             <Plus className="h-4 w-4 mr-2" />
             Создать
           </Button>
-          
+
           {/* ✅ Оборачиваем в form для перехвата нажатия Enter */}
-          <form onSubmit={handleSearch} className="flex gap-2 flex-1 md:flex-initial">
+          <form
+            onSubmit={handleSearch}
+            className="flex gap-2 flex-1 md:flex-initial"
+          >
             <Input
               placeholder="Поиск по имени или email..."
               value={searchInput} // Используем локальный стейт
@@ -318,6 +323,7 @@ export const AdminUsersPage = () => {
             <TableRow>
               <TableHead className="h-10 py-2">Имя</TableHead>
               <TableHead className="h-10 py-2">Email</TableHead>
+              <TableHead className="h-10 py-2">Организация</TableHead>
               <TableHead className="h-10 py-2">Роль</TableHead>
               <TableHead className="h-10 py-2 text-right">Действия</TableHead>
             </TableRow>
@@ -352,6 +358,7 @@ export const AdminUsersPage = () => {
                     </button>
                   </TableCell>
                   <TableCell className="py-1">{user.email}</TableCell>
+                  <TableCell className="py-1">{user.tenant_name}</TableCell>
                   <TableCell className="py-1">
                     <div className="flex items-center gap-2">
                       {user.is_superadmin ? (
@@ -466,13 +473,15 @@ export const AdminUsersPage = () => {
           </Pagination>
         </div>
       )}
-
-      <EditUserModal
-        open={editModalOpen}
-        onOpenChange={setEditModalOpen}
-        user={editUser}
-        onUserUpdated={handleUserUpdated}
-      />
+      {editUser && (
+        <EditUserModal
+          key={editUser.id}
+          open={editModalOpen}
+          onOpenChange={setEditModalOpen}
+          user={editUser}
+          onUserUpdated={handleUserUpdated}
+        />
+      )}
       <CreateUserModal
         open={createModalOpen}
         onOpenChange={setCreateModalOpen}
