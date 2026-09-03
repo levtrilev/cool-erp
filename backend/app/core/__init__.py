@@ -1,10 +1,7 @@
 # Сначала импортируем модели, которые НЕ зависят от других (TenantModel)
-from app.core.tenant.models import TenantModel
-
-# Потом импортируем UserSession (он зависит от UserModel через ForeignKey)
-from app.core.auth.models import UserSession
-
-# Потом импортируем UserModel (он зависит от UserSession и TenantModel через relationship)
+from app.core.tenants.models import TenantModel
 from app.core.users.models import UserModel
+from app.core.auth.models import UserSession
+from app.core.sections.models import SectionModel
 
-__all__ = ["TenantModel", "UserSession", "UserModel"]
+__all__ = ["TenantModel", "UserModel", "UserSession", "SectionModel"]

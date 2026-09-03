@@ -2,7 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, or_, func
-from app.core.tenant.models import TenantModel
+from app.core.tenants.models import TenantModel
 from app.core.users.models import UserModel
 from typing import Optional
 import uuid

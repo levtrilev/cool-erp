@@ -4,12 +4,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.tenant.schemas import (
+from app.core.tenants.schemas import (
     TenantCreateSchema,
     TenantUpdateSchema,
     TenantResponseSchema,
 )
-from app.core.tenant.crud import crud_tenant
+from app.core.tenants.crud import crud_tenant
 from app.core.schemas import PaginatedResponse
 
 # Создаем роутер для управления организациями

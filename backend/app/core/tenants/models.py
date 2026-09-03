@@ -5,7 +5,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import String, Boolean, text
 from app.core.database import Base
 
-
 class TenantModel(Base):
     __tablename__ = "tenants"
     __table_args__ = {"schema": "public"}
@@ -24,4 +23,11 @@ class TenantModel(Base):
         "UserModel",
         back_populates="tenant",
         lazy="selectin",
+    )
+
+    # ✅  связь с разделами
+    sections = relationship(
+        "SectionModel",
+        back_populates="tenant", 
+        lazy="selectin"
     )

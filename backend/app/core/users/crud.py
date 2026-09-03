@@ -86,12 +86,6 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
 
         return db_user
 
-    # def authenticate(self, db_user: Optional[UserModel], plain_password: str) -> bool:
-    #     """Проверка пароля пользователя"""
-    #     if not db_user:
-    #         return False
-    #     stored_hash_bytes = db_user.password.encode("utf-8")
-    #     return bcrypt.checkpw(plain_password.encode("utf-8"), stored_hash_bytes)
 
     async def remove(self, db: AsyncSession, id: uuid.UUID) -> UserModel | None:
         """Удаление пользователя из БД и полная очистка его активных сессий."""

@@ -18,7 +18,7 @@ from app.core.users.crud import crud_user
 # from app.core.auth.security import get_current_session
 # from app.core.user.models import UserModel  as User
 from app.core.schemas import PaginatedResponse  # , ApiResponse
-from app.core.tenant.crud import crud_tenant
+from app.core.tenants.crud import crud_tenant
 # from app.core.admin.models import TenantModel
 from app.core.users.schemas import PublicRegisterResponseSchema
 

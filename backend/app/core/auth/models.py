@@ -4,13 +4,13 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import Column, DateTime, ForeignKey, Index, String
 from app.core.database import Base
 from datetime import datetime, timezone
+import uuid
 
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
     session_token = Column(String(64), primary_key=True, index=True)
 
-    # ✅ ИСПРАВЛЕНО: "public.users.id" вместо "users.id"
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("public.users.id", ondelete="CASCADE"),
@@ -43,3 +43,12 @@ class UserSession(Base):
     def is_expired(self) -> bool:
         # ✅ Сравниваем timezone-aware объекты
         return cast(bool, datetime.now(timezone.utc) > self.expires_at)
+
+    @property
+    def tenant_id(self) -> uuid.UUID:
+        """
+        Возвращает tenant_id через связь с пользователем.
+        Позволяет использовать session.tenant_id во всех роутерах
+        без обращения к session.user.tenant_id.
+        """
+        return self.user.tenant_id
