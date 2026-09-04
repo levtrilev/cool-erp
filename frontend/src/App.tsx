@@ -53,7 +53,7 @@ function App() {
                   <AdminUsersPage />
                 </ProtectedRoute>
               }
-            />
+            />           
             <Route
               path="/admin/tenants"
               element={
@@ -69,8 +69,7 @@ function App() {
                   <AdminSectionsPage />
                 </ProtectedRoute>
               }
-            />            
-            
+            />
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"

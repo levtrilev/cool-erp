@@ -47,9 +47,15 @@ class SectionCRUD:
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
+        user_is_superadmin: bool = False,
     ) -> list[SectionModel]:
         """Получить список разделов с опциональным поиском по имени."""
-        stmt = select(self.model).where(self.model.tenant_id == tenant_id)
+        # 1. Если пользователь является суперадмином, то он видит все разделы
+        if user_is_superadmin:
+            stmt = select(self.model)
+        else:
+            # 2. Если пользователь не является суперадмином, то он видит только свои разделы
+            stmt = select(self.model).where(self.model.tenant_id == tenant_id)
         
         if search:
             # Регистронезависимый поиск по подстроке
@@ -66,13 +72,18 @@ class SectionCRUD:
         skip: int = 0,
         limit: int = 10,
         search: str | None = None,
+        user_is_superadmin: bool = False,
     ) -> tuple[list[SectionModel], int]:
         """
         Получить пагинированный список разделов.
         Возвращает кортеж: (список объектов, общее количество).
         """
         # 1. Подсчет общего количества записей
-        count_stmt = select(func.count()).select_from(self.model).where(
+        # (если пользователь является суперадмином, то он видит все разделы)
+        if user_is_superadmin:
+            count_stmt = select(func.count()).select_from(self.model)
+        else:
+            count_stmt = select(func.count()).select_from(self.model).where(
             self.model.tenant_id == tenant_id
         )
         if search:
@@ -82,7 +93,7 @@ class SectionCRUD:
         total = count_result.scalar_one()
 
         # 2. Получение самих записей
-        items = await self.get_multi(db, tenant_id, skip, limit, search)
+        items = await self.get_multi(db, tenant_id, skip, limit, search, user_is_superadmin)
         
         return items, total
 

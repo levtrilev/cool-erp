@@ -43,7 +43,12 @@ async def get_sections(
 ):
     """Получение пагинированного списка разделов с опциональным поиском."""
     items, total = await crud_section.get_multi_paginated(
-        db, tenant_id=session.tenant_id, skip=skip, limit=limit, search=search
+        db,
+        tenant_id=session.tenant_id,
+        skip=skip,
+        limit=limit,
+        search=search,
+        user_is_superadmin=session.is_superadmin,
     )
 
     return ApiResponse(

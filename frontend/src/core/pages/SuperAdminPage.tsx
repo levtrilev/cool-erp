@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ShieldCheck, Database, Server } from "lucide-react";
+import { ShieldCheck, Users, Factory, Database } from "lucide-react"; // , Settings, Activity, Building, Server
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { Link } from "react-router-dom";
 
 export const SuperAdminPage = () => {
   const { data: userData } = useGetUserAuthUserGet();
@@ -13,45 +14,71 @@ export const SuperAdminPage = () => {
           Панель супер-администратора
         </h1>
         <p className="text-muted-foreground mt-2">
-          Добро пожаловать, {userData?.data?.name}!
+          Добро пожаловать, {userData?.data?.name}! Пока здесь все то же, что и в Админ-панели.
         </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Карточка 1: Тенанты */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5" />
-              Тенанты
-            </CardTitle>
-            <CardDescription>
-              Управление тенантами
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Создание и управление тенантами системы
-            </p>
-          </CardContent>
+        {/* Карточка 1: Пользователи */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+          <Link to="/admin/users" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader className="p-0 mb-4">
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Пользователи
+              </CardTitle>
+              <CardDescription>
+                Управление пользователями системы
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <p className="text-sm text-muted-foreground">
+                Просмотр, поиск и удаление пользователей
+              </p>
+            </CardContent>
+          </Link>
         </Card>
 
-        {/* Карточка 2: Системные настройки */}
+        {/* Карточка 2: Организации */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5" />
-              Системные настройки
-            </CardTitle>
-            <CardDescription>
-              Глобальные настройки
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Конфигурация всей системы
-            </p>
-          </CardContent>
+          <Link to="/admin/tenants" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Организации
+              </CardTitle>
+              <CardDescription>Настройки доступа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Конфигурация приложения
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
+        {/* Карточка 3: Разделы */}
+        <Card>
+          <Link to="/admin/sections" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Factory className="h-5 w-5" />
+                Разделы
+              </CardTitle>
+              <CardDescription>Настройки доступа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Конфигурация приложения
+              </p>
+            </CardContent>
+          </Link>
         </Card>
       </div>
     </div>
