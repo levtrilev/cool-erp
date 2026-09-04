@@ -14,7 +14,8 @@ import { AdminPage } from "@/core/pages/AdminPage";
 import { SuperAdminPage } from "@/core/pages/SuperAdminPage";
 import { Toaster } from "@/components/ui/toaster";
 import { AdminUsersPage } from "@/core/users/AdminUsersPage";
-import { AdminTenantsPage } from "./core/tenants/AdminTenantsPage";
+import { AdminTenantsPage } from "@/core/tenants/AdminTenantsPage";
+import { AdminSectionsPage } from "@/core/sections/AdminSectionsPage";
 
 const queryClient = new QueryClient();
 
@@ -61,6 +62,15 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/sections"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminSectionsPage />
+                </ProtectedRoute>
+              }
+            />            
+            
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"

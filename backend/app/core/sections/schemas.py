@@ -38,3 +38,4 @@ class SectionResponseSchema(BaseModel):
     id: uuid.UUID
     name: str
     tenant_id: uuid.UUID
+    tenant_name: str

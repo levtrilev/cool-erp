@@ -47,7 +47,7 @@ export const AdminPage = () => {
           </Link>
         </Card>
 
-        {/* Карточка 2: Настройки */}
+        {/* Карточка 2: Организации */}
         <Card>
           <Link to="/admin/tenants" className="block p-6">
             {" "}
@@ -57,7 +57,27 @@ export const AdminPage = () => {
                 <Factory className="h-5 w-5" />
                 Организации
               </CardTitle>
-              <CardDescription>Системные настройки</CardDescription>
+              <CardDescription>Настройки доступа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Конфигурация приложения
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
+        {/* Карточка 3: Разделы */}
+        <Card>
+          <Link to="/admin/sections" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Factory className="h-5 w-5" />
+                Разделы
+              </CardTitle>
+              <CardDescription>Настройки доступа</CardDescription>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">

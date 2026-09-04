@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.core.tenants.models import TenantModel
+# from app.core.tenants.models import TenantModel
 
 
 class SectionModel(Base):
@@ -54,7 +54,8 @@ class SectionModel(Base):
     # --- Связи (Rule №1) ---
     # Связь с тенантом. 
     # back_populates="sections" требует, чтобы в TenantModel было добавлено поле sections.
-    tenant: Mapped["TenantModel"] = relationship(
+    tenant = relationship(
+        "TenantModel",
         back_populates="sections", 
         lazy="selectin"
     )
