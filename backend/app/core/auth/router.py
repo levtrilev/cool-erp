@@ -223,10 +223,16 @@ async def read_users(
     limit: int = 100,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    session: UserSession = Depends(get_current_session),
 ):
     """Получение списка пользователей с пагинацией"""
     items, total = await crud_user.get_multi_paginated(
-        db, skip=skip, limit=limit, search=search
+        db, 
+        tenant_id=session.tenant_id,
+        skip=skip, 
+        limit=limit, 
+        search=search,
+        user_is_superadmin=session.is_superadmin,
     )
     
     # Явно создаем экземпляр дженерика

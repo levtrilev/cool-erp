@@ -33,13 +33,23 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
     async def get_multi_paginated(
         self,
         db: AsyncSession,
+        tenant_id: uuid.UUID,
         skip: int = 0,
         limit: int = 100,
         search: Optional[str] = None,
         search_field: str = "name",
+        user_is_superadmin: bool = False,
     ) -> Tuple[List[ModelType], int]:
-        data_query = select(self.model)
-        count_query = select(func.count()).select_from(self.model)
+# Исправленный вариант
+        if hasattr(self.model, "tenant_id") and not user_is_superadmin:
+            # (если пользователь является суперадмином, то он видит все tenant-ы)
+            # Использование getattr защищает от ошибок типизации (type checker видит это как Any)
+            tenant_attr = getattr(self.model, "tenant_id")
+            data_query = select(self.model).where(tenant_attr == tenant_id)
+            count_query = select(func.count()).select_from(self.model).where(tenant_attr == tenant_id)
+        else:
+            data_query = select(self.model)
+            count_query = select(func.count()).select_from(self.model)
 
         if search and hasattr(self.model, search_field):
             # Используем явное приведение типов (cast), чтобы Pylance знал: 
@@ -49,7 +59,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             # Безопасно вызываем .ilike(), проверив наличие метода через static-анализ
             if hasattr(model_attr, "ilike"):
                 filter_condition = model_attr.ilike(f"%{search}%")
-                data_query = data_query.where(filter_condition)
+                data_query = data_query
                 count_query = count_query.where(filter_condition)
 
         count_result = await db.execute(count_query)
