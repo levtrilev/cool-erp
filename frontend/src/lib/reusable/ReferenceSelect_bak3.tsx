@@ -1,13 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Check,
-  ChevronsUpDown,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsRight,
-} from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, ChevronLeft, ChevronRight, ChevronsRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+// ✅ Расширяем: разрешаем произвольные поля для доступа по column name
 export interface ReferenceItem {
   id: string;
   name: string;
@@ -34,17 +28,14 @@ export interface PaginatedReferenceResponse<T extends ReferenceItem> {
   total: number;
 }
 
+// ✅ НОВОЕ: Тип для описания дополнительных колонок
 export interface ReferenceColumn {
   column: string;
   label: string;
 }
 
 export interface ReferenceSelectProps<T extends ReferenceItem> {
-  fetchFn: (params: {
-    skip: number;
-    limit: number;
-    search?: string;
-  }) => Promise<PaginatedReferenceResponse<T>>;
+  fetchFn: (params: { skip: number; limit: number; search?: string }) => Promise<PaginatedReferenceResponse<T>>;
   queryKey: string[];
   value: string | undefined;
   onValueChange: (value: string) => void;
@@ -53,6 +44,7 @@ export interface ReferenceSelectProps<T extends ReferenceItem> {
   limit?: number;
   selectedLabel?: string;
   heading?: string;
+  // ✅ НОВОЕ: Массив дополнительных колонок для отображения
   columns?: ReferenceColumn[];
 }
 
@@ -66,24 +58,17 @@ export function ReferenceSelect<T extends ReferenceItem>({
   limit = 10,
   selectedLabel,
   heading,
-  columns,
+  columns, // ✅ Новый параметр
 }: ReferenceSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-
+  
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [localLabel, setLocalLabel] = useState<string | undefined>(undefined);
 
-  // ✅ Ref для fetchFn, чтобы избежать проблем с нестабильными ссылками в useEffect
-  const fetchFnRef = useRef(fetchFn);
-  useEffect(() => {
-    fetchFnRef.current = fetchFn;
-  }, [fetchFn]);
-
   const hasColumns = columns && columns.length > 0;
-  const colunmsLength = columns?.length ?? 0;
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
@@ -91,28 +76,6 @@ export function ReferenceSelect<T extends ReferenceItem>({
       setSelectedIndex(0);
     }
   };
-
-  // ✅ НОВОЕ: При открытии справочника с выбранным значением
-  // находим страницу, на которой находится этот элемент
-  useEffect(() => {
-    if (open && value) {
-      fetchFnRef
-        .current({ limit: 1000, skip: 0 })
-        .then((allData) => {
-          if (allData?.items) {
-            const index = allData.items.findIndex((item) => item.id === value);
-            if (index !== -1) {
-              const targetPage = Math.floor(index / limit) + 1;
-              setPage(targetPage);
-              setSelectedIndex(index % limit);
-            }
-          }
-        })
-        .catch((error) => {
-          console.error("Ошибка поиска страницы элемента:", error);
-        });
-    }
-  }, [open, value, limit]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -210,90 +173,40 @@ export function ReferenceSelect<T extends ReferenceItem>({
     }
 
     pages.push(
-      <Button
-        key="prev"
-        size="sm"
-        variant="outline"
-        className="h-8 w-8 p-0"
-        disabled={page === 1}
-        onClick={() => handlePageChange(Math.max(1, page - 1))}
-      >
+      <Button key="prev" size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => handlePageChange(Math.max(1, page - 1))}>
         <ChevronLeft className="h-4 w-4" />
-      </Button>,
+      </Button>
     );
 
     if (startPage > 1) {
-      pages.push(
-        <Button
-          key="first"
-          size="sm"
-          variant="outline"
-          className="h-8 w-8 p-0"
-          onClick={() => handlePageChange(1)}
-        >
-          1
-        </Button>,
-      );
-      if (startPage > 2)
-        pages.push(
-          <span key="dots1" className="px-1 text-muted-foreground">
-            ...
-          </span>,
-        );
+      pages.push(<Button key="first" size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handlePageChange(1)}>1</Button>);
+      if (startPage > 2) pages.push(<span key="dots1" className="px-1 text-muted-foreground">...</span>);
     }
 
     for (let i = startPage; i <= endPage; i++) {
       pages.push(
-        <Button
-          key={i}
-          size="sm"
-          variant={page === i ? "default" : "outline"}
-          className="h-8 w-8 p-0"
-          onClick={() => handlePageChange(i)}
-        >
+        <Button key={i} size="sm" variant={page === i ? "default" : "outline"} className="h-8 w-8 p-0" onClick={() => handlePageChange(i)}>
           {i}
-        </Button>,
+        </Button>
       );
     }
 
     if (endPage < totalPages) {
-      if (endPage < totalPages - 1)
-        pages.push(
-          <span key="dots2" className="px-1 text-muted-foreground">
-            ...
-          </span>,
-        );
+      if (endPage < totalPages - 1) pages.push(<span key="dots2" className="px-1 text-muted-foreground">...</span>);
       pages.push(
-        <Button
-          key="last"
-          size="sm"
-          variant="outline"
-          className="h-8 px-2"
-          onClick={() => handlePageChange(totalPages)}
-        >
+        <Button key="last" size="sm" variant="outline" className="h-8 px-2" onClick={() => handlePageChange(totalPages)}>
           End <ChevronsRight className="h-3 w-3 ml-1" />
-        </Button>,
+        </Button>
       );
     }
 
     pages.push(
-      <Button
-        key="next"
-        size="sm"
-        variant="outline"
-        className="h-8 w-8 p-0"
-        disabled={page === totalPages}
-        onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
-      >
+      <Button key="next" size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => handlePageChange(Math.min(totalPages, page + 1))}>
         <ChevronRight className="h-4 w-4" />
-      </Button>,
+      </Button>
     );
 
-    return (
-      <div className="flex items-center justify-center gap-1 pt-2 border-t mt-2">
-        {pages}
-      </div>
-    );
+    return <div className="flex items-center justify-center gap-1 pt-2 border-t mt-2">{pages}</div>;
   };
 
   return (
@@ -318,13 +231,12 @@ export function ReferenceSelect<T extends ReferenceItem>({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-
-      <PopoverContent
+      
+      <PopoverContent 
         className={cn(
           "p-0 overflow-hidden",
-          hasColumns
-            ? "min-w-[480px] max-w-[90vw]"
-            : "w-[--radix-popover-trigger-width]",
+          // ✅ Если есть колонки, делаем окно шире; иначе — по ширине кнопки
+          hasColumns ? "min-w-[480px] max-w-[90vw]" : "w-[--radix-popover-trigger-width]"
         )}
         align="start"
         sideOffset={4}
@@ -335,7 +247,7 @@ export function ReferenceSelect<T extends ReferenceItem>({
               {heading}
             </div>
           )}
-
+          
           <CommandInput
             placeholder="Поиск по названию..."
             value={searchInput}
@@ -344,7 +256,8 @@ export function ReferenceSelect<T extends ReferenceItem>({
             onKeyDown={handleKeyDown}
           />
 
-          {/* {hasColumns && (
+          {/* ✅ НОВОЕ: Заголовки колонок (если есть дополнительные колонки) */}
+          {hasColumns && (
             <div className="flex items-center gap-4 px-3 py-1 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
               <span className="flex-1 min-w-0">Название</span>
               {columns.map((col) => (
@@ -353,38 +266,13 @@ export function ReferenceSelect<T extends ReferenceItem>({
                 </span>
               ))}
             </div>
-          )} */}
-          {hasColumns && (
-            <div className="flex items-center px-3 py-1 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
-              {/* Placeholder для выравнивания */}
-              <div className="w-6 mr-2 shrink-0" />
-              {/* Вложенный div с gap-4, идентичный строке данных */}
-              <div className="flex-1 flex items-center gap-4 min-w-0">
-
-                { colunmsLength === 1 && <span className="w-[236px] shrink-0">Название</span> }
-                { colunmsLength === 2 && <span className="w-[80px] shrink-0">Название</span> }
-                
-                {columns.map((col) => {
-                  // Выносим определение класса в переменную для удобства чтения
-                  const widthClass = colunmsLength === 2 ? "w-[140px]" : "w-[240px]";
-
-                  return (
-                    <span 
-                      key={col.column} 
-                      className={`${widthClass} shrink-0 truncate`}
-                    >
-                      {col.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
           )}
+          
           <CommandList className="max-h-[min(330px,60vh)] overflow-y-auto">
             <CommandEmpty className="py-2 text-center text-sm text-muted-foreground">
               {isLoading ? "Загрузка..." : "Ничего не найдено"}
             </CommandEmpty>
-
+            
             {items.map((item, index) => (
               <CommandItem
                 key={item.id}
@@ -392,7 +280,7 @@ export function ReferenceSelect<T extends ReferenceItem>({
                 value={item.id}
                 className={cn(
                   "cursor-pointer px-3 py-1",
-                  index === selectedIndex && "bg-accent text-accent-foreground",
+                  index === selectedIndex && "bg-accent text-accent-foreground"
                 )}
                 onSelect={() => handleSelect(item.id)}
                 onMouseEnter={() => setSelectedIndex(index)}
@@ -400,10 +288,11 @@ export function ReferenceSelect<T extends ReferenceItem>({
                 <Check
                   className={cn(
                     "mr-2 h-4 w-4 shrink-0",
-                    value === item.id ? "opacity-100" : "opacity-0",
+                    value === item.id ? "opacity-100" : "opacity-0"
                   )}
                 />
-
+                
+                {/* ✅ НОВОЕ: Контент строки — одна или несколько колонок */}
                 {hasColumns ? (
                   <div className="flex-1 flex items-center gap-4 min-w-0">
                     <span className="flex-1 truncate text-sm font-medium">
@@ -414,9 +303,7 @@ export function ReferenceSelect<T extends ReferenceItem>({
                         key={col.column}
                         className="w-[140px] shrink-0 truncate text-sm text-muted-foreground"
                       >
-                        {item[col.column] != null
-                          ? String(item[col.column])
-                          : "—"}
+                        {item[col.column] != null ? String(item[col.column]) : "—"}
                       </span>
                     ))}
                   </div>
@@ -426,7 +313,7 @@ export function ReferenceSelect<T extends ReferenceItem>({
               </CommandItem>
             ))}
           </CommandList>
-
+          
           {renderPagination()}
         </Command>
       </PopoverContent>

@@ -11,6 +11,8 @@ from app.core.tenants.schemas import (
 )
 from app.core.tenants.crud import crud_tenant
 from app.core.schemas import PaginatedResponse
+from app.core.auth.models import UserSession
+from app.core.auth.security import get_current_session
 
 # Создаем роутер для управления организациями
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
@@ -26,10 +28,17 @@ async def read_tenants(
     search: Optional[str] = None,
     active_only: bool = False,  # <-- ДОБАВЛЕНО: фильтр по активности
     db: AsyncSession = Depends(get_db),
+    session: UserSession = Depends(get_current_session),
 ):
     """Получение списка организаций с пагинацией, поиском и фильтром по активности"""
     items, total = await crud_tenant.get_multi_paginated(
-        db, skip=skip, limit=limit, search=search, active_only=active_only
+        db,
+        user_tenant_id=session.tenant_id,
+        skip=skip, 
+        limit=limit, 
+        search=search, 
+        active_only=active_only,
+        user_is_superadmin=session.is_superadmin
     )
     return PaginatedResponse[TenantResponseSchema](
         items=[TenantResponseSchema.model_validate(item) for item in items],

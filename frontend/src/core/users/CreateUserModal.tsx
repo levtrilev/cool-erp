@@ -1,7 +1,7 @@
-import { useForm } from "react-hook-form";
+import { useEffect } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 
-// ✅ Импортируем Orval-хуки (проверьте точные имена в сгенерированных файлах)
+// ✅ Импортируем Orval-хуки
 import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
 import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 
@@ -25,7 +25,7 @@ const createUserSchema = z.object({
   name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
   email: z.string().email("Некорректный email"),
   password: z.string().min(8, "Пароль должен содержать минимум 8 символов"),
-  tenant_id: z.string().uuid("Выберите организацию"),
+  tenant_id: z.string().min(1, "Выберите организацию").uuid("Некорректный ID организации"),
 });
 
 type CreateUserFormData = z.infer<typeof createUserSchema>;
@@ -42,22 +42,30 @@ export const CreateUserModal = ({
   onUserCreated,
 }: CreateUserModalProps) => {
   const { toast } = useToast();
-  const [tenantId, setTenantId] = useState<string | undefined>(undefined);
-
   const createUserMutation = useRegisterUsersRegisterPost();
 
   const {
     register,
     handleSubmit,
-    setValue,
+    control, // ✅ Добавляем control для Controller
     formState: { errors },
     reset,
   } = useForm<CreateUserFormData>({
     resolver: zodResolver(createUserSchema),
     defaultValues: {
-      tenant_id: "",
+      name: "",
+      email: "",
+      password: "",
+      tenant_id: "", // ✅ Строка по умолчанию
     },
   });
+
+  // ✅ Сбрасываем форму при закрытии модалки
+  useEffect(() => {
+    if (!open) {
+      reset();
+    }
+  }, [open, reset]);
 
   const onSubmit = async (data: CreateUserFormData) => {
     createUserMutation.mutate(
@@ -72,12 +80,12 @@ export const CreateUserModal = ({
         },
       },
       {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onSuccess: async (response: any) => {
-          // ✅ Бэкенд возвращает созданный объект. Берём из него ID.
-          // Используем 'any', так как типы Orval могут быть сложными, но 'id' там точно есть.
-          const newId = response?.id;
-          console.log("🔍 ПОЛНЫЙ ОТВЕТ БЕКЕНДА ПРИ СОЗДАНИИ:", response);
+        onSuccess: async (response: unknown) => {
+          // ✅ Безопасное извлечение ID из ответа
+          const newId = response && typeof response === "object" && "id" in response 
+            ? (response as { id: string }).id 
+            : undefined;
+
           if (!newId) {
             toast({
               variant: "destructive",
@@ -87,56 +95,29 @@ export const CreateUserModal = ({
             return;
           }
 
-          // ✅ Передаём этот ID наверх, в AdminUsersPage
+          // ✅ Передаём ID наверх
           await onUserCreated(newId);
 
           // Сбрасываем форму и закрываем модалку
           reset();
-          setTenantId(undefined);
           onOpenChange(false);
         },
-        // onError: (error: unknown) => {
-        //   let message = "Ошибка создания пользователя";
-
-        //   if (error && typeof error === "object" && "response" in error) {
-        //     const response = (
-        //       error as { response?: { data?: { detail?: string } } }
-        //     ).response;
-        //     if (response?.data?.detail) {
-        //       message = response.data.detail;
-        //     }
-        //   }
-
-        //   toast({
-        //     variant: "destructive",
-        //     title: "Ошибка",
-        //     description: message,
-        //   });
-        // },
         onError: (error: unknown) => {
           let message = "Ошибка создания пользователя";
+          
           if (error && typeof error === "object" && "response" in error) {
-            const response = (
-              error as { response?: { data?: { detail?: string } } }
-            ).response;
-            // if (response?.data?.detail) {
-            //   message = details[0].msg || message;
-            // }
-
+            const response = (error as { response?: { data?: { detail?: unknown } } }).response;
+            
             // ✅ Парсим специфичный формат ошибок FastAPI (422 Unprocessable Entity)
             if (response?.data?.detail) {
               const details = response.data.detail;
               if (Array.isArray(details) && details.length > 0) {
-                message = details[0].msg || message; // Берем первое сообщение (наш текст про email)
+                message = (details[0] as { msg?: string }).msg || message;
               } else if (typeof details === "string") {
                 message = details;
               }
-            } else if (
-              error &&
-              typeof error === "object" &&
-              "message" in error
-            ) {
-              message = String(error.message);
+            } else if ("message" in error) {
+              message = String((error as { message: string }).message);
             }
           }
 
@@ -146,20 +127,12 @@ export const CreateUserModal = ({
             description: message,
           });
         },
-      },
+      }
     );
   };
 
-  const handleClose = (open: boolean) => {
-    if (!open) {
-      reset();
-      setTenantId(undefined);
-    }
-    onOpenChange(open);
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Создание пользователя</DialogTitle>
@@ -201,28 +174,31 @@ export const CreateUserModal = ({
 
           <div className="space-y-2">
             <Label>Организация</Label>
-            <ReferenceSelect
-              fetchFn={async () => {
-                const response = await readTenantsTenantsGet({
-                  active_only: true,
-                });
-                //
-                return response?.items || [];
-              }}
-              queryKey={["tenants", "active"]}
-              value={tenantId}
-              onValueChange={(value) => {
-                setTenantId(value);
-                setValue("tenant_id", value, { shouldValidate: true });
-              }}
-              placeholder="Выберите организацию"
+            
+            {/* ✅ Controller связывает ReferenceSelect с формой напрямую */}
+            <Controller
+              name="tenant_id"
+              control={control}
+              render={({ field }) => (
+                <ReferenceSelect
+                  fetchFn={async (params) => {
+                    const response = await readTenantsTenantsGet(params);
+                    // ✅ Адаптируем ответ под формат ReferenceSelect
+                    return {
+                      items: response?.items ?? [],
+                      total: response?.total ?? 0,
+                    };
+                  }}
+                  queryKey={["tenants", "active"]}
+                  value={field.value || ""}
+                  onValueChange={field.onChange}
+                  placeholder="Выберите организацию"
+                  heading="Выберите организацию" // ✅ Опционально: заголовок окна
+                  columns={[{ column: "description", label: "Описание" }]}
+                />
+              )}
             />
-            {/* Скрытое поле для react-hook-form */}
-            <input
-              type="hidden"
-              {...register("tenant_id")}
-              value={tenantId || ""}
-            />
+            
             {errors.tenant_id && (
               <p className="text-sm text-destructive">
                 {errors.tenant_id.message}
@@ -234,7 +210,7 @@ export const CreateUserModal = ({
             <Button
               type="button"
               variant="outline"
-              onClick={() => handleClose(false)}
+              onClick={() => onOpenChange(false)}
             >
               Отмена
             </Button>

@@ -38,14 +38,20 @@ class CRUDTenant:
 
     async def get_multi(
         self, 
-        db: AsyncSession, 
+        db: AsyncSession,
+        user_tenant_id: uuid.UUID, 
         skip: int = 0, 
-        limit: int = 100, 
+        limit: int = 100,
+        user_is_superadmin: bool = False, 
         search: Optional[str] = None,
         active_only: bool = False
     ) -> list[TenantModel]:
         """Получение списка организаций с пагинацией, поиском и фильтром по активности"""
-        query = select(TenantModel)
+        # (если пользователь является суперадмином, то он видит все tenants)
+        if user_is_superadmin:
+            query = select(TenantModel)
+        else:
+            query = select(TenantModel).where(TenantModel.id == user_tenant_id)
         
         # Фильтр по активности
         if active_only:
@@ -70,9 +76,11 @@ class CRUDTenant:
 
     async def get_multi_paginated(
         self, 
-        db: AsyncSession, 
+        db: AsyncSession,
+        user_tenant_id: uuid.UUID, 
         skip: int = 0, 
-        limit: int = 100, 
+        limit: int = 100,
+        user_is_superadmin: bool = False, 
         search: Optional[str] = None,
         active_only: bool = False
     ) -> tuple[list[TenantModel], int]:
@@ -80,9 +88,14 @@ class CRUDTenant:
         Получение списка организаций с пагинацией, поиском, фильтром по активности и общим количеством.
         Возвращает кортеж: (список_объектов, общее_количество)
         """
-        query = select(TenantModel)
-        count_query = select(func.count(TenantModel.id))
-        
+                # (если пользователь является суперадмином, то он видит все tenants)
+        if user_is_superadmin:
+            query = select(TenantModel)
+            count_query = select(func.count(TenantModel.id))
+        else:
+            query = select(TenantModel).where(TenantModel.id == user_tenant_id)
+            count_query = select(func.count(TenantModel.id)).where(TenantModel.id == user_tenant_id)
+
         # Базовые фильтры
         filters = []
         

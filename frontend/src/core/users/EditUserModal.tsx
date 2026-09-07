@@ -184,16 +184,24 @@ export const EditUserModal = ({
               control={control}
               render={({ field }) => (
                 <ReferenceSelect
-                  fetchFn={async () => {
-                    const response = await readTenantsTenantsGet({
-                      active_only: true,
-                    });
-                    return response?.items || [];
+                  fetchFn={async (params) => {
+                    const response = await readTenantsTenantsGet(params);
+                    // Распаковываем ApiResponse -> { items, total }
+                    return {
+                      items: response?.items ?? [],
+                      total: response?.total ?? 0,
+                    };
                   }}
                   queryKey={["tenants", "active"]} // ✅ Чистый ключ кэша, без специфики пользователя
                   value={field.value || ""} // ✅ Значение берется напрямую из формы
                   onValueChange={field.onChange} // ✅ Изменение сразу идет в форму
                   placeholder="Выберите организацию"
+                  selectedLabel={user?.tenant_name ?? "Выберите организацию"}
+                  heading="Выберите организацию"
+                  columns={[
+                    { column: "description", label: "Описание" },
+                    // { column: "name", label: "Название полное" },
+                  ]}
                 />
               )}
             />

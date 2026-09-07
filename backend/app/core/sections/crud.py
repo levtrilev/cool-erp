@@ -68,7 +68,7 @@ class SectionCRUD:
     async def get_multi_paginated(
         self,
         db: AsyncSession,
-        tenant_id: uuid.UUID,
+        user_tenant_id: uuid.UUID,
         skip: int = 0,
         limit: int = 10,
         search: str | None = None,
@@ -84,7 +84,7 @@ class SectionCRUD:
             count_stmt = select(func.count()).select_from(self.model)
         else:
             count_stmt = select(func.count()).select_from(self.model).where(
-            self.model.tenant_id == tenant_id
+            self.model.tenant_id == user_tenant_id
         )
         if search:
             count_stmt = count_stmt.where(self.model.name.ilike(f"%{search}%"))
@@ -93,7 +93,7 @@ class SectionCRUD:
         total = count_result.scalar_one()
 
         # 2. Получение самих записей
-        items = await self.get_multi(db, tenant_id, skip, limit, search, user_is_superadmin)
+        items = await self.get_multi(db, user_tenant_id, skip, limit, search, user_is_superadmin)
         
         return items, total
 

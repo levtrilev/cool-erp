@@ -83,7 +83,6 @@ export function ReferenceSelect<T extends ReferenceItem>({
   }, [fetchFn]);
 
   const hasColumns = columns && columns.length > 0;
-  const colunmsLength = columns?.length ?? 0;
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
@@ -344,42 +343,27 @@ export function ReferenceSelect<T extends ReferenceItem>({
             onKeyDown={handleKeyDown}
           />
 
-          {/* {hasColumns && (
-            <div className="flex items-center gap-4 px-3 py-1 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
-              <span className="flex-1 min-w-0">Название</span>
+          {/* ✅ Заголовок колонок — используем CSS Grid для идеального выравнивания */}
+          {hasColumns && (
+            <div
+              className="px-3 py-1 border-b bg-muted/30 text-xs font-medium text-muted-foreground"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `16px 1fr ${columns.map(() => "140px").join(" ")}`,
+                gap: "1rem", // gap-4 = 16px
+                alignItems: "center",
+              }}
+            >
+              <div /> {/* Placeholder вместо Check */}
+              <span className="truncate">Название</span>
               {columns.map((col) => (
-                <span key={col.column} className="w-[140px] shrink-0 truncate">
+                <span key={col.column} className="truncate">
                   {col.label}
                 </span>
               ))}
             </div>
-          )} */}
-          {hasColumns && (
-            <div className="flex items-center px-3 py-1 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
-              {/* Placeholder для выравнивания */}
-              <div className="w-6 mr-2 shrink-0" />
-              {/* Вложенный div с gap-4, идентичный строке данных */}
-              <div className="flex-1 flex items-center gap-4 min-w-0">
-
-                { colunmsLength === 1 && <span className="w-[236px] shrink-0">Название</span> }
-                { colunmsLength === 2 && <span className="w-[80px] shrink-0">Название</span> }
-                
-                {columns.map((col) => {
-                  // Выносим определение класса в переменную для удобства чтения
-                  const widthClass = colunmsLength === 2 ? "w-[140px]" : "w-[240px]";
-
-                  return (
-                    <span 
-                      key={col.column} 
-                      className={`${widthClass} shrink-0 truncate`}
-                    >
-                      {col.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
           )}
+
           <CommandList className="max-h-[min(330px,60vh)] overflow-y-auto">
             <CommandEmpty className="py-2 text-center text-sm text-muted-foreground">
               {isLoading ? "Загрузка..." : "Ничего не найдено"}
@@ -394,32 +378,43 @@ export function ReferenceSelect<T extends ReferenceItem>({
                   "cursor-pointer px-3 py-1",
                   index === selectedIndex && "bg-accent text-accent-foreground",
                 )}
+                // ✅ Используем CSS Grid для строк данных — идентично заголовку
+                style={
+                  hasColumns
+                    ? {
+                        display: "grid",
+                        gridTemplateColumns: `16px 1fr ${columns.map(() => "140px").join(" ")}`,
+                        gap: "1rem",
+                        alignItems: "center",
+                      }
+                    : undefined
+                }
                 onSelect={() => handleSelect(item.id)}
                 onMouseEnter={() => setSelectedIndex(index)}
               >
                 <Check
                   className={cn(
-                    "mr-2 h-4 w-4 shrink-0",
+                    "h-4 w-4 shrink-0",
                     value === item.id ? "opacity-100" : "opacity-0",
                   )}
                 />
 
                 {hasColumns ? (
-                  <div className="flex-1 flex items-center gap-4 min-w-0">
-                    <span className="flex-1 truncate text-sm font-medium">
+                  <>
+                    <span className="truncate text-sm font-medium">
                       {item.name}
                     </span>
                     {columns.map((col) => (
                       <span
                         key={col.column}
-                        className="w-[140px] shrink-0 truncate text-sm text-muted-foreground"
+                        className="truncate text-sm text-muted-foreground"
                       >
                         {item[col.column] != null
                           ? String(item[col.column])
                           : "—"}
                       </span>
                     ))}
-                  </div>
+                  </>
                 ) : (
                   <span className="truncate text-sm">{item.name}</span>
                 )}

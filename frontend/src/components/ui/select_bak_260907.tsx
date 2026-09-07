@@ -63,7 +63,7 @@ function SelectContent({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
-    // <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         data-slot="select-content"
         data-align-trigger={position === "item-aligned"}
@@ -84,8 +84,8 @@ function SelectContent({
         </SelectPrimitive.Viewport>
         <SelectScrollDownButton />
       </SelectPrimitive.Content>
-    // </SelectPrimitive.Portal>)
-  );
+    </SelectPrimitive.Portal>
+  )
 }
 
 function SelectLabel({
@@ -188,3 +188,95 @@ export {
   SelectTrigger,
   SelectValue,
 }
+
+// Эта ошибка возникает из-за того, как устроен компонент `SelectContent` в библиотеке **shadcn/ui**. 
+
+// В исходном коде `components/ui/select.tsx` компонент `SelectContent` **жестко обернут** в `<SelectPrimitive.Portal>`. Проп `portalled` не пробрасывается внутрь, поэтому TypeScript справедливо ругается, что такого свойства не существует.
+
+// Единственный 100% рабочий способ устранить конфликт `aria-hidden` (и warning в консоли) при вложенности `Select` внутри `Dialog` — **убрать портал из самого компонента `select.tsx`**. Это заставит выпадающий список рендериться прямо внутри DOM-дерева модального окна.
+
+// ### 🔧 Шаг 1: Модифицируйте `components/ui/select.tsx`
+
+// Откройте файл `frontend/src/components/ui/select.tsx`. Найдите компонент `SelectContent` и уберите из него обертку `<SelectPrimitive.Portal>`.
+
+// **❌ Было (стандартный shadcn/ui):**
+// ```tsx
+// const SelectContent = React.forwardRef<
+//   React.ElementRef<typeof SelectPrimitive.Content>,
+//   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
+// >(({ className, children, position = "popper", ...props }, ref) => (
+//   <SelectPrimitive.Portal> {/* ← ЭТОТ ПОРТАЛ ВЫЗЫВАЕТ КОНФЛИКТ */}
+//     <SelectPrimitive.Content
+//       ref={ref}
+//       className={cn(...)}
+//       position={position}
+//       {...props}
+//     >
+//       <SelectPrimitive.Viewport className={cn(...)}>
+//         {children}
+//       </SelectPrimitive.Viewport>
+//     </SelectPrimitive.Content>
+//   </SelectPrimitive.Portal>
+// ))
+// ```
+
+// **✅ Стало (исправленный вариант):**
+// ```tsx
+// const SelectContent = React.forwardRef<
+//   React.ElementRef<typeof SelectPrimitive.Content>,
+//   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
+// >(({ className, children, position = "popper", ...props }, ref) => (
+//   // ✅ УБРАЛИ <SelectPrimitive.Portal>
+//   <SelectPrimitive.Content
+//     ref={ref}
+//     className={cn(
+//       "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+//       position === "popper" &&
+//         "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+//       className
+//     )}
+//     position={position}
+//     {...props}
+//   >
+//     <SelectPrimitive.Viewport
+//       className={cn(
+//         "p-1",
+//         position === "popper" &&
+//           "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+//       )}
+//     >
+//       {children}
+//     </SelectPrimitive.Viewport>
+//   </SelectPrimitive.Content>
+// ))
+// SelectContent.displayName = SelectPrimitive.Content.displayName
+// ```
+
+// ---
+
+// ### 🔧 Шаг 2: Уберите `portalled={false}` из `ReferenceSelect.tsx`
+
+// Теперь, когда портал отключен на уровне базового компонента, уберите несуществующий проп из вашего `ReferenceSelect`:
+
+// ```tsx
+// <SelectContent 
+//   className="max-h-[400px] flex flex-col"
+//   // ❌ УДАЛИТЕ ЭТУ СТРОКУ:
+//   // portalled={false} 
+  
+//   // ✅ Оставьте только position:
+//   position="popper" 
+// >
+//   {/* ... остальной код ... */}
+// </SelectContent>
+// ```
+
+// ---
+
+// ### 💡 Почему это правильное решение:
+
+// 1. **Устраняет корень проблемы**: Warning `Blocked aria-hidden` возникает, когда Radix UI создает два вложенных портала (`Dialog` и `Select`), и внутренний портал пытается управлять фокусом, пока внешний скрыт через `aria-hidden="true"`. Убрав портал у `Select`, мы оставляем только один уровень модальности (от `Dialog`).
+// 2. **Не ломает другие компоненты**: Удаление `Portal` у `SelectContent` не влияет на визуальное отображение или позиционирование (за это отвечает `position="popper"`). Единственное отличие — `Select` больше не будет рендериться в самом конце `<body>`, а будет рендериться внутри своего родителя. Для современных CSS (с `overflow: visible`) это абсолютно безопасно.
+// 3. **Официальный подход**: Это рекомендуемый workaround в сообществе shadcn/ui для решения проблем с вложенными `Select` внутри `Dialog` или `Drawer`.
+
+// После внесения этих изменений ошибка TypeScript исчезнет, а warning в консоли больше не появится.
