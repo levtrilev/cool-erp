@@ -1,9 +1,11 @@
 from typing import Optional
+
 # from datetime import datetime, timedelta, timezone
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status   #, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status  # , Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
+
 # from sqlalchemy import delete
 
 from app.core.database import get_db
@@ -14,24 +16,35 @@ from app.core.users.schemas import (
     UserResponseSchema,
 )
 from app.core.users.crud import crud_user
+
 # from app.core.auth.dependencies import require_admin
 # from app.core.auth.security import get_current_session
 # from app.core.user.models import UserModel  as User
 from app.core.schemas import PaginatedResponse  # , ApiResponse
 from app.core.tenants.crud import crud_tenant
+
 # from app.core.admin.models import TenantModel
 from app.core.users.schemas import PublicRegisterResponseSchema
+from app.core.auth.models import UserSession
+from app.core.auth.security import get_current_session
 
 # Создаем роутер для авторизации
 router = APIRouter(prefix="/users", tags=["Users"])
 
 SESSION_LIFETIME_DAYS = 7
 
+
 # ==========================================
 # ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика)
 # ==========================================
-@router.post("/public/register", status_code=status.HTTP_201_CREATED, response_model=PublicRegisterResponseSchema)
-async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)):
+@router.post(
+    "/public/register",
+    status_code=status.HTTP_201_CREATED,
+    response_model=PublicRegisterResponseSchema,
+)
+async def public_register(
+    user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)
+):
     """
     Публичная регистрация гостя.
     - Если организация с таким именем существует → регистрирует как рядового пользователя.
@@ -53,7 +66,7 @@ async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depe
 
     # 2. Ищем организацию по имени
     existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
-    
+
     is_new_tenant = False
     tenant_id = None
     is_admin = False
@@ -88,8 +101,10 @@ async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depe
             is_superadmin=False,
         )
         new_user = await crud_user.register_new_user(db, user_in=user_register_data)
-        print(f"📝 Данные для CRUD: tenant_id={user_register_data.tenant_id}, is_admin={user_register_data.is_admin}")
-        
+        print(
+            f"📝 Данные для CRUD: tenant_id={user_register_data.tenant_id}, is_admin={user_register_data.is_admin}"
+        )
+
         await db.commit()
         await db.refresh(new_user)
     except Exception as e:
@@ -110,6 +125,7 @@ async def public_register(user_in: PublicRegisterSchema, db: AsyncSession = Depe
         is_new_tenant=is_new_tenant,
         tenant_name=user_in.tenant_name,
     )
+
 
 # ==========================================
 # РЕГИСТРАЦИЯ
@@ -222,16 +238,17 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
 # @router.get("/user", response_model=ApiResponse[UserResponseSchema])
 # async def get_user(current_user: User = Depends(get_current_session)):
 #     """Получение профиля текущего пользователя во вложенной обертке"""
-    
+
 #     # 1. Конвертируем ORM в Pydantic
 #     user_data = UserResponseSchema.model_validate(current_user)
-    
+
 #     # 2. Явно создаем экземпляр обертки (Orval это обожает)
 #     return ApiResponse[UserResponseSchema](
 #         success=True,
 #         message="Пользователь успешно получен",
 #         data=user_data
 #     )
+
 
 # ==========================================
 # CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
@@ -258,19 +275,26 @@ async def read_users(
     limit: int = 100,
     search: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    session: UserSession = Depends(get_current_session),
 ):
     """Получение списка пользователей с пагинацией"""
     items, total = await crud_user.get_multi_paginated(
-        db, skip=skip, limit=limit, search=search
+        db,
+        tenant_id=session.tenant_id,
+        skip=skip,
+        limit=limit,
+        search=search,
+        user_is_superadmin=session.is_superadmin,
     )
-    
+
     # Явно создаем экземпляр дженерика
     return PaginatedResponse[UserResponseSchema](
         items=[UserResponseSchema.model_validate(item) for item in items],
         total=total,
         page=(skip // limit) + 1,
-        size=limit
+        size=limit,
     )
+
 
 @router.get("/{user_id}", response_model=UserResponseSchema)
 async def read_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -299,6 +323,7 @@ async def update_user(
         )
     except Exception as e:
         import logging
+
         logging.error(f"Ошибка обновления пользователя {user_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

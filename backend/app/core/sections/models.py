@@ -34,6 +34,7 @@ class SectionModel(Base):
     # Уникальный constraint: (tenant_id, name)
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="sections_uc"),
+        {"schema": "public"},
     )
 
     # --- Колонки ---

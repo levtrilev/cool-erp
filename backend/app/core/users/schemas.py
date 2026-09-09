@@ -6,11 +6,16 @@ from typing import Optional
 # ==========================================
 # БАЗОВЫЕ СХЕМЫ
 # ==========================================
+# class UserBaseSchema(BaseModel):
+#     """Базовая схема пользователя (для наследования)"""
+#     name: str
+#     email: EmailStr
 class UserBaseSchema(BaseModel):
-    """Базовая схема пользователя (для наследования)"""
     name: str
-    email: EmailStr
-
+    email: str
+    tenant_id: uuid.UUID
+    role_ids: Optional[list[uuid.UUID]] = None
+    role_names: Optional[list[str]] = None
 
 # ==========================================
 # СХЕМЫ ДЛЯ СОЗДАНИЯ/ОБНОВЛЕНИЯ
@@ -44,6 +49,7 @@ class UserUpdateSchema(BaseModel):
     is_admin: Optional[bool] = None
     is_superadmin: Optional[bool] = None
     role_ids: Optional[list[uuid.UUID]] = None
+    role_names: Optional[list[str]] = None
 
 
 # ==========================================

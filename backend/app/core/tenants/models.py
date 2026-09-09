@@ -31,3 +31,17 @@ class TenantModel(Base):
         back_populates="tenant", 
         lazy="selectin"
     )
+
+    # ✅  связь с ролями
+    roles = relationship(
+        "RoleModel",
+        back_populates="tenant", 
+        lazy="selectin"
+    )
+
+    # ✅  связь с правами
+    permissions = relationship(
+        "PermissionModel",
+        back_populates="tenant", 
+        lazy="selectin"
+    )

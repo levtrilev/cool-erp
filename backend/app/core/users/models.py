@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy import ForeignKey, text
+from sqlalchemy import ForeignKey, String, text
 from app.core.database import Base
 
 # ==========================================
@@ -27,6 +27,10 @@ class UserModel(Base):
     role_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=True
     )
+    # ✅ НОВОЕ: Денормализованные имена ролей для UI
+    role_names: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String(255)), nullable=True
+    )
     is_superadmin: Mapped[bool | None] = mapped_column(
         default=False, server_default=text("false")
     )
@@ -45,7 +49,7 @@ class UserModel(Base):
         lazy="selectin",
     )
 
-    # ✅ Property для автоматического извлечения tenant_name
+    # ✅ НОВОЕ: Property для автоматического извлечения tenant_name
     @property
     def tenant_name(self) -> str | None:
         """Название организации (автоматически извлекается из relationship)"""

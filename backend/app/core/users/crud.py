@@ -70,7 +70,12 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             if field in update_data and update_data[field] != getattr(db_user, field):
                 trigger_logout = True
                 break
-
+            
+        # ✅ Если обновляются role_ids, синхронизируем role_names
+        if "role_ids" in update_data:
+            update_data["role_names"] = await self._sync_role_names(
+                db, db_user, update_data["role_ids"]
+            )
         # 3. Обновляем поля существующего объекта db_user динамически
         for field, value in update_data.items():
             setattr(db_user, field, value)
@@ -104,6 +109,24 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             if session_data.get("user_id") == user_id:
                 sessions_storage.pop(session_id, None)
 
-
+    async def _sync_role_names(
+        self, 
+        db: AsyncSession, 
+        user: UserModel, 
+        role_ids: list[uuid.UUID] | None
+    ) -> list[str] | None:
+        """Синхронизирует role_names на основе role_ids."""
+        if not role_ids:
+            return None
+        
+        from app.core.roles.models import RoleModel
+        stmt = select(RoleModel).where(RoleModel.id.in_(role_ids))
+        result = await db.execute(stmt)
+        roles = result.scalars().all()
+        
+        # Сортируем имена в том же порядке, что и ID
+        role_map = {r.id: r.name for r in roles}
+        return [role_map.get(rid, "Неизвестная роль") for rid in role_ids]
+    
 # Экспортируем синглтон
 crud_user = CRUDUser(UserModel)

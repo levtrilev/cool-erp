@@ -14,7 +14,8 @@ from app.core.users.router import router as user_router
 from app.core.auth.router import router as auth_router
 from app.core.tenants.router import router as tenant_router
 from app.core.sections.router import router as section_router
-
+from app.core.roles.router import router as role_router
+from app.core.permissions.router import router as permission_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -60,7 +61,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173", 
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
     ],  # Разрешаем запросы с нашего фронтенда
     allow_credentials=True,
     allow_methods=["*"],  # Разрешаем все методы (GET, POST, PUT, DELETE, OPTIONS)
@@ -79,4 +81,6 @@ app.include_router(tenant_router)   #, prefix="/api/v1")
 app.include_router(auth_router)     #, prefix="/api/v1")
 app.include_router(user_router) 
 app.include_router(section_router)    #, prefix="/api/v1")
+app.include_router(role_router)
+app.include_router(permission_router)
 
