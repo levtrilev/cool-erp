@@ -1,26 +1,43 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  Search, Plus, Trash2, Loader2, ChevronLeft, ChevronRight, 
-  ChevronsLeft, ChevronsRight 
+import {
+  Search,
+  Plus,
+  Trash2,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from "@/components/ui/table";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 // Orval хуки и типы (предполагаем, что сгенерированы)
-import { 
-  useGetRolesRolesGet, 
+import {
+  useGetRolesRolesGet,
   useDeleteRoleRolesRoleIdDelete,
-  getRolesRolesGet 
+  getRolesRolesGet,
 } from "@/api/generated/roles/roles";
 import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
 
@@ -36,12 +53,16 @@ export function AdminRolesPage() {
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
 
-  // const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<RoleResponseSchema | null>(null);
+  const [editingRole, setEditingRole] = useState<RoleResponseSchema | null>(
+    null,
+  );
   const [deleteRoleId, setDeleteRoleId] = useState<string | null>(null);
-  
-  const [highlightedRoleId, setHighlightedRoleId] = useState<string | null>(null);
+
+  const [highlightedRoleId, setHighlightedRoleId] = useState<string | null>(
+    null,
+  );
 
   // --- Orval хуки ---
   const { data, isLoading, isError, refetch } = useGetRolesRolesGet({
@@ -78,14 +99,14 @@ export function AdminRolesPage() {
 
   const handleCreate = () => {
     setEditingRole(null);
-    // setIsCreateOpen(true);
+    setIsCreateOpen(true);
   };
 
   // Умная навигация после создания/обновления (Правило №18, 23)
   const handleRoleSaved = async (newId: string, newName: string) => {
     const result = await refetch();
     const currentItems = result.data?.data?.items || [];
-    
+
     const itemExists = currentItems.some((i) => i.id === newId);
     if (itemExists) {
       setHighlightedRoleId(newId);
@@ -98,22 +119,30 @@ export function AdminRolesPage() {
       const allItems = allData?.data?.items ?? [];
       const itemIndex = allItems.findIndex((i) => i.id === newId);
       const targetPage = Math.floor(itemIndex / limit) + 1;
-      
+
       toast({
         title: "Сохранено",
         description: `Роль "${newName}" находится на странице ${targetPage}`,
         action: (
-          <Button variant="outline" size="sm" onClick={() => {
-            setPage(targetPage);
-            setTimeout(() => setHighlightedRoleId(newId), 500);
-          }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPage(targetPage);
+              setTimeout(() => setHighlightedRoleId(newId), 500);
+            }}
+          >
             Перейти
           </Button>
         ),
       });
     } catch (error) {
       console.error("Ошибка поиска записи:", error);
-      toast({ variant: "destructive", title: "Ошибка", description: "Не удалось найти роль" });
+      toast({
+        variant: "destructive",
+        title: "Ошибка",
+        description: "Не удалось найти роль",
+      });
     }
   };
 
@@ -129,13 +158,18 @@ export function AdminRolesPage() {
           setDeleteRoleId(null);
         },
         onError: () => {
-          toast({ variant: "destructive", title: "Ошибка", description: "Не удалось удалить роль" });
+          toast({
+            variant: "destructive",
+            title: "Ошибка",
+            description: "Не удалось удалить роль",
+          });
         },
-      }
+      },
     );
   };
 
-  if (isError) return <div className="p-4 text-destructive">Ошибка загрузки данных</div>;
+  if (isError)
+    return <div className="p-4 text-destructive">Ошибка загрузки данных</div>;
 
   return (
     <div className="container mx-auto px-4 py-3">
@@ -146,7 +180,10 @@ export function AdminRolesPage() {
           <p className="text-xs text-muted-foreground mt-0.5">Всего: {total}</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <form onSubmit={handleSearch} className="flex gap-2 flex-1 md:flex-initial">
+          <form
+            onSubmit={handleSearch}
+            className="flex gap-2 flex-1 md:flex-initial"
+          >
             <Input
               placeholder="Поиск роли..."
               value={searchInput}
@@ -183,7 +220,10 @@ export function AdminRolesPage() {
               </TableRow>
             ) : roles.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                <TableCell
+                  colSpan={4}
+                  className="text-center text-muted-foreground py-8"
+                >
                   Роли не найдены
                 </TableCell>
               </TableRow>
@@ -214,12 +254,18 @@ export function AdminRolesPage() {
                     <div className="flex flex-wrap gap-1">
                       {role.section_names && role.section_names.length > 0 ? (
                         role.section_names.map((name, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="text-xs"
+                          >
                             {name}
                           </Badge>
                         ))
                       ) : (
-                        <span className="text-muted-foreground text-xs">Не назначены</span>
+                        <span className="text-muted-foreground text-xs">
+                          Не назначены
+                        </span>
                       )}
                     </div>
                   </TableCell>
@@ -243,42 +289,72 @@ export function AdminRolesPage() {
       {/* Пагинация (Правило №15) */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 mt-3">
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(1)}
+          >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(page - 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          
+
           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
             let pageNum = i + 1;
             if (totalPages > 5 && page > 3) pageNum = page - 2 + i;
             if (pageNum > totalPages) return null;
             return (
-              <Button key={pageNum} size="sm" variant={page === pageNum ? "default" : "outline"} className="h-8 w-8 p-0" onClick={() => setPage(pageNum)}>
+              <Button
+                key={pageNum}
+                size="sm"
+                variant={page === pageNum ? "default" : "outline"}
+                className="h-8 w-8 p-0"
+                onClick={() => setPage(pageNum)}
+              >
                 {pageNum}
               </Button>
             );
           })}
 
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(page + 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(page + 1)}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(totalPages)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(totalPages)}
+          >
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
       )}
 
       {/* Модалка создания/редактирования (Правило №20) */}
-      {/* {isCreateOpen && (
+      {isCreateOpen && (
         <EditRoleModal
           open={isCreateOpen}
           onOpenChange={setIsCreateOpen}
-          role={null}
+          role={null} // ✅ Явно передаём null для режима создания
           onRoleSaved={handleRoleSaved}
         />
-      )} */}
+      )}
       {editingRole && (
         <EditRoleModal
           key={editingRole.id}
@@ -290,17 +366,24 @@ export function AdminRolesPage() {
       )}
 
       {/* AlertDialog для удаления (Правило №16) */}
-      <AlertDialog open={!!deleteRoleId} onOpenChange={(open) => !open && setDeleteRoleId(null)}>
+      <AlertDialog
+        open={!!deleteRoleId}
+        onOpenChange={(open) => !open && setDeleteRoleId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить роль?</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить. Все пользователи, которым назначена эта роль, потеряют к ней доступ.
+              Это действие нельзя отменить. Все пользователи, которым назначена
+              эта роль, потеряют к ней доступ.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Shield, Users, Factory } from "lucide-react"; // , Settings, Activity, Building
+import { Shield, Users, Factory, ShieldCheck } from "lucide-react";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { Link } from "react-router-dom";
 
@@ -28,8 +28,6 @@ export const AdminPage = () => {
         {/* Карточка 1: Пользователи */}
         <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/users" className="block p-6">
-            {" "}
-            {/* <-- Делаем всю карточку ссылкой */}
             <CardHeader className="p-0 mb-4">
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
@@ -48,40 +46,54 @@ export const AdminPage = () => {
         </Card>
 
         {/* Карточка 2: Организации */}
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/tenants" className="block p-6">
-            {" "}
-            {/* <-- Делаем всю карточку ссылкой */}
-            <CardHeader>
+            <CardHeader className="p-0 mb-4">
               <CardTitle className="flex items-center gap-2">
                 <Factory className="h-5 w-5" />
                 Организации
               </CardTitle>
-              <CardDescription>Настройки доступа</CardDescription>
+              <CardDescription>Управление тенантами</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               <p className="text-sm text-muted-foreground">
-                Конфигурация приложения
+                Создание и настройка организаций
               </p>
             </CardContent>
           </Link>
         </Card>
 
         {/* Карточка 3: Разделы */}
-        <Card>
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/sections" className="block p-6">
-            {" "}
-            {/* <-- Делаем всю карточку ссылкой */}
-            <CardHeader>
+            <CardHeader className="p-0 mb-4">
               <CardTitle className="flex items-center gap-2">
                 <Factory className="h-5 w-5" />
                 Разделы
               </CardTitle>
-              <CardDescription>Настройки доступа</CardDescription>
+              <CardDescription>Структура системы</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               <p className="text-sm text-muted-foreground">
-                Конфигурация приложения
+                Управление разделами внутри организаций
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
+        {/* Карточка 4: Роли (НОВАЯ) */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+          <Link to="/admin/roles" className="block p-6">
+            <CardHeader className="p-0 mb-4">
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" />
+                Роли
+              </CardTitle>
+              <CardDescription>Управление доступом (RBAC)</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <p className="text-sm text-muted-foreground">
+                Настройка матрицы прав, разделов и пользователей
               </p>
             </CardContent>
           </Link>

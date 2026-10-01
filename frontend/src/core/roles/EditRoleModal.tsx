@@ -37,6 +37,7 @@ import type {
   RoleResponseSchema,
   PermissionCreateSchema,
 } from "@/api/generated/fastAPI.schemas";
+import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 
 // Схема валидации
 const roleSchema = z.object({
@@ -52,11 +53,11 @@ const AVAILABLE_DOCTYPES = [
   { doctype: "contracts", doctype_name: "Договоры" },
   { doctype: "payments", doctype_name: "Платежи" },
 ];
-
+// const AVAILABLE_DOCTYPES = [] as { doctype: string; doctype_name: string }[];
 interface EditRoleModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  role: RoleResponseSchema; // ✅ Гарантированно не null благодаря проверке в родителе
+  role?: RoleResponseSchema | null;
   onRoleSaved: (id: string, name: string) => void;
 }
 
@@ -68,26 +69,31 @@ export function EditRoleModal({
 }: EditRoleModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // ✅ Получаем данные текущего пользователя для tenant_id
+  const { data: userData } = useGetUserAuthUserGet();
+  const currentTenantId = userData?.data?.tenant_id;
+
+  const isEdit = !!role; // Режим редактирования или создания
 
   // ✅ Инициализация формы с данными существующей роли
   const { control, handleSubmit } = useForm<RoleFormData>({
     resolver: zodResolver(roleSchema),
     defaultValues: {
-      name: role.name,
-      description: role.description || "",
+      name: role?.name || "",
+      description: role?.description || "",
     },
   });
 
   // ✅ Инициализация состояний на основе пропса `role`
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>(
-    role.section_ids || [],
+    role?.section_ids || [],
   );
 
   // В будущем здесь можно парсить role.user_ids, если добавим это поле в RoleResponseSchema
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
   const [permissions, setPermissions] = useState<PermissionCreateSchema[]>(
-    role.permissions && role.permissions.length > 0
+    role?.permissions && role.permissions.length > 0
       ? role.permissions.map((p) => ({
           doctype: p.doctype,
           doctype_name: p.doctype_name || "",
@@ -106,8 +112,9 @@ export function EditRoleModal({
       : AVAILABLE_DOCTYPES.map((d) => ({
           doctype: d.doctype,
           doctype_name: d.doctype_name,
-          role_id: role.id,
-          tenant_id: role.tenant_id,
+          // ✅ При создании role_id не передаём (undefined)
+          // role_id: role?.id || "", // ✅ Пустой при создании
+          tenant_id: role?.tenant_id || currentTenantId || "", // ✅ Берём из сессии
           full_access: false,
           author: false,
           reader: false,
@@ -130,6 +137,38 @@ export function EditRoleModal({
   const saveMutation = useSaveRoleRolesSavePost();
 
   const onSubmit = async (data: RoleFormData) => {
+    // ✅ Проверка tenant_id
+    if (!currentTenantId) {
+      toast({
+        variant: "destructive",
+        title: "Ошибка",
+        description: "Не удалось определить организацию",
+      });
+      return;
+    }
+
+    // ✅ Заполняем tenant_id для каждого разрешения
+    // const permissionsWithIds = permissions.map((perm) => ({
+    //   ...perm,
+    //   role_id: role?.id || "", // ✅ Пустой при создании (бэкенд заполнит)
+    //   tenant_id: currentTenantId,
+
+    // }));
+
+    const permissionsWithIds = permissions.map((perm) => {
+      const item: PermissionCreateSchema = {
+        ...perm,
+        tenant_id: currentTenantId,
+      };
+
+      // ✅ Добавляем role_id только если он есть
+      if (role?.id) {
+        item.role_id = role.id;
+      }
+
+      return item;
+    });
+
     const sectionNames = sections
       .filter((s) => selectedSectionIds.includes(s.id))
       .map((s) => s.name);
@@ -137,17 +176,22 @@ export function EditRoleModal({
     const payload = {
       name: data.name,
       description: data.description,
-      tenant_id: role.tenant_id,
+      tenant_id: currentTenantId, // ✅ Всегда из сессии
       section_ids: selectedSectionIds,
       section_names: sectionNames,
-      permissions: permissions,
+      permissions: permissionsWithIds,
       user_ids: selectedUserIds,
     };
+
+    // ✅ Формируем параметры мутации в зависимости от режима
+    const mutationParams = isEdit
+      ? { data: payload, params: { role_id: role.id } }
+      : { data: payload }; // ✅ При создании role_id не передаём
 
     saveMutation.mutate(
       // ⚠️ Проверьте имя хука в сгенерированном Orval файле.
       // Обычно это { data: payload, roleId: role.id } или { data: payload, queryParams: { role_id: role.id } }
-      { data: payload, params: { role_id: role.id } },
+      mutationParams,
       {
         onSuccess: async (res) => {
           if (res.data) {
@@ -189,7 +233,7 @@ export function EditRoleModal({
       {/* <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto"> */}
       {/* <DialogContent className="w-[2100px] max-h-[90vh] overflow-y-auto"> */}
       <DialogContent
-        className="max-h-[90vh] overflow-y-auto items-start pt-8"
+        className="max-h-[90vh] items-start pt-8"
         style={{
           width: "800px",
           maxWidth: "800px",
@@ -198,7 +242,11 @@ export function EditRoleModal({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Редактирование: {role.name}</DialogTitle>
+          <DialogTitle>
+            {isEdit
+              ? `Редактирование роли: ${role.name}`
+              : "Создание новой роли"}
+          </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -246,11 +294,14 @@ export function EditRoleModal({
             </TabsContent>
 
             {/* Вкладка 2: Разделы */}
-            <TabsContent value="sections" className="space-y-4 mt-0 min-h-[400px]">
-              <div className="rounded-md border">
+            <TabsContent
+              value="sections"
+              className="space-y-4 mt-0 min-h-[400px]"
+            >
+              <div className="rounded-md border max-h-[400px] overflow-y-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent">
+                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
                       <TableHead className="w-[50px]"></TableHead>
                       <TableHead>Название раздела</TableHead>
                     </TableRow>
@@ -281,11 +332,14 @@ export function EditRoleModal({
             </TabsContent>
 
             {/* Вкладка 3: Полномочия */}
-            <TabsContent value="permissions" className="space-y-4 mt-0 min-h-[400px]">
-              <div className="rounded-md border overflow-x-auto">
+            <TabsContent
+              value="permissions"
+              className="space-y-4 mt-0 min-h-[400px]"
+            >
+              <div className="rounded-md border max-h-[400px] overflow-y-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent">
+                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
                       <TableHead className="whitespace-nowrap w-[250px]">
                         Тип документа
                       </TableHead>
@@ -361,10 +415,10 @@ export function EditRoleModal({
 
             {/* Вкладка 4: Пользователи */}
             <TabsContent value="users" className="space-y-4 mt-0 min-h-[400px]">
-              <div className="rounded-md border">
+              <div className="rounded-md border max-h-[400px] overflow-y-auto">
                 <Table>
                   <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent">
+                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
                       <TableHead className="w-[50px]"></TableHead>
                       <TableHead>Имя</TableHead>
                       <TableHead>Email</TableHead>
