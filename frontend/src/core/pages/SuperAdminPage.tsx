@@ -80,6 +80,47 @@ export const SuperAdminPage = () => {
             </CardContent>
           </Link>
         </Card>
+
+        {/* Карточка 4: Домены */}
+        <Card>
+          <Link to="/admin/domains" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Factory className="h-5 w-5" />
+                Домены
+              </CardTitle>
+              <CardDescription>Настройки доступа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Конфигурация приложения
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
+        {/* Карточка 5: Типы документов */}
+        <Card>
+          <Link to="/admin/doctypes" className="block p-6">
+            {" "}
+            {/* <-- Делаем всю карточку ссылкой */}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Factory className="h-5 w-5" />
+                Типы документов
+              </CardTitle>
+              <CardDescription>Настройки доступа</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Конфигурация приложения
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
       </div>
     </div>
   );

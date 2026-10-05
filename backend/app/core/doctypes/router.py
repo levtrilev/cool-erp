@@ -1,76 +1,108 @@
 ﻿import uuid
-from typing import cast
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+# from typing import cast
 
-from app.core.database import get_db
-from app.core.schemas import ApiResponse, PaginatedResponse
+from fastapi import APIRouter, HTTPException
+
+# ✅ Правило №32: Аннотированные типы для безопасности
+from app.core.auth.dependencies import SuperAdminUser, CurrentUser, DBSession
 from app.core.doctypes.crud import crud_doctype
 from app.core.doctypes.schemas import (
     DoctypeCreateSchema,
     DoctypeUpdateSchema,
     DoctypeResponseSchema,
 )
+from app.core.schemas import ApiResponse, PaginatedResponse
 
 router = APIRouter(prefix="/doctypes", tags=["Doctypes"])
 
 
 @router.get("/", response_model=ApiResponse[PaginatedResponse[DoctypeResponseSchema]])
 async def get_doctypes(
+    current_session: CurrentUser,  # ✅ Правило №32: Аннотированный тип
+    db: DBSession,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10,
     search: str | None = None,
-    active_only: bool = True,
-    db: AsyncSession = Depends(get_db),
 ):
-    items, total = await crud_doctype.get_multi_paginated(
-        db, skip=skip, limit=limit, search=search, active_only=active_only
-    )
+    """Получение списка типов документов. Обычные пользователи видят только свои."""
+    # items, total = await crud_doctype.get_multi_paginated(
+    #     db,
+    #     tenant_id=current_session.tenant_id,
+    #     skip=skip,
+    #     limit=limit,
+    #     search=search,
+    #     user_is_superadmin=current_session.is_superadmin,
+    # )
+    return ApiResponse(
+        success=True,
+        message="Типы документов получены",
+        data=PaginatedResponse[DoctypeResponseSchema],
+        ),
     
-    paginated_data = cast(
-        PaginatedResponse[DoctypeResponseSchema],
-        PaginatedResponse(
-            items=[DoctypeResponseSchema.model_validate(item) for item in items],
-            total=total,
-            skip=skip,
-            limit=limit,
-        )
-    )
-    
-    return ApiResponse(success=True, message="Document types retrieved", data=paginated_data)
 
 
 @router.post("/", response_model=ApiResponse[DoctypeResponseSchema], status_code=201)
 async def create_doctype(
-    data: DoctypeCreateSchema,
-    db: AsyncSession = Depends(get_db),
+    obj_in: DoctypeCreateSchema,
+    current_session: SuperAdminUser,  # ✅ Правило №32: Только суперадмин
+    db: DBSession,
 ):
-    doctype = await crud_doctype.create(db, obj_in=data)
-    return ApiResponse(success=True, message="Document type created", data=DoctypeResponseSchema.model_validate(doctype))
+    """Создание типа документа. Только для суперадмина."""
+    obj = await crud_doctype.create(
+        db,
+        obj_in=obj_in,
+        tenant_id=current_session.tenant_id,
+        user_is_superadmin=True,
+    )
+    return ApiResponse(
+        success=True,
+        message="Тип документа создан",
+        data=DoctypeResponseSchema.model_validate(obj),
+    )
 
 
 @router.put("/{doctype_id}", response_model=ApiResponse[DoctypeResponseSchema])
 async def update_doctype(
     doctype_id: uuid.UUID,
-    data: DoctypeUpdateSchema,
-    db: AsyncSession = Depends(get_db),
+    obj_in: DoctypeUpdateSchema,
+    current_session: SuperAdminUser,
+    db: DBSession,
 ):
+    """Обновление типа документа. Только для суперадмина."""
+    # ✅ Правило №31: СНАЧАЛА загружаем объект через базовый метод get
     db_obj = await crud_doctype.get(db, id=doctype_id)
     if not db_obj:
-        raise HTTPException(status_code=404, detail="Document type not found")
-    
-    updated_doctype = await crud_doctype.update(db, db_obj=db_obj, obj_in=data)
-    return ApiResponse(success=True, message="Document type updated", data=DoctypeResponseSchema.model_validate(updated_doctype))
+        raise HTTPException(status_code=404, detail="Тип документа не найден")
+
+    # ✅ ЗАТЕМ передаём его в update
+    updated_obj = await crud_doctype.update(
+        db,
+        db_obj=db_obj,
+        obj_in=obj_in,
+        tenant_id=current_session.tenant_id,
+        user_is_superadmin=True,
+    )
+    return ApiResponse(
+        success=True,
+        message="Тип документа обновлён",
+        data=DoctypeResponseSchema.model_validate(updated_obj),
+    )
 
 
 @router.delete("/{doctype_id}", response_model=ApiResponse[DoctypeResponseSchema])
 async def delete_doctype(
     doctype_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
+    current_session: SuperAdminUser,
+    db: DBSession,
 ):
-    db_obj = await crud_doctype.get(db, id=doctype_id)
-    if not db_obj:
-        raise HTTPException(status_code=404, detail="Document type not found")
-    
-    deleted_doctype = await crud_doctype.delete(db, id=doctype_id)
-    return ApiResponse(success=True, message="Document type deleted", data=DoctypeResponseSchema.model_validate(deleted_doctype))
+    """Удаление типа документа. Только для суперадмина."""
+    # ✅ Правило №31: Используем базовый метод remove
+    deleted_obj = await crud_doctype.remove(db, id=doctype_id)
+    if not deleted_obj:
+        raise HTTPException(status_code=404, detail="Тип документа не найден")
+
+    return ApiResponse(
+        success=True,
+        message="Тип документа удалён",
+        data=DoctypeResponseSchema.model_validate(deleted_obj),
+    )

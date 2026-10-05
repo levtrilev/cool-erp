@@ -19,6 +19,8 @@ from app.core.sections.router import router as section_router
 from app.core.tenants.router import router as tenant_router
 from app.core.users.models import UserModel
 from app.core.users.router import router as user_router
+from app.core.domains.router import router as domain_router
+from app.core.doctypes.router import router as doctype_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -92,4 +94,5 @@ app.include_router(user_router)
 app.include_router(section_router)  # , prefix="/api/v1")
 app.include_router(role_router)
 app.include_router(permission_router)
+app.include_router(domain_router)
 app.include_router(doctype_router)
