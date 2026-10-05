@@ -4,7 +4,7 @@ from sqlalchemy import select, func     #, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions.models import PermissionModel
-from app.core.permissions.schemas import PermissionCreateSchema, PermissionUpdateSchema
+from app.core.permissions.schemas import PermissionCreateSchema
 
 class CRUDPermission:
     # def __init__(self, model):
@@ -82,7 +82,7 @@ class CRUDPermission:
         self, 
         db: AsyncSession, 
         item_id: uuid.UUID, 
-        data: PermissionUpdateSchema, 
+        data: PermissionCreateSchema, 
         current_tenant_id: uuid.UUID, 
         is_superadmin: bool = False
     ) -> PermissionModel:
@@ -93,7 +93,7 @@ class CRUDPermission:
         result = await db.execute(stmt)
         db_obj = result.scalar_one_or_none()
         if not db_obj:
-            raise HTTPException(status_code=404, detail="Полномочие не найдено")
+            raise HTTPException(status_code=404, detail="Полномочие не найдено или нет доступа к нему")
 
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():

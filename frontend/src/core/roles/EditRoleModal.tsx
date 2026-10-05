@@ -47,13 +47,13 @@ const roleSchema = z.object({
 type RoleFormData = z.infer<typeof roleSchema>;
 
 // Заглушка для типов документов (в будущем можно получать с бэкенда через GET /doctypes)
-const AVAILABLE_DOCTYPES = [
-  { doctype: "invoices", doctype_name: "Счета-фактуры" },
-  { doctype: "orders", doctype_name: "Заказы" },
-  { doctype: "contracts", doctype_name: "Договоры" },
-  { doctype: "payments", doctype_name: "Платежи" },
-];
-// const AVAILABLE_DOCTYPES = [] as { doctype: string; doctype_name: string }[];
+// const AVAILABLE_DOCTYPES = [
+//   { doctype: "invoices", doctype_name: "Счета-фактуры" },
+//   { doctype: "orders", doctype_name: "Заказы" },
+//   { doctype: "contracts", doctype_name: "Договоры" },
+//   { doctype: "payments", doctype_name: "Платежи" },
+// ];
+const AVAILABLE_DOCTYPES = [] as { doctype: string; doctype_name: string }[];
 interface EditRoleModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -95,6 +95,7 @@ export function EditRoleModal({
   const [permissions, setPermissions] = useState<PermissionCreateSchema[]>(
     role?.permissions && role.permissions.length > 0
       ? role.permissions.map((p) => ({
+          id: p.id, // ✅ Передаём id существующей записи
           doctype: p.doctype,
           doctype_name: p.doctype_name || "",
           role_id: p.role_id,
