@@ -26,10 +26,10 @@ class PermissionModel(Base):
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False)
     access_by_tags: Mapped[bool] = mapped_column(Boolean, default=False)
     
-    # Теги доступа (JSONB)
-    or_tags: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
-    and_tags: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
-    no_tags: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
+    # ✅ ИСПРАВЛЕНИЕ: Разрешаем и списки, и словари для JSONB
+    or_tags: Mapped[list[str] | dict[str, None] | None] = mapped_column(JSONB, nullable=True)
+    and_tags: Mapped[list[str] | dict[str, None] | None] = mapped_column(JSONB, nullable=True)
+    no_tags: Mapped[list[str] | dict[str, None] | None] = mapped_column(JSONB, nullable=True)
     
     # Денормализованные имена
     role_name: Mapped[str | None] = mapped_column(Text, nullable=True)

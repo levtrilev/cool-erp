@@ -1,19 +1,20 @@
 {
-  "name": "my-awesome-app",
+  "name": "cool-erp",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && ./venv/bin/uvicorn app.main:app --reload",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload",
+    "dev:backend2": "cd backend && .\\venv\\Scripts\\uvicorn.exe app.main:app --reload",
+    "dev:backend1": "cd backend && ./venv/bin/uvicorn app.main:app --reload",
     "dev:frontend": "cd frontend && npm run dev",
-    
     "api:download": "curl http://localhost:8000/openapi.json -o ./frontend/openapi.json",
     "api:generate": "cd frontend && npm run api:generate",
-    
     "build": "cd frontend && npm run build",
     "lint": "cd frontend && npm run lint"
   },
   "devDependencies": {
-    "concurrently": "^8.2.0"
+    "concurrently": "^8.2.2"
   }
 }
+

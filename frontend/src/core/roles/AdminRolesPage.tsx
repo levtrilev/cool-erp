@@ -42,6 +42,7 @@ import {
 import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
 
 import { EditRoleModal } from "@/core/roles/EditRoleModal";
+import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 
 export function AdminRolesPage() {
   const queryClient = useQueryClient();
@@ -168,6 +169,19 @@ export function AdminRolesPage() {
     );
   };
 
+  // Определяем колонки
+  const columns = [
+    { id: "name", initialWidth: 150, minWidth: 100 },
+    { id: "description", initialWidth: 250, minWidth: 100 },
+    { id: "sections", initialWidth: 500, minWidth: 250 },
+    { id: "actions", initialWidth: 30, minWidth: 30 },
+  ];
+
+  const { widths, handleMouseDown, resetWidths } = useResizableColumns(
+    columns,
+    "roles-table-widths",
+  );
+
   if (isError)
     return <div className="p-4 text-destructive">Ошибка загрузки данных</div>;
 
@@ -201,16 +215,69 @@ export function AdminRolesPage() {
       </div>
 
       {/* Таблица (Правило №13) */}
+      {/* Таблица с изменяемыми колонками */}
       <div className="rounded-md border bg-card">
-        <Table>
+        <div className="flex justify-end p-2 border-b">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetWidths}
+            className="text-xs"
+          >
+            Сбросить ширину
+          </Button>
+        </div>
+
+        <Table className="table-fixed w-full">
           <TableHeader>
-            <TableRow className="h-10 py-2 hover:bg-transparent">
-              <TableHead>Название</TableHead>
-              <TableHead>Описание</TableHead>
-              <TableHead>Разделы</TableHead>
-              <TableHead className="w-[50px]"></TableHead>
+            <TableRow className="h-10 hover:bg-transparent">
+              {/* Колонка: Название */}
+              <TableHead
+                className="relative"
+                style={{ width: `${widths.name}px` }}
+              >
+                Название
+                {/* Resizer между name и description */}
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
+                  onMouseDown={(e) => handleMouseDown("name", e)}
+                />
+              </TableHead>
+
+              {/* Колонка: Описание */}
+              <TableHead
+                className="relative"
+                style={{ width: `${widths.description}px` }}
+              >
+                Описание
+                {/* Resizer между description и sections */}
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
+                  onMouseDown={(e) => handleMouseDown("description", e)}
+                />
+              </TableHead>
+
+              {/* Колонка: Разделы */}
+              <TableHead
+                className="relative"
+                style={{ width: `${widths.sections}px` }}
+              >
+                Разделы
+                {/* Resizer между sections и actions */}
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
+                  onMouseDown={(e) => handleMouseDown("sections", e)}
+                />
+              </TableHead>
+
+              {/* Колонка: Действия (БЕЗ resizer, так как это последняя колонка) */}
+              <TableHead
+                className="relative"
+                style={{ width: `${widths.actions}px` }}
+              ></TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
             {isLoading ? (
               <TableRow>
@@ -237,27 +304,43 @@ export function AdminRolesPage() {
                       : ""
                   }
                 >
-                  {/* Первая колонка как ссылка (Правило №14) */}
-                  <TableCell className="py-1">
+                  <TableCell
+                    className="py-2 align-top overflow-hidden"
+                    style={{ width: `${widths.name}px` }}
+                  >
                     <button
                       type="button"
                       onClick={() => handleEdit(role)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left font-medium"
+                      title={role.name}
+                      className="block w-full text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium truncate"
                     >
                       {role.name}
                     </button>
                   </TableCell>
-                  <TableCell className="py-1 text-muted-foreground">
-                    {role.description || "—"}
+
+                  <TableCell
+                    className="py-2 text-muted-foreground align-top overflow-hidden"
+                    style={{ width: `${widths.description}px` }}
+                  >
+                    <div
+                      title={role.description || undefined}
+                      className="block w-full truncate"
+                    >
+                      {role.description || "—"}
+                    </div>
                   </TableCell>
-                  <TableCell className="py-1">
+
+                  <TableCell
+                    className="py-2 align-top overflow-hidden"
+                    style={{ width: `${widths.sections}px` }}
+                  >
                     <div className="flex flex-wrap gap-1">
                       {role.section_names && role.section_names.length > 0 ? (
                         role.section_names.map((name, idx) => (
                           <Badge
                             key={idx}
                             variant="secondary"
-                            className="text-xs"
+                            className="text-xs truncate max-w-[140px]"
                           >
                             {name}
                           </Badge>
@@ -269,11 +352,15 @@ export function AdminRolesPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="py-1">
+
+                  <TableCell
+                    className="py-2 align-top"
+                    style={{ width: `${widths.actions}px` }}
+                  >
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={() => setDeleteRoleId(role.id)}
                     >
                       <Trash2 className="h-4 w-4" />

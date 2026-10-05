@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 class PermissionBaseSchema(BaseModel):
     doctype: str
-    role_id: uuid.UUID
+    role_id: Optional[uuid.UUID] = None
     tenant_id: uuid.UUID
     
     # Флаги
@@ -15,10 +15,10 @@ class PermissionBaseSchema(BaseModel):
     can_delete: bool = False
     access_by_tags: bool = False
     
-    # Теги
-    or_tags: Optional[dict[str, Any]] = None
-    and_tags: Optional[dict[str, Any]] = None
-    no_tags: Optional[dict[str, Any]] = None
+    # ✅ ИСПРАВЛЕНИЕ: JSONB может быть как списком строк, так и словарем
+    or_tags: Optional[list[str] | dict[str, Any]] = None
+    and_tags: Optional[list[str] | dict[str, Any]] = None
+    no_tags: Optional[list[str] | dict[str, Any]] = None
     
     # Денормализованные поля
     doctype_name: Optional[str] = None
