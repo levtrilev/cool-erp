@@ -25,19 +25,29 @@ async def get_doctypes(
     search: str | None = None,
 ):
     """Получение списка типов документов. Обычные пользователи видят только свои."""
-    # items, total = await crud_doctype.get_multi_paginated(
-    #     db,
-    #     tenant_id=current_session.tenant_id,
-    #     skip=skip,
-    #     limit=limit,
-    #     search=search,
-    #     user_is_superadmin=current_session.is_superadmin,
-    # )
+    items, total = await crud_doctype.get_multi_paginated(
+        db,
+        tenant_id=current_session.tenant_id,
+        skip=skip,
+        limit=limit,
+        search=search,
+        user_is_superadmin=current_session.is_superadmin,
+    )
+
+    # ✅ 1. Явное создание экземпляра (ОБЯЗАТЕЛЬНО со скобками и аргументами!)
+    paginated_data = PaginatedResponse(
+        items=[DoctypeResponseSchema.model_validate(item) for item in items],
+        total=total,
+        page=skip+1,
+        size=limit,
+    )
+
     return ApiResponse(
         success=True,
         message="Типы документов получены",
-        data=PaginatedResponse[DoctypeResponseSchema],
-        ),
+        data=paginated_data,
+        # data=PaginatedResponse[DoctypeResponseSchema],
+        )
     
 
 

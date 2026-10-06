@@ -30,21 +30,28 @@ async def get_domains(
     Доступно всем авторизованным пользователям (для справочников).
     """
     # ✅ Правило №31: Используем базовый метод get_multi_paginated
-    # items, total = await crud_domain.get_multi_paginated(
-    #     db,
-    #     tenant_id=current_session.tenant_id,  # Не используется для domains, но передаём для совместимости
-    #     skip=skip,
-    #     limit=limit,
-    #     search=search,
-    #     search_field="name",  # ✅ Поиск по name
-    #     user_is_superadmin=current_session.is_superadmin,
-    # )
+    items, total = await crud_domain.get_multi_paginated(
+        db,
+        tenant_id=current_session.tenant_id,  # Не используется для domains, но передаём для совместимости
+        skip=skip,
+        limit=limit,
+        search=search,
+        search_field="name",  # ✅ Поиск по name
+        user_is_superadmin=current_session.is_superadmin,
+    )
+    # ✅ 1. Явное создание экземпляра (ОБЯЗАТЕЛЬНО со скобками!)
+    paginated_data = PaginatedResponse(
+        items=[DomainResponseSchema.model_validate(item) for item in items],
+        total=total,
+        page=skip + 1,
+        size=limit,
+    )
     return (
         ApiResponse(
             success=True,
             message="Домены получены",
-            data=PaginatedResponse[DomainResponseSchema],
-        ),
+            data=paginated_data,
+        )
     )
 
 

@@ -9,7 +9,8 @@ from app.core.auth.security import get_current_session, UserSession, get_db  #, 
 
 async def require_admin(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, dict[str, Any]]:
     """Зависимость для проверки прав администратора"""
-    if not current_user.get("is_admin"):
+    # if not current_user.get("is_admin"):
+    if not getattr(current_user, "is_admin", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Недостаточно прав для выполнения операции администратора"
@@ -18,7 +19,8 @@ async def require_admin(current_user: dict[str, dict[str, Any]] = Depends(get_cu
 
 async def require_superadmin(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, dict[str, Any]]:
     """Зависимость для проверки прав суперадминистратора"""
-    if not current_user.get("is_superadmin"):
+    # if not current_user.get("is_superadmin"):
+    if not getattr(current_user, "is_superadmin", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Недостаточно прав для выполнения операции суперадминистратора"

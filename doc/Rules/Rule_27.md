@@ -1,135 +1,196 @@
-# Правило №27: Обязательное использование компонента `ReferenceSelect` для справочников
+# 📋 Правило №27: Использование компонента `ReferenceSelect` для справочников
 
-Все выпадающие списки, предназначенные для выбора значения из справочника (тенанты, пользователи, разделы, типы документов, контрагенты и т.д.), **ОБЯЗАТЕЛЬНО** должны реализовываться через кастомный компонент `ReferenceSelect`.
+Все поля выбора из справочников (один объект) **ОБЯЗАТЕЛЬНО** должны реализовываться через компонент `<ReferenceSelect>`. Использование `<Input>` для ручного ввода UUID или стандартных HTML `<select>` **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО**.
 
-Использование стандартного компонента `<Select>` из `shadcn/ui` для справочников **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО**.
-
----
-
-### 1. Обоснование правила (Почему это важно)
-
-Стандартный `<Select>` из `shadcn/ui` рендерит **все** доступные опции в DOM одновременно. Если в справочнике 10 000 записей, браузер зависнет, а сетевой запрос загрузит мегабайты данных. 
-`ReferenceSelect` решает эту проблему, загружая данные **по требованию** (при открытии или вводе текста) с сервера, используя пагинацию и поиск.
+Для согласования типов ответа бэкенда (`ApiResponse<PaginatedResponse<T>>`) и ожиданий компонента (`{ items: T[], total: number }`) **ОБЯЗАТЕЛЬНО** используется функция-адаптер внутри пропса `fetchFn`. Изменение кода самого компонента `ReferenceSelect.tsx` для обхода этой проблемы **ЗАПРЕЩЕНО**.
 
 ---
 
-### 2. Обязательные требования к реализации
+### 1. Обоснование (Почему это важно)
 
-#### 2.1. Серверная пагинация и поиск
-* Компонент должен отправлять запросы на бэкенд с параметрами `search` и `skip/limit`.
-* Фильтрация списка должна происходить **на стороне сервера**, а не в памяти браузера.
-
-#### 2.2. Интеграция с React Hook Form
-* Компонент **ОБЯЗАТЕЛЬНО** должен оборачиваться в `<Controller>` из `react-hook-form`.
-* Запрещено ручное управление состоянием (`useState`) для значения справочника, если форма управляется через `react-hook-form`.
-
-#### 2.3. Отображение метки в режиме редактирования (`selectedLabel`)
-При открытии модалки редактирования бэкенд часто возвращает только ID связанной сущности (например, `tenant_id: "uuid-..."`). Чтобы пользователь сразу видел название, а не пустое поле или ID, **ОБЯЗАТЕЛЬНО** передавать проп `selectedLabel`.
-
-#### 2.4. Исключение: Статические списки
-Стандартный `<Select>` из `shadcn/ui` **разрешен** только для статических, жестко закодированных (hardcoded) списков, которые никогда не меняются и содержат не более 10-15 элементов (например, выбор статуса: "Черновик", "Активен", "Удален" или выбор булевых значений).
+1. **Защита от ошибок ввода:** Пользователь физически не может ввести несуществующий или невалидный UUID.
+2. **Изоляция преобразований:** Адаптер в `fetchFn` чётко разделяет ответственность: бэкенд возвращает свой контракт (Правило №4), компонент получает свой, а мостик между ними находится в месте вызова.
+3. **Неприкосновенность базовых компонентов:** Отлаженный `ReferenceSelect.tsx` остаётся стабильным и не обрастает специфичной логикой под конкретные ответы API.
+4. **Единый UX:** Поиск, пагинация и отображение дополнительных колонок работают одинаково предсказуемо во всём приложении.
 
 ---
 
-### 3. Примеры кода
+### 2. Обязательная сигнатура компонента
 
-#### ✅ ПРАВИЛЬНО: Создание новой записии (Create)
+```typescript
+interface ReferenceItem {
+  id: string;
+  [key: string]: any;
+}
+
+interface ReferenceSelectProps<T extends ReferenceItem> {
+  fetchFn: (params: { skip?: number; limit?: number; search?: string }) => Promise<{ items: T[]; total: number }>;
+  queryKey: string[];
+  value: string;
+  onValueChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  limit?: number;
+  heading?: string;
+  // ✅ ВАЖНО: используется ключ 'column', а не 'key' или 'labelField'
+  columns?: Array<{ column: keyof T; label: string }>; 
+}
+```
+
+---
+
+### 3. Обязательный шаблон вызова (Золотой стандарт)
+
 ```tsx
 import { Controller } from "react-hook-form";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
+import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // Импортируем функцию, а не хук
 
-// ... внутри формы создания ...
-<div className="space-y-2">
-  <label className="text-sm font-medium">Организация</label>
-  <Controller
-    name="tenant_id"
-    control={control}
-    rules={{ required: "Организация обязательна" }}
-    render={({ field, fieldState }) => (
-      <>
-        <ReferenceSelect
-          endpoint="/api/v1/tenants" // Эндпоинт справочника
-          value={field.value}
-          onChange={field.onChange}
-          placeholder="Выберите организацию..."
-          searchPlaceholder="Поиск по названию..."
-        />
-        {fieldState.error && (
-          <p className="text-xs text-destructive">{fieldState.error.message}</p>
-        )}
-      </>
-    )}
-  />
-</div>
-```
+// ... внутри формы ...
 
-#### ✅ ПРАВИЛЬНО: Редактирование существующей записии (Edit)
-```tsx
-// ... внутри модалки редактирования, где editingItem содержит данные ...
 <div className="space-y-2">
-  <label className="text-sm font-medium">Организация</label>
+  <label className="text-sm font-medium">Домен</label>
   <Controller
-    name="tenant_id"
+    name="domain_id"
     control={control}
     render={({ field }) => (
       <ReferenceSelect
-        endpoint="/api/v1/tenants"
+        // ✅ АДАПТЕР: Преобразуем ApiResponse в формат, ожидаемый ReferenceSelect
+        fetchFn={async (params) => {
+          const response = await getDomainsDomainsGet(params);
+          // Распаковываем ApiResponse -> { items, total }
+          return {
+            items: response?.data?.items ?? [],
+            total: response?.data?.total ?? 0,
+          };
+        }}
+        queryKey={["domains"]}
         value={field.value}
-        onChange={field.onChange}
-        // ✅ КРИТИЧЕСКИ ВАЖНО: Передаем текущее название, чтобы оно отобразилось сразу
-        selectedLabel={editingItem.tenant_name} 
-        placeholder="Выберите организацию..."
+        onValueChange={field.onChange}
+        placeholder="Выберите домен..."
+        limit={50}
+        heading="Домены"
+        columns={[
+          { column: "description", label: "Описание" }, // ✅ Используем 'column', а не 'key'
+        ]}
       />
     )}
   />
+  {errors.domain_id && (
+    <p className="text-xs text-destructive">{errors.domain_id.message}</p>
+  )}
 </div>
-```
-
-#### ❌ НЕПРАВИЛЬНО: Использование стандартного Select для справочника
-```tsx
-// ❌ ГРУБОЕ НАРУШЕНИЕ ПРАВИЛА №27
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-// ... внутри формы ...
-<Select onValueChange={(val) => setValue("tenant_id", val)} value={watch("tenant_id")}>
-  <SelectTrigger>
-    <SelectValue placeholder="Выберите организацию" />
-  </SelectTrigger>
-  <SelectContent>
-    {/* ❌ Загружает все 10,000 организаций в DOM, вызывает лаги */}
-    {allTenants.map((t) => (
-      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-    ))}
-  </SelectContent>
-</Select>
-```
-
-#### ✅ ДОПУСТИМО: Использование стандартного Select для СТАТИЧЕСКОГО списка
-```tsx
-// ✅ РАЗРЕШЕНО: Статусы не меняются, их всего 3 штуки
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-<Select onValueChange={(val) => setValue("status", val)} value={watch("status")}>
-  <SelectTrigger>
-    <SelectValue placeholder="Выберите статус" />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="draft">Черновик</SelectItem>
-    <SelectItem value="active">Активен</SelectItem>
-    <SelectItem value="deleted">Удален</SelectItem>
-  </SelectContent>
-</Select>
 ```
 
 ---
 
-### 4. Чек-лист для разработчика
+### 4. Примеры для разных справочников
 
-При добавлении выпадающего списка в форму проверьте:
-- [ ] Это справочник, данные которого хранятся в БД?
-- [ ] Используется компонент `ReferenceSelect`?
-- [ ] Компонент обернут в `<Controller>` (если форма на RHF)?
-- [ ] Если это форма редактирования, передан ли проп `selectedLabel`?
-- [ ] Отсутствует ли импорт `Select` из `@/components/ui/select` для этого конкретного поля?
+#### Пример А: Справочник с дополнительными колонками (Domain)
+```tsx
+<Controller
+  name="domain_id"
+  control={control}
+  render={({ field }) => (
+    <ReferenceSelect
+      fetchFn={async (params) => {
+        const response = await getDomainsDomainsGet(params);
+        return {
+          items: response?.data?.items ?? [],
+          total: response?.data?.total ?? 0,
+        };
+      }}
+      queryKey={["domains"]}
+      value={field.value}
+      onValueChange={field.onChange}
+      placeholder="Выберите домен..."
+      limit={50}
+      heading="Домены"
+      columns={[
+        { column: "description", label: "Описание" },
+      ]}
+    />
+  )}
+/>
+```
 
-Следование этому правилу гарантирует высокую производительность фронтенда даже при работе с огромными справочниками и обеспечивает единый UX поиска и выбора записей во всем приложении.
+#### Пример Б: Простой справочник (Tenant)
+```tsx
+<Controller
+  name="tenant_id"
+  control={control}
+  render={({ field }) => (
+    <ReferenceSelect
+      fetchFn={async (params) => {
+        const response = await getTenantsTenantsGet(params);
+        return {
+          items: response?.data?.items ?? [],
+          total: response?.data?.total ?? 0,
+        };
+      }}
+      queryKey={["tenants"]}
+      value={field.value}
+      onValueChange={field.onChange}
+      placeholder="Выберите организацию..."
+      heading="Организации"
+      // columns можно не указывать, если достаточно основного поля (обычно name)
+    />
+  )}
+/>
+```
+
+---
+
+### 5. Требования к справочным API
+
+Чтобы `ReferenceSelect` работал корректно, эндпоинт справочника **ОБЯЗАТЕЛЬНО** должен:
+1. Возвращать `ApiResponse<PaginatedResponse<T>>` (Правило №4).
+2. Поддерживать параметры `skip`, `limit`, `search`.
+3. Иметь поле `id` в схеме ответа (для `value`).
+4. Иметь хотя бы одно текстовое поле (например, `name`), которое компонент использует как основной заголовок элемента списка.
+
+---
+
+### 6. Чек-лист для разработчика
+
+При добавлении поля выбора из справочника проверьте:
+
+**Структура:**
+- [ ] Используется ли `<Controller>` из `react-hook-form`?
+- [ ] Импортирована ли **функция** запроса из Orval (например, `getDomainsDomainsGet`), а не хук?
+- [ ] Используется ли **функция-адаптер** внутри `fetchFn` для возврата `{ items, total }`?
+- [ ] В адаптере корректно используется цепочка `response?.data?.items`?
+
+**Пропсы компонента:**
+- [ ] Указан ли уникальный `queryKey` для кэша React Query?
+- [ ] `value` привязан к `field.value`, а `onValueChange` к `field.onChange`?
+- [ ] Указан ли осмысленный `placeholder` и `heading`?
+- [ ] Если используются доп. колонки, указан ли массив `columns` с ключом **`column`** (а не `key` или `field`)?
+- [ ] **ОТСУТСТВУЕТ** ли несуществующий проп `labelField`?
+
+**Запреты:**
+- [ ] Отсутствуют ли ручные `<Input>` для ввода UUID?
+- [ ] Отсутствуют ли попытки изменить код файла `ReferenceSelect.tsx`?
+
+---
+
+### 7. Типичные ошибки и их исправление
+
+| Ошибка | Исправление |
+| :--- | :--- |
+| Использование `labelField="name"` | **Удалить.** Компонент автоматически использует поле `name` (или аналогичное) как основное. Для доп. полей используйте `columns`. |
+| Использование `key: "description"` в `columns` | **Исправить на** `column: "description"`. Это строгое требование интерфейса компонента. |
+| `fetchFn={(params) => getDomainsGet(params)}` напрямую | **Обернуть в адаптер:** `async (params) => { const r = await getDomainsGet(params); return { items: r?.data?.items ?? [], total: r?.data?.total ?? 0 }; }` |
+| Импорт хука `useGetDomainsGet` вместо функции | Импортировать именно функцию запроса: `import { getDomainsGet } from "..."` |
+
+---
+
+### 8. Связь с другими правилами
+
+- **Правило №4 (Orval-совместимость):** Адаптер в `fetchFn` преобразует стандартный `ApiResponse` в формат, ожидаемый компонентом.
+- **Правило №1 (Чистая архитектура):** Компонент не знает о деталях API — вся логика преобразования находится в месте вызова.
+- **Правило №21 (Суффикс Schema):** Имена полей формы (`domain_id`) совпадают с именами полей в Pydantic-схемах бэкенда.
+
+---
+
+Следование этому правилу гарантирует, что все справочники во всём проекте выглядят и работают единообразно, код вызова самодокументируем, а TypeScript не выдаёт ошибок типизации.
