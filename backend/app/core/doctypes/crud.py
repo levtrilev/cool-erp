@@ -5,7 +5,7 @@ from sqlalchemy import select, delete, insert, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
-from app.core.crud.base import CRUDBase
+from app.core.crud.base import CRUDBase, with_db_error_handling
 from app.core.doctypes.models import DoctypeModel, doctype_tenants
 from app.core.doctypes.schemas import (
     DoctypeCreateSchema,
@@ -16,13 +16,13 @@ from app.core.doctypes.schemas import (
 class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchema]):
     """
     CRUD для типов документов.
-    
+
     ✅ Правило №31: Наследуемся от CRUDBase.
     Переопределяем только те методы, где нужна специфичная бизнес-логика:
     - create — синхронизация M2M tenant_ids (Правило №30)
     - update — синхронизация M2M tenant_ids + проверка уникальности doctype
     - get_multi_paginated — поиск по двум полям + фильтрация через M2M таблицу
-    
+
     НЕ переопределяем (используем базовые методы):
     - get — базовая реализация подходит
     - remove — базовая реализация подходит (каскадное удаление M2M настроено в модели)
@@ -37,7 +37,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
     ) -> DoctypeModel:
         """
         Создание типа документа с синхронизацией тенантов.
-        
+
         Переопределено, т.к. нужна синхронизация M2M связи tenant_ids.
         """
         if not user_is_superadmin:
@@ -48,11 +48,11 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         if (await db.execute(stmt)).scalar_one_or_none():
             raise HTTPException(
                 status_code=400,
-                detail=f"Тип документа '{obj_in.doctype}' уже существует"
+                detail=f"Тип документа '{obj_in.doctype}' уже существует",
             )
 
         # Создаём объект без tenant_ids (это не колонка, а M2M связь)
-        db_obj = self.model(**obj_in.model_dump(exclude={'tenant_ids'}))
+        db_obj = self.model(**obj_in.model_dump(exclude={"tenant_ids"}))
         db.add(db_obj)
         await db.flush()  # Получаем db_obj.id
 
@@ -60,7 +60,10 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         if obj_in.tenant_ids:
             await db.execute(
                 insert(doctype_tenants),
-                [{"doctype_id": db_obj.id, "tenant_id": tid} for tid in obj_in.tenant_ids]
+                [
+                    {"doctype_id": db_obj.id, "tenant_id": tid}
+                    for tid in obj_in.tenant_ids
+                ],
             )
 
         await db.commit()
@@ -77,8 +80,8 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
     ) -> DoctypeModel:
         """
         Обновление типа документа с синхронизацией тенантов.
-        
-        Переопределено, т.к. нужна синхронизация M2M связи tenant_ids + 
+
+        Переопределено, т.к. нужна синхронизация M2M связи tenant_ids +
         проверка уникальности doctype.
         """
         if not user_is_superadmin:
@@ -87,7 +90,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         item_id = db_obj.id
 
         # Проверка уникальности при изменении doctype
-        update_data = obj_in.model_dump(exclude_unset=True, exclude={'tenant_ids'})
+        update_data = obj_in.model_dump(exclude_unset=True, exclude={"tenant_ids"})
         if "doctype" in update_data and update_data["doctype"] != db_obj.doctype:
             stmt_check = select(self.model).where(
                 self.model.doctype == update_data["doctype"]
@@ -95,7 +98,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
             if (await db.execute(stmt_check)).scalar_one_or_none():
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Тип документа '{update_data['doctype']}' уже существует"
+                    detail=f"Тип документа '{update_data['doctype']}' уже существует",
                 )
 
         # Обновляем обычные поля
@@ -110,13 +113,17 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
             if obj_in.tenant_ids:
                 await db.execute(
                     insert(doctype_tenants),
-                    [{"doctype_id": item_id, "tenant_id": tid} for tid in obj_in.tenant_ids]
+                    [
+                        {"doctype_id": item_id, "tenant_id": tid}
+                        for tid in obj_in.tenant_ids
+                    ],
                 )
 
         await db.commit()
         await db.refresh(db_obj)
         return db_obj
 
+    @with_db_error_handling("get_multi_paginated")
     async def get_multi_paginated(
         self,
         db: AsyncSession,
@@ -126,10 +133,11 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         search: Optional[str] = None,
         search_field: str = "doctype_name",  # Не используется, но сохраняем для совместимости
         user_is_superadmin: bool = False,
+        available_for_tenant_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[DoctypeModel], int]:
         """
         Получение списка типов документов с пагинацией и фильтрацией.
-        
+
         Переопределено, т.к.:
         1. Нужен поиск по двум полям: doctype И doctype_name
         2. Фильтрация по tenant_id идёт через M2M таблицу doctype_tenants
@@ -137,9 +145,17 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         stmt = select(self.model)
         count_stmt = select(func.count()).select_from(self.model)
 
-        # ✅ Правило №26: Обычные пользователи видят только свои тенанты
-        # Фильтрация через M2M таблицу
-        if not user_is_superadmin:
+        # ✅ ПРИОРИТЕТ: Если передан available_for_tenant_id — фильтруем по нему
+        # Это используется, когда суперадмин редактирует роль конкретной организации
+        if available_for_tenant_id:
+            stmt = stmt.join(doctype_tenants).where(
+                doctype_tenants.c.tenant_id == available_for_tenant_id
+            )
+            count_stmt = count_stmt.join(doctype_tenants).where(
+                doctype_tenants.c.tenant_id == available_for_tenant_id
+            )
+        # ✅ Обычная фильтрация по tenant_id текущего пользователя
+        elif not user_is_superadmin and tenant_id:
             stmt = stmt.join(doctype_tenants).where(
                 doctype_tenants.c.tenant_id == tenant_id
             )
@@ -149,10 +165,9 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
 
         # ✅ Поиск по двум полям: doctype и doctype_name
         if search:
-            search_filter = (
-                self.model.doctype.ilike(f"%{search}%")
-                | self.model.doctype_name.ilike(f"%{search}%")
-            )
+            search_filter = self.model.doctype.ilike(
+                f"%{search}%"
+            ) | self.model.doctype_name.ilike(f"%{search}%")
             stmt = stmt.where(search_filter)
             count_stmt = count_stmt.where(search_filter)
 
@@ -165,7 +180,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
 
         # ✅ Правило №33: НИЧЕГО не присваиваем в @property!
         # tenant_ids и domain_name автоматически вычисляются при model_validate()
-        
+
         return items, total
 
 

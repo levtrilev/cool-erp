@@ -4,7 +4,7 @@ from sqlalchemy import select, func     #, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions.models import PermissionModel
-from app.core.permissions.schemas import PermissionCreateSchema
+from app.core.permissions.schemas import PermissionCreateSchema, PermissionUpdateSchema
 
 class CRUDPermission:
     # def __init__(self, model):
@@ -82,7 +82,7 @@ class CRUDPermission:
         self, 
         db: AsyncSession, 
         item_id: uuid.UUID, 
-        data: PermissionCreateSchema, 
+        data: PermissionUpdateSchema, 
         current_tenant_id: uuid.UUID, 
         is_superadmin: bool = False
     ) -> PermissionModel:

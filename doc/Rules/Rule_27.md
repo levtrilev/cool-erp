@@ -1,93 +1,101 @@
-# 📋 Правило №27: Использование компонента `ReferenceSelect` для справочников
+# Правило №27: Использование компонента `ReferenceSelect` для справочников
 
-Все поля выбора из справочников (один объект) **ОБЯЗАТЕЛЬНО** должны реализовываться через компонент `<ReferenceSelect>`. Использование `<Input>` для ручного ввода UUID или стандартных HTML `<select>` **КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО**.
+## 1. Область применения
 
-Для согласования типов ответа бэкенда (`ApiResponse<PaginatedResponse<T>>`) и ожиданий компонента (`{ items: T[], total: number }`) **ОБЯЗАТЕЛЬНО** используется функция-адаптер внутри пропса `fetchFn`. Изменение кода самого компонента `ReferenceSelect.tsx` для обхода этой проблемы **ЗАПРЕЩЕНО**.
-
----
-
-### 1. Обоснование (Почему это важно)
-
-1. **Защита от ошибок ввода:** Пользователь физически не может ввести несуществующий или невалидный UUID.
-2. **Изоляция преобразований:** Адаптер в `fetchFn` чётко разделяет ответственность: бэкенд возвращает свой контракт (Правило №4), компонент получает свой, а мостик между ними находится в месте вызова.
-3. **Неприкосновенность базовых компонентов:** Отлаженный `ReferenceSelect.tsx` остаётся стабильным и не обрастает специфичной логикой под конкретные ответы API.
-4. **Единый UX:** Поиск, пагинация и отображение дополнительных колонок работают одинаково предсказуемо во всём приложении.
+Компонент `ReferenceSelect` является **единственным разрешённым способом** выбора значений из справочников (домены, организации, типы документов, пользователи и т.д.) во всех формах проекта.
 
 ---
 
-### 2. Обязательная сигнатура компонента
+## 2. Базовые требования
 
-```typescript
-interface ReferenceItem {
-  id: string;
-  [key: string]: any;
-}
-
-interface ReferenceSelectProps<T extends ReferenceItem> {
-  fetchFn: (params: { skip?: number; limit?: number; search?: string }) => Promise<{ items: T[]; total: number }>;
-  queryKey: string[];
-  value: string;
-  onValueChange: (value: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  limit?: number;
-  heading?: string;
-  // ✅ ВАЖНО: используется ключ 'column', а не 'key' или 'labelField'
-  columns?: Array<{ column: keyof T; label: string }>; 
-}
-```
-
----
-
-### 3. Обязательный шаблон вызова (Золотой стандарт)
+### 2.1. Запрет на ручной ввод UUID
+**Категорически запрещён** `<Input>` для ввода или отображения UUID справочных значений. Всегда используйте `ReferenceSelect`.
 
 ```tsx
-import { Controller } from "react-hook-form";
-import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
-import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // Импортируем функцию, а не хук
+// ❌ ЗАПРЕЩЕНО:
+<Input {...register("domain_id")} placeholder="UUID домена" />
 
-// ... внутри формы ...
-
-<div className="space-y-2">
-  <label className="text-sm font-medium">Домен</label>
-  <Controller
-    name="domain_id"
-    control={control}
-    render={({ field }) => (
-      <ReferenceSelect
-        // ✅ АДАПТЕР: Преобразуем ApiResponse в формат, ожидаемый ReferenceSelect
-        fetchFn={async (params) => {
-          const response = await getDomainsDomainsGet(params);
-          // Распаковываем ApiResponse -> { items, total }
-          return {
-            items: response?.data?.items ?? [],
-            total: response?.data?.total ?? 0,
-          };
-        }}
-        queryKey={["domains"]}
-        value={field.value}
-        onValueChange={field.onChange}
-        placeholder="Выберите домен..."
-        limit={50}
-        heading="Домены"
-        columns={[
-          { column: "description", label: "Описание" }, // ✅ Используем 'column', а не 'key'
-        ]}
-      />
-    )}
-  />
-  {errors.domain_id && (
-    <p className="text-xs text-destructive">{errors.domain_id.message}</p>
+// ✅ ПРАВИЛЬНО:
+<Controller
+  name="domain_id"
+  control={control}
+  render={({ field }) => (
+    <ReferenceSelect
+      fetchFn={...}
+      queryKey={["domains"]}
+      value={field.value}
+      onValueChange={field.onChange}
+      // ... остальные пропы
+    />
   )}
-</div>
+/>
+```
+
+### 2.2. Обязательный паттерн адаптера в `fetchFn`
+Ответ от Orval-функции **всегда** должен быть преобразован в формат `{ items, total }`. Это связано с тем, что Orval оборачивает ответы в `ApiResponse`, а `ReferenceSelect` ожидает плоскую структуру.
+
+```tsx
+// ✅ ПРАВИЛЬНО: Адаптер распаковывает ответ
+fetchFn={async (params) => {
+  const response = await getDomainsDomainsGet(params);
+  return {
+    items: response?.data?.items ?? [],
+    total: response?.data?.total ?? 0,
+  };
+}}
+```
+
+### 2.3. Подмена ID для строковых идентификаторов
+Если справочник использует строковый идентификатор вместо UUID (например, `doctype` — это строка `"invoices"`, а не UUID), его необходимо явно подменить в адаптере. Также **обязательно** добавить поле `name`, если его нет в схеме.
+
+```tsx
+// ✅ ПРАВИЛЬНО: Для строковых ID (например, doctype)
+fetchFn={async (params) => {
+  const response = await getDoctypesDoctypesGet(params);
+  const items = (response?.data?.items ?? []).map((item) => ({
+    ...item,
+    id: item.doctype, // ✅ Подмена UUID на строковый код
+    name: item.doctype_name || item.doctype, // ✅ Гарантированное наличие поля name
+  }));
+  return { items, total: response?.data?.total ?? 0 };
+}}
 ```
 
 ---
 
-### 4. Примеры для разных справочников
+## 3. Формат дополнительных колонок
 
-#### Пример А: Справочник с дополнительными колонками (Domain)
+Для отображения дополнительных колонок в выпадающем списке использовать массив объектов с ключом **`column`** (не `key`!).
+
 ```tsx
+// ✅ ПРАВИЛЬНО:
+columns={[
+  { column: "description", label: "Описание" },
+  { column: "domain_name", label: "Домен" }
+]}
+
+// ❌ НЕПРАВИЛЬНО:
+columns={[
+  { key: "description", label: "Описание" } // Ключ должен быть "column"!
+]}
+```
+
+---
+
+## 4. ✅ КРИТИЧЕСКИ ВАЖНО: Использование пропа `selectedLabel`
+
+Для **мгновенного отображения** имеющегося значения в режиме редактирования **обязательно** передавать проп `selectedLabel`. Это гарантирует, что текстовая метка отобразится сразу же при открытии модалки, не дожидаясь завершения асинхронного запроса `fetchFn` и поиска элемента в массиве `items`.
+
+### 4.1. Почему это важно
+Без `selectedLabel` компонент `ReferenceSelect` при первом рендере видит `value` (UUID), но массив `items` ещё пуст (запрос не завершился). Компонент не может найти элемент с нужным `id` и отобразить его `name`. В результате поле остаётся пустым до завершения запроса, что создаёт плохой UX.
+
+### 4.2. Как это работает
+Проп `selectedLabel` явно указывает компоненту, какой текст показать в качестве выбранного значения **до того**, как завершится асинхронный запрос. Как только `fetchFn` завершается, компонент корректно подхватывает реальный элемент из списка для дальнейшей работы.
+
+### 4.3. Пример использования
+
+```tsx
+// ✅ ПРАВИЛЬНО: selectedLabel гарантирует мгновенное отображение
 <Controller
   name="domain_id"
   control={control}
@@ -104,17 +112,18 @@ import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // Им�
       value={field.value}
       onValueChange={field.onChange}
       placeholder="Выберите домен..."
+      // 👇 КЛЮЧЕВОЙ ПРОП для мгновенного отображения при редактировании
+      selectedLabel={initialData?.domain_name ?? "Выберите домен..."}
       limit={50}
       heading="Домены"
-      columns={[
-        { column: "description", label: "Описание" },
-      ]}
+      columns={[{ column: "description", label: "Описание" }]}
     />
   )}
 />
 ```
 
-#### Пример Б: Простой справочник (Tenant)
+### 4.4. Пример из EditUserModal (эталон)
+
 ```tsx
 <Controller
   name="tenant_id"
@@ -122,18 +131,19 @@ import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // Им�
   render={({ field }) => (
     <ReferenceSelect
       fetchFn={async (params) => {
-        const response = await getTenantsTenantsGet(params);
+        const response = await readTenantsTenantsGet(params);
         return {
-          items: response?.data?.items ?? [],
-          total: response?.data?.total ?? 0,
+          items: response?.items ?? [],
+          total: response?.total ?? 0,
         };
       }}
-      queryKey={["tenants"]}
-      value={field.value}
+      queryKey={["tenants", "active"]}
+      value={field.value || ""}
       onValueChange={field.onChange}
-      placeholder="Выберите организацию..."
-      heading="Организации"
-      // columns можно не указывать, если достаточно основного поля (обычно name)
+      placeholder="Выберите организацию"
+      selectedLabel={user?.tenant_name ?? "Выберите организацию"} // ✅ ЭТАЛОН
+      heading="Выберите организацию"
+      columns={[{ column: "description", label: "Описание" }]}
     />
   )}
 />
@@ -141,56 +151,162 @@ import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // Им�
 
 ---
 
-### 5. Требования к справочным API
+## 5. 🚫 ЗАПРЕЩЕНО: Манипуляции с кэшем для отображения Label
 
-Чтобы `ReferenceSelect` работал корректно, эндпоинт справочника **ОБЯЗАТЕЛЬНО** должен:
-1. Возвращать `ApiResponse<PaginatedResponse<T>>` (Правило №4).
-2. Поддерживать параметры `skip`, `limit`, `search`.
-3. Иметь поле `id` в схеме ответа (для `value`).
-4. Иметь хотя бы одно текстовое поле (например, `name`), которое компонент использует как основной заголовок элемента списка.
+**Категорически запрещено** использовать `useEffect` с `queryClient.prefetchQuery` или `queryClient.setQueryData` исключительно для того, чтобы заставить `ReferenceSelect` показать название выбранного элемента при открытии модалки. Это антипаттерн, который решается корректно и декларативно **только через проп `selectedLabel`**.
 
----
+### 5.1. Запрещённые антипаттерны
 
-### 6. Чек-лист для разработчика
+```tsx
+// ❌ ЗАПРЕЩЕНО (Антипаттерн #1):
+useEffect(() => {
+  queryClient.prefetchQuery({
+    queryKey: ["domains"],
+    queryFn: async () => {
+      const response = await getDomainsDomainsGet({ limit: 100, skip: 0 });
+      return {
+        items: response?.data?.items ?? [],
+        total: response?.data?.total ?? 0,
+      };
+    },
+  });
+}, [queryClient]);
 
-При добавлении поля выбора из справочника проверьте:
+// ❌ ЗАПРЕЩЕНО (Антипаттерн #2):
+const openEdit = (item: DoctypeResponseSchema) => {
+  if (item.domain_id && item.domain_name) {
+    queryClient.setQueryData(["domains"], {
+      items: [{ id: item.domain_id, name: item.domain_name }],
+      total: 1,
+    });
+  }
+  setEditingDoctype(item);
+  setIsModalOpen(true);
+};
+```
 
-**Структура:**
-- [ ] Используется ли `<Controller>` из `react-hook-form`?
-- [ ] Импортирована ли **функция** запроса из Orval (например, `getDomainsDomainsGet`), а не хук?
-- [ ] Используется ли **функция-адаптер** внутри `fetchFn` для возврата `{ items, total }`?
-- [ ] В адаптере корректно используется цепочка `response?.data?.items`?
-
-**Пропсы компонента:**
-- [ ] Указан ли уникальный `queryKey` для кэша React Query?
-- [ ] `value` привязан к `field.value`, а `onValueChange` к `field.onChange`?
-- [ ] Указан ли осмысленный `placeholder` и `heading`?
-- [ ] Если используются доп. колонки, указан ли массив `columns` с ключом **`column`** (а не `key` или `field`)?
-- [ ] **ОТСУТСТВУЕТ** ли несуществующий проп `labelField`?
-
-**Запреты:**
-- [ ] Отсутствуют ли ручные `<Input>` для ввода UUID?
-- [ ] Отсутствуют ли попытки изменить код файла `ReferenceSelect.tsx`?
-
----
-
-### 7. Типичные ошибки и их исправление
-
-| Ошибка | Исправление |
-| :--- | :--- |
-| Использование `labelField="name"` | **Удалить.** Компонент автоматически использует поле `name` (или аналогичное) как основное. Для доп. полей используйте `columns`. |
-| Использование `key: "description"` в `columns` | **Исправить на** `column: "description"`. Это строгое требование интерфейса компонента. |
-| `fetchFn={(params) => getDomainsGet(params)}` напрямую | **Обернуть в адаптер:** `async (params) => { const r = await getDomainsGet(params); return { items: r?.data?.items ?? [], total: r?.data?.total ?? 0 }; }` |
-| Импорт хука `useGetDomainsGet` вместо функции | Импортировать именно функцию запроса: `import { getDomainsGet } from "..."` |
+### 5.2. Почему это антипаттерн
+- **Нарушение принципа единственной ответственности**: Страница списка не должна заботиться о том, как модальное окно отображает данные.
+- **Скрытые зависимости**: Код становится хрупким и сложным для понимания.
+- **Решение уже существует**: Проп `selectedLabel` решает проблему декларативно и элегантно.
 
 ---
 
-### 8. Связь с другими правилами
+## 6. Неизменяемость компонента
 
-- **Правило №4 (Orval-совместимость):** Адаптер в `fetchFn` преобразует стандартный `ApiResponse` в формат, ожидаемый компонентом.
-- **Правило №1 (Чистая архитектура):** Компонент не знает о деталях API — вся логика преобразования находится в месте вызова.
-- **Правило №21 (Суффикс Schema):** Имена полей формы (`domain_id`) совпадают с именами полей в Pydantic-схемах бэкенда.
+Проп `labelField` в компоненте **НЕ существует**. Прямое изменение исходного кода файла `ReferenceSelect.tsx` **запрещено**. Все адаптации данных (добавление поля `name`, маппинг `id`) должны происходить на уровне пропсов и функции `fetchFn` при вызове компонента.
+
+```tsx
+// ❌ ЗАПРЕЩЕНО: Пытаться использовать несуществующий проп
+<ReferenceSelect
+  labelField="domain_name" // Такого пропа нет!
+  // ...
+/>
+
+// ✅ ПРАВИЛЬНО: Адаптировать данные в fetchFn
+fetchFn={async (params) => {
+  const response = await getDomainsDomainsGet(params);
+  const items = (response?.data?.items ?? []).map((item) => ({
+    ...item,
+    name: item.domain_name, // ✅ Добавляем поле name
+  }));
+  return { items, total: response?.data?.total ?? 0 };
+}}
+```
 
 ---
 
-Следование этому правилу гарантирует, что все справочники во всём проекте выглядят и работают единообразно, код вызова самодокументируем, а TypeScript не выдаёт ошибок типизации.
+## 7. Полный пример эталонного использования
+
+```tsx
+import { Controller } from "react-hook-form";
+import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
+import { getDomainsDomainsGet } from "@/api/generated/domains/domains";
+
+interface EditDoctypeModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialData: DoctypeResponseSchema | null;
+}
+
+export const EditDoctypeModal = ({ open, onOpenChange, initialData }: EditDoctypeModalProps) => {
+  const { control } = useForm<DoctypeFormData>({ /* ... */ });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form>
+          <Controller
+            name="domain_id"
+            control={control}
+            render={({ field }) => (
+              <ReferenceSelect
+                // ✅ 1. Обязательный адаптер
+                fetchFn={async (params) => {
+                  const response = await getDomainsDomainsGet(params);
+                  return {
+                    items: response?.data?.items ?? [],
+                    total: response?.data?.total ?? 0,
+                  };
+                }}
+                // ✅ 2. Чистый ключ кэша
+                queryKey={["domains"]}
+                // ✅ 3. Значение из формы
+                value={field.value}
+                onValueChange={field.onChange}
+                // ✅ 4. Placeholder для режима создания
+                placeholder="Выберите домен..."
+                // ✅ 5. КРИТИЧЕСКИ ВАЖНО: selectedLabel для режима редактирования
+                selectedLabel={initialData?.domain_name ?? "Выберите домен..."}
+                // ✅ 6. Дополнительные параметры
+                limit={50}
+                heading="Домены"
+                // ✅ 7. Формат колонок с ключом "column"
+                columns={[{ column: "description", label: "Описание" }]}
+              />
+            )}
+          />
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+```
+
+---
+
+## 8. Чек-лист для проверки
+
+При использовании `ReferenceSelect` убедитесь, что:
+
+- [ ] Используется `Controller` из `react-hook-form` (не прямой `register`)
+- [ ] В `fetchFn` есть адаптер, возвращающий `{ items, total }`
+- [ ] Для строковых ID выполнена подмена `id: item.code` в адаптере
+- [ ] Поле `name` гарантированно присутствует в элементах (добавлено в адаптере, если нужно)
+- [ ] В `columns` используется ключ `column`, а не `key`
+- [ ] **Обязательно** передан проп `selectedLabel={initialData?.related_name ?? "Выберите..."}`
+- [ ] **НЕ используются** `prefetchQuery` или `setQueryData` для решения проблемы отображения label
+- [ ] Файл `ReferenceSelect.tsx` не модифицируется
+
+---
+
+## 9. Обоснование архитектурных решений
+
+1. **Почему `selectedLabel`, а не prefetch?**
+   - Декларативный подход: данные передаются явно через пропы
+   - Нет скрытых зависимостей между компонентами
+   - Нет лишних запросов к API
+   - Мгновенное отображение без ожидания асинхронных операций
+
+2. **Почему адаптер в `fetchFn`, а не изменение `ReferenceSelect`?**
+   - Компонент остаётся универсальным и переиспользуемым
+   - Логика адаптации данных остаётся в месте вызова, где есть контекст
+   - Нет риска сломать другие места использования компонента
+
+3. **Почему ключ `column`, а не `key`?**
+   - `key` — это зарезервированное слово в React для списков
+   - `column` более семантически точно описывает назначение поля
+
+---
+
+Это правило является **строгим стандартом** для всех справочников в проекте. Любые отклонения от него будут считаться нарушением архитектуры и должны быть исправлены.

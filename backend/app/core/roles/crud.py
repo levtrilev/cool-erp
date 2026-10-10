@@ -7,6 +7,9 @@ from app.core.roles.models import RoleModel
 from app.core.roles.schemas import RoleCreateSchema, RoleUpdateSchema
 
 class CRUDRole:
+    # Примечание: Согласно Правилу №31, в идеале этот класс должен наследоваться 
+    # от CRUDBase[RoleModel, RoleCreateSchema, RoleUpdateSchema], но текущая 
+    # кастомная логика multi-tenancy оставлена для сохранения совместимости.
 
     async def get_multi(
         self,
@@ -46,7 +49,6 @@ class CRUDRole:
     ) -> RoleModel | None:
         stmt = select(RoleModel).where(RoleModel.id == item_id)
         
-        # ✅ Правило №26: Проверка принадлежности к тенанту
         if not is_superadmin and current_tenant_id:
             stmt = stmt.where(RoleModel.tenant_id == current_tenant_id)
             
@@ -60,7 +62,6 @@ class CRUDRole:
         current_tenant_id: uuid.UUID, 
         is_superadmin: bool = False
     ) -> RoleModel:
-        # ✅ Правило №26: Проверка и установка tenant_id
         if not is_superadmin and data.tenant_id != current_tenant_id:
             raise HTTPException(status_code=403, detail="Нельзя создавать роли для другой организации")
         
@@ -117,5 +118,8 @@ class CRUDRole:
         await db.delete(db_obj)
         await db.commit()
         return db_obj
+
+# Методы add_permission и remove_permission УДАЛЕНЫ.
+# Управление полномочиями теперь осуществляется через app.core.permissions.crud
 
 crud_role = CRUDRole()

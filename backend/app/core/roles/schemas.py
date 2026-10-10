@@ -54,6 +54,9 @@ class RoleSaveSchema(BaseModel):
 
 # =========================================================================    
 
+class RolePermissionSchema(BaseModel):
+    """Схема для добавления полномочия роли."""
+    doctype_id: uuid.UUID
 
 
 

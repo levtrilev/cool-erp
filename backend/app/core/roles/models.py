@@ -31,9 +31,17 @@ class RoleModel(Base):
         back_populates="roles", 
         lazy="selectin"
     )
+
+    # ✅ Связь с полномочиями (one-to-many)
     permissions = relationship(
-        "PermissionModel", 
-        back_populates="role", 
-        lazy="selectin", 
+        "PermissionModel",
+        back_populates="role",
+        lazy="selectin",
         cascade="all, delete-orphan"
     )
+
+    # ✅ Вычисляемое поле: количество полномочий
+    @property
+    def permissions_count(self) -> int:
+        """Количество полномочий роли."""
+        return len(self.permissions) if self.permissions else 0

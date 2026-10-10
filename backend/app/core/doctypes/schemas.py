@@ -34,3 +34,11 @@ class DoctypeResponseSchema(DoctypeBaseSchema):
     # НЕ присваиваем значения в @property — они вычисляются автоматически
     domain_name: str | None = None
     tenant_ids: list[uuid.UUID] = []
+
+class DoctypeQueryParams(BaseModel):
+    """Query-параметры для получения списка типов документов."""
+    skip: int = 0
+    limit: int = 100
+    search: str | None = None
+    # ✅ параметр для: фильтровать doctypes, доступные конкретному tenant
+    available_for_tenant_id: uuid.UUID | None = None

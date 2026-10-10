@@ -20,6 +20,7 @@ router = APIRouter(prefix="/doctypes", tags=["Doctypes"])
 async def get_doctypes(
     current_session: CurrentUser,  # ✅ Правило №32: Аннотированный тип
     db: DBSession,
+    available_for_tenant_id: uuid.UUID | None = None,  # ✅ НОВЫЙ query-параметр
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,

@@ -4,21 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.schemas import ApiResponse, PaginatedResponse
+# from app.core.auth.dependencies import DBSession, SuperAdminUser, get_current_session
 from app.core.auth.dependencies import get_current_session
-from app.core.auth.models import (
-    UserSession,
-)  # Или UserModel, в зависимости от вашей реализации зависимости
+from app.core.auth.models import UserSession
 from app.core.roles.crud import crud_role
 from app.core.roles.schemas import (
     RoleCreateSchema,
     RoleUpdateSchema,
     RoleResponseSchema,
-    RoleSaveSchema,  # ✅ Добавлено для агрегированного сохранения
+    RoleSaveSchema,
 )
-
-from app.core.roles.services import (
-    role_service,
-)  # ✅ Добавлено для агрегированного сохранения
+from app.core.roles.services import role_service
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
@@ -32,7 +28,6 @@ async def get_roles(
     session: UserSession = Depends(get_current_session),
 ):
     """Получение списка ролей с пагинацией и поиском."""
-    # ✅ ИСПРАВЛЕНО: Прямой доступ к атрибутам сессии (session - это уже объект пользователя/сессии)
     is_superadmin = session.is_superadmin if session else False
 
     items, total = await crud_role.get_multi(
@@ -64,7 +59,6 @@ async def get_role(
     session: UserSession = Depends(get_current_session),
 ):
     """Получение одной роли по ID."""
-    # ✅ ИСПРАВЛЕНО: Убрали session.user
     is_superadmin = session.is_superadmin if session else False
 
     role = await crud_role.get(
@@ -90,7 +84,6 @@ async def create_role(
     session: UserSession = Depends(get_current_session),
 ):
     """Создание новой роли."""
-    # ✅ ИСПРАВЛЕНО: Убрали session.user
     is_superadmin = session.is_superadmin if session else False
 
     role = await crud_role.create(
@@ -112,7 +105,6 @@ async def update_role(
     session: UserSession = Depends(get_current_session),
 ):
     """Обновление существующей роли."""
-    # ✅ ИСПРАВЛЕНО: Убрали session.user
     is_superadmin = session.is_superadmin if session else False
 
     role = await crud_role.update(
@@ -137,7 +129,6 @@ async def delete_role(
     session: UserSession = Depends(get_current_session),
 ):
     """Удаление роли (каскадно удалит все её permissions)."""
-    # ✅ ИСПРАВЛЕНО: Убрали session.user
     is_superadmin = session.is_superadmin if session else False
 
     role = await crud_role.delete(
@@ -154,13 +145,10 @@ async def delete_role(
     )
 
 
-# ==============================================================================
-# ✅ НОВЫЙ ЭНДПОИНТ: Агрегированное сохранение (необходим для EditRoleModal)
-# ==============================================================================
 @router.post("/save", response_model=ApiResponse[RoleResponseSchema], status_code=201)
 async def save_role(
     data: RoleSaveSchema,
-    role_id: uuid.UUID | None = None,  # Если None - создание, иначе обновление
+    role_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
@@ -182,3 +170,8 @@ async def save_role(
         message="Роль и её полномочия успешно сохранены",
         data=RoleResponseSchema.model_validate(role),
     )
+
+# ==============================================================================
+# ✅ ЭНДПОИНТЫ add_role_permission и remove_role_permission УДАЛЕНЫ.
+# Управление полномочиями теперь осуществляется через модуль /permissions/
+# ==============================================================================

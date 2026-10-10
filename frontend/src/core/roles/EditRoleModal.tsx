@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -35,9 +35,19 @@ import { useGetSectionsSectionsGet } from "@/api/generated/sections/sections";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
 import type {
   RoleResponseSchema,
-  PermissionCreateSchema,
+  // PermissionCreateSchema,
 } from "@/api/generated/fastAPI.schemas";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { PermissionsTab } from "./PermissionsTab";
+
+// ✅ Константа для сброса формы (Правило №20)
+const CREATE_DEFAULTS: RoleFormData = {
+  name: "",
+  description: "",
+  // section_ids: [],
+  // ⚠️ Добавьте сюда ВСЕ остальные поля, которые есть в вашей Zod-схеме!
+  // Например: section_ids: [], user_ids: [] и т.д.
+};
 
 // Схема валидации
 const roleSchema = z.object({
@@ -53,7 +63,7 @@ type RoleFormData = z.infer<typeof roleSchema>;
 //   { doctype: "contracts", doctype_name: "Договоры" },
 //   { doctype: "payments", doctype_name: "Платежи" },
 // ];
-const AVAILABLE_DOCTYPES = [] as { doctype: string; doctype_name: string }[];
+// const AVAILABLE_DOCTYPES = [] as { doctype: string; doctype_name: string }[];
 interface EditRoleModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -76,53 +86,33 @@ export function EditRoleModal({
   const isEdit = !!role; // Режим редактирования или создания
 
   // ✅ Инициализация формы с данными существующей роли
-  const { control, handleSubmit } = useForm<RoleFormData>({
+  const { control, handleSubmit, reset } = useForm<RoleFormData>({
     resolver: zodResolver(roleSchema),
-    defaultValues: {
-      name: role?.name || "",
-      description: role?.description || "",
-    },
+    defaultValues: CREATE_DEFAULTS,
   });
 
-  // ✅ Инициализация состояний на основе пропса `role`
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>(
     role?.section_ids || [],
   );
+  // ✅ Инициализация состояний на основе пропса `role`
+  // ✅ Синхронизация формы с данными роли (редактирование vs создание)
+useEffect(() => {
+  if (role) {
+    // Режим редактирования: заполняем форму данными из БД
+    reset({
+      name: role.name || "",
+      description: role.description || "",
+      // ⚠️ Добавьте сюда все остальные поля из RoleFormData
+    });
+  } else {
+    // Режим создания: сбрасываем форму к пустым значениям
+    reset(CREATE_DEFAULTS);
+  }
+}, [role, reset]); // Зависимости: role и функция reset
+
 
   // В будущем здесь можно парсить role.user_ids, если добавим это поле в RoleResponseSchema
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-
-  const [permissions, setPermissions] = useState<PermissionCreateSchema[]>(
-    role?.permissions && role.permissions.length > 0
-      ? role.permissions.map((p) => ({
-          id: p.id, // ✅ Передаём id существующей записи
-          doctype: p.doctype,
-          doctype_name: p.doctype_name || "",
-          role_id: p.role_id,
-          tenant_id: p.tenant_id,
-          full_access: p.full_access ?? false,
-          author: p.author ?? false,
-          reader: p.reader ?? false,
-          editor: p.editor ?? false,
-          can_delete: p.can_delete ?? false,
-          access_by_tags: p.access_by_tags ?? false,
-          or_tags: p.or_tags,
-          and_tags: p.and_tags,
-          no_tags: p.no_tags,
-        }))
-      : AVAILABLE_DOCTYPES.map((d) => ({
-          doctype: d.doctype,
-          doctype_name: d.doctype_name,
-          // ✅ При создании role_id не передаём (undefined)
-          // role_id: role?.id || "", // ✅ Пустой при создании
-          tenant_id: role?.tenant_id || currentTenantId || "", // ✅ Берём из сессии
-          full_access: false,
-          author: false,
-          reader: false,
-          editor: false,
-          can_delete: false,
-        })),
-  );
 
   // Загрузка данных для вкладок (справочники)
   const { data: sectionsData } = useGetSectionsSectionsGet({
@@ -137,6 +127,86 @@ export function EditRoleModal({
   // ✅ Используем агрегирующий эндпоинт сохранения, а не стандартный PUT
   const saveMutation = useSaveRoleRolesSavePost();
 
+  // const onSubmit_bak = async (data: RoleFormData) => {
+  //   // ✅ Проверка tenant_id
+  //   if (!currentTenantId) {
+  //     toast({
+  //       variant: "destructive",
+  //       title: "Ошибка",
+  //       description: "Не удалось определить организацию",
+  //     });
+  //     return;
+  //   }
+
+  //   // ✅ Заполняем tenant_id для каждого разрешения
+  //   // const permissionsWithIds = permissions.map((perm) => ({
+  //   //   ...perm,
+  //   //   role_id: role?.id || "", // ✅ Пустой при создании (бэкенд заполнит)
+  //   //   tenant_id: currentTenantId,
+
+  //   // }));
+
+  //   const permissionsWithIds = permissions.map((perm) => {
+  //     const item: PermissionCreateSchema = {
+  //       ...perm,
+  //       tenant_id: currentTenantId,
+  //     };
+
+  //     // ✅ Добавляем role_id только если он есть
+  //     if (role?.id) {
+  //       item.role_id = role.id;
+  //     }
+
+  //     return item;
+  //   });
+
+  //   const sectionNames = sections
+  //     .filter((s) => selectedSectionIds.includes(s.id))
+  //     .map((s) => s.name);
+
+  //   const payload = {
+  //     name: data.name,
+  //     description: data.description,
+  //     tenant_id: currentTenantId, // ✅ Всегда из сессии
+  //     section_ids: selectedSectionIds,
+  //     section_names: sectionNames,
+  //     permissions: permissionsWithIds,
+  //     user_ids: selectedUserIds,
+  //   };
+
+  //   // ✅ Формируем параметры мутации в зависимости от режима
+  //   const mutationParams = isEdit
+  //     ? { data: payload, params: { role_id: role.id } }
+  //     : { data: payload }; // ✅ При создании role_id не передаём
+
+  //   saveMutation.mutate(
+  //     // ⚠️ Проверьте имя хука в сгенерированном Orval файле.
+  //     // Обычно это { data: payload, roleId: role.id } или { data: payload, queryParams: { role_id: role.id } }
+  //     mutationParams,
+  //     {
+  //       onSuccess: async (res) => {
+  //         if (res.data) {
+  //           const savedRole = res.data;
+
+  //           // ✅ Правило №24: Строгий порядок
+  //           // 1. Инвалидируем кэш
+  //           queryClient.invalidateQueries({ queryKey: ["roles"] });
+  //           // 2. Закрываем модалку
+  //           onOpenChange(false);
+  //           // 3. Вызываем callback родителя для умной навигации и подсветки
+  //           await onRoleSaved(savedRole.id, savedRole.name);
+  //         }
+  //       },
+  //       onError: () => {
+  //         toast({
+  //           variant: "destructive",
+  //           title: "Ошибка",
+  //           description: "Не удалось сохранить роль",
+  //         });
+  //       },
+  //     },
+  //   );
+  // };
   const onSubmit = async (data: RoleFormData) => {
     // ✅ Проверка tenant_id
     if (!currentTenantId) {
@@ -148,85 +218,63 @@ export function EditRoleModal({
       return;
     }
 
-    // ✅ Заполняем tenant_id для каждого разрешения
-    // const permissionsWithIds = permissions.map((perm) => ({
-    //   ...perm,
-    //   role_id: role?.id || "", // ✅ Пустой при создании (бэкенд заполнит)
-    //   tenant_id: currentTenantId,
-
-    // }));
-
-    const permissionsWithIds = permissions.map((perm) => {
-      const item: PermissionCreateSchema = {
-        ...perm,
-        tenant_id: currentTenantId,
-      };
-
-      // ✅ Добавляем role_id только если он есть
-      if (role?.id) {
-        item.role_id = role.id;
-      }
-
-      return item;
-    });
-
-    const sectionNames = sections
-      .filter((s) => selectedSectionIds.includes(s.id))
-      .map((s) => s.name);
-
+    // ✅ Payload содержит ТОЛЬКО данные самой роли.
+    // Полномочия (permissions) уже сохранены/удалены независимо через компонент PermissionsTab!
     const payload = {
       name: data.name,
-      description: data.description,
-      tenant_id: currentTenantId, // ✅ Всегда из сессии
+      description: data.description || "",
+      tenant_id: currentTenantId,
+
+      // ⚠️ Если ваш RoleSaveSchema на бэкенде ТРЕБУЕТ section_ids или user_ids,
+      // оставьте их здесь. Но permissions здесь быть НЕ ДОЛЖНО.
       section_ids: selectedSectionIds,
-      section_names: sectionNames,
-      permissions: permissionsWithIds,
-      user_ids: selectedUserIds,
+      // user_ids: selectedUserIds,
     };
 
     // ✅ Формируем параметры мутации в зависимости от режима
-    const mutationParams = isEdit
-      ? { data: payload, params: { role_id: role.id } }
-      : { data: payload }; // ✅ При создании role_id не передаём
+    // Примечание: проверьте точную сигнатуру сгенерированного Orval хука saveRoleRolesSavePost
+    const mutationParams =
+      isEdit && role?.id
+        ? { data: payload, params: { role_id: role.id } } // или { roleId: role.id } в зависимости от Orval
+        : { data: payload };
 
-    saveMutation.mutate(
-      // ⚠️ Проверьте имя хука в сгенерированном Orval файле.
-      // Обычно это { data: payload, roleId: role.id } или { data: payload, queryParams: { role_id: role.id } }
-      mutationParams,
-      {
-        onSuccess: async (res) => {
-          if (res.data) {
-            const savedRole = res.data;
+    saveMutation.mutate(mutationParams, {
+      // 'as any' временно, пока не уточним точную сигнатуру Orval
+      onSuccess: async (res) => {
+        if (res.data) {
+          const savedRole = res.data;
 
-            // ✅ Правило №24: Строгий порядок
-            // 1. Инвалидируем кэш
-            queryClient.invalidateQueries({ queryKey: ["roles"] });
-            // 2. Закрываем модалку
-            onOpenChange(false);
-            // 3. Вызываем callback родителя для умной навигации и подсветки
-            await onRoleSaved(savedRole.id, savedRole.name);
+          // ✅ Правило №24: Строгий порядок действий
+          // 1. Инвалидируем кэш ДО закрытия модалки
+          await queryClient.invalidateQueries({ queryKey: ["roles"] });
+          if (isEdit && role?.id) {
+            await queryClient.invalidateQueries({
+              queryKey: ["role", role.id],
+            });
           }
-        },
-        onError: () => {
-          toast({
-            variant: "destructive",
-            title: "Ошибка",
-            description: "Не удалось сохранить роль",
-          });
-        },
-      },
-    );
-  };
 
-  const togglePermission = (
-    doctype: string,
-    field: keyof PermissionCreateSchema,
-  ) => {
-    setPermissions((prev) =>
-      prev.map((p) =>
-        p.doctype === doctype ? { ...p, [field]: !p[field] } : p,
-      ),
-    );
+          // 2. Закрываем модалку
+          onOpenChange(false);
+
+          // 3. ✅ Правило №20: Сброс формы при закрытии
+          reset(CREATE_DEFAULTS);
+
+          // 4. Вызываем callback родителя для умной навигации и подсветки
+          await onRoleSaved(savedRole.id, savedRole.name);
+        }
+      },
+      onError: (error: unknown) => {
+        // ✅ Безопасное приведение типа для извлечения detail из ответа сервера
+        const err = error as { response?: { data?: { detail?: string } } };
+
+        toast({
+          variant: "destructive",
+          title: "Ошибка сохранения",
+          description:
+            err?.response?.data?.detail || "Не удалось сохранить роль",
+        });
+      },
+    });
   };
 
   return (
@@ -337,81 +385,13 @@ export function EditRoleModal({
               value="permissions"
               className="space-y-4 mt-0 min-h-[400px]"
             >
-              <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
-                      <TableHead className="whitespace-nowrap w-[250px]">
-                        Тип документа
-                      </TableHead>
-                      <TableHead className="text-center whitespace-nowrap w-[150px]">
-                        Полный доступ
-                      </TableHead>
-                      <TableHead className="text-center whitespace-nowrap w-[150px]">
-                        Редактор
-                      </TableHead>
-                      <TableHead className="text-center whitespace-nowrap w-[150px]">
-                        Автор
-                      </TableHead>
-                      <TableHead className="text-center whitespace-nowrap w-[150px]">
-                        Читатель
-                      </TableHead>
-                      <TableHead className="text-center whitespace-nowrap w-[150px]">
-                        Удаление
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {permissions.map((perm) => (
-                      <TableRow key={perm.doctype} className="py-1">
-                        <TableCell className="py-1 font-medium whitespace-nowrap">
-                          {perm.doctype_name || perm.doctype}
-                        </TableCell>
-                        <TableCell className="text-center py-1">
-                          <Checkbox
-                            checked={perm.full_access}
-                            onCheckedChange={() =>
-                              togglePermission(perm.doctype, "full_access")
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="text-center py-1">
-                          <Checkbox
-                            checked={perm.editor}
-                            onCheckedChange={() =>
-                              togglePermission(perm.doctype, "editor")
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="text-center py-1">
-                          <Checkbox
-                            checked={perm.author}
-                            onCheckedChange={() =>
-                              togglePermission(perm.doctype, "author")
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="text-center py-1">
-                          <Checkbox
-                            checked={perm.reader}
-                            onCheckedChange={() =>
-                              togglePermission(perm.doctype, "reader")
-                            }
-                          />
-                        </TableCell>
-                        <TableCell className="text-center py-1">
-                          <Checkbox
-                            checked={perm.can_delete}
-                            onCheckedChange={() =>
-                              togglePermission(perm.doctype, "can_delete")
-                            }
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {/* 
+                Передаем объект роли. 
+                ВАЖНО: Если в вашем коде переменная с данными роли называется иначе 
+                (например, initialRole, selectedRole или form.getValues()), 
+                замените `role` на имя вашей переменной.
+              */}
+              <PermissionsTab role={role as RoleResponseSchema} />
             </TabsContent>
 
             {/* Вкладка 4: Пользователи */}
