@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, CheckCircle2, PauseCircle } from "lucide-react";
-
+import { Plus, Trash2, Undo2, CheckCircle2, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import {
   AlertDialog,
@@ -23,116 +22,116 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-
-import {
-  createPermissionPermissionsPost,
-  deletePermissionPermissionsPermissionIdDelete,
-} from "@/api/generated/permissions/permissions";
-
 import { getDoctypesDoctypesGet } from "@/api/generated/doctypes/doctypes";
 import type { DoctypeResponseSchema } from "@/api/generated/fastAPI.schemas";
-import type {
-  RoleResponseSchema,
-  PermissionResponseSchema,
-} from "@/api/generated/fastAPI.schemas";
 
-interface PermissionsTabProps {
-  role: RoleResponseSchema;
+/**
+ * Черновик permission (edit-состояние).
+ * id отсутствует у новых записей (будет создан на бэкенде).
+ * id присутствует у существующих записей (для обновления).
+ * markedForDeletion — флаг для мягкого удаления (визуальная пометка).
+ */
+export interface PermissionDraft {
+  id?: string;
+  doctype: string;
+  doctype_name?: string | null;
+  role_name?: string | null;
+  tenant_name?: string | null;
+  full_access: boolean;
+  author: boolean;
+  reader: boolean;
+  editor: boolean;
+  can_delete: boolean;
+  access_by_tags: boolean;
+  markedForDeletion?: boolean;
 }
 
-export const PermissionsTab = ({ role }: PermissionsTabProps) => {
-  const queryClient = useQueryClient();
+interface PermissionsTabProps {
+  permissions: PermissionDraft[];
+  onPermissionsChange: (permissions: PermissionDraft[]) => void;
+  tenantId: string;
+  roleName: string;
+}
+
+export const PermissionsTab = ({
+  permissions,
+  onPermissionsChange,
+  tenantId,
+  roleName,
+}: PermissionsTabProps) => {
   const { toast } = useToast();
-
   const [selectedDoctype, setSelectedDoctype] = useState<string>("");
-  const [isAdding, setIsAdding] = useState(false);
-  const [permissionToDelete, setPermissionToDelete] =
-    useState<PermissionResponseSchema | null>(null);
-  const [isRemoving, setIsRemoving] = useState(false);
+  const [permissionToToggle, setPermissionToToggle] = useState<PermissionDraft | null>(null);
 
-  // ✅ Исправление 1: Стабильная зависимость для useMemo (зависим от role.permissions, а не от новой ссылки [])
+  // ✅ Множество существующих doctype (исключаем помеченные на удаление)
   const existingDoctypes = useMemo(
-    () => new Set((role.permissions || []).map((p) => p.doctype)),
-    [role.permissions],
+    () => new Set(
+      permissions
+        .filter((p) => !p.markedForDeletion)
+        .map((p) => p.doctype),
+    ),
+    [permissions],
   );
 
-  const permissions = role.permissions || [];
-
-  const handleAddPermission = async () => {
+  const handleAddPermission = () => {
     if (!selectedDoctype) {
       toast({ variant: "destructive", title: "Выберите тип документа" });
       return;
     }
 
-    setIsAdding(true);
-    try {
-      // ✅ Исправление 2: Передаем объект напрямую, без обертки { data: ... }
-      await createPermissionPermissionsPost({
-        role_id: role.id,
-        tenant_id: role.tenant_id,
-        doctype: selectedDoctype,
-        doctype_name: selectedDoctype,
-        role_name: role.name,
-        tenant_name: "",
-        full_access: false,
-        author: false,
-        reader: true,
-        editor: false,
-        can_delete: false,
-        access_by_tags: false,
-      });
+    const newPermission: PermissionDraft = {
+      doctype: selectedDoctype,
+      doctype_name: selectedDoctype,
+      role_name: roleName,
+      tenant_name: "",
+      full_access: false,
+      author: false,
+      reader: true,
+      editor: false,
+      can_delete: false,
+      access_by_tags: false,
+      markedForDeletion: false,
+    };
 
-      await queryClient.invalidateQueries({ queryKey: ["roles"] });
-      await queryClient.invalidateQueries({ queryKey: ["role", role.id] });
-
-      setSelectedDoctype("");
-      toast({ title: "Полномочие добавлено" });
-    } catch (error: unknown) {
-      // ✅ Исправление 3: Замена 'any' на 'unknown' с безопасным приведением типа
-      const err = error as { response?: { data?: { detail?: string } } };
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description:
-          err?.response?.data?.detail || "Не удалось добавить полномочие",
-      });
-    } finally {
-      setIsAdding(false);
-    }
+    onPermissionsChange([...permissions, newPermission]);
+    setSelectedDoctype("");
+    toast({ title: "Полномочие добавлено в черновик" });
   };
 
-  const handleRemovePermission = async () => {
-    if (!permissionToDelete) return;
+  // ✅ Мягкое удаление/восстановление
+  const handleToggleDeletion = () => {
+    if (!permissionToToggle) return;
 
-    setIsRemoving(true);
-    try {
-      // ✅ Исправление 4: Передаем строку напрямую, а не объект { permission_id: ... }
-      await deletePermissionPermissionsPermissionIdDelete(
-        permissionToDelete.id,
-      );
+    const updated = permissions.map((p) => {
+      if (p.doctype === permissionToToggle.doctype) {
+        return {
+          ...p,
+          markedForDeletion: !p.markedForDeletion,
+        };
+      }
+      return p;
+    });
 
-      await queryClient.invalidateQueries({ queryKey: ["roles"] });
-      await queryClient.invalidateQueries({ queryKey: ["role", role.id] });
+    onPermissionsChange(updated);
+    setPermissionToToggle(null);
 
-      setPermissionToDelete(null);
-      toast({ title: "Полномочие удалено" });
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } };
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description:
-          err?.response?.data?.detail || "Не удалось удалить полномочие",
-      });
-    } finally {
-      setIsRemoving(false);
-    }
+    const action = permissionToToggle.markedForDeletion ? "восстановлено" : "помечено на удаление";
+    toast({ title: `Полномочие ${action}` });
   };
 
-  const renderFlag = (
-    value: boolean | null | undefined,
-    colorClass: string,
+  const handleToggleFlag = (
+    index: number,
+    flag: keyof Pick<PermissionDraft, "full_access" | "author" | "reader" | "editor" | "can_delete">,
   ) => {
+    const updated = [...permissions];
+    updated[index] = {
+      ...updated[index],
+      [flag]: !updated[index][flag],
+    };
+    onPermissionsChange(updated);
+  };
+
+  const renderFlagIcon = (value: boolean | null | undefined, colorClass: string) => {
     return value ? (
       <CheckCircle2 className={`h-4 w-4 ${colorClass}`} />
     ) : (
@@ -150,24 +149,20 @@ export const PermissionsTab = ({ role }: PermissionsTabProps) => {
             fetchFn={async (params) => {
               const response = await getDoctypesDoctypesGet({
                 ...params,
-                available_for_tenant_id: role.tenant_id,
+                available_for_tenant_id: tenantId,
               });
 
-              // ✅ Явная типизация item. Перезапись id строкой doctype теперь типобезопасна.
               const items = (response?.data?.items ?? []).map(
                 (item: DoctypeResponseSchema) => ({
                   ...item,
-                  id: item.doctype, // Правило №27: Строка вместо UUID
-                  name: item.doctype_name || item.doctype, // ✅ Добавлено для удовлетворения типа ReferenceItem
+                  id: item.doctype,
+                  name: item.doctype_name || item.doctype,
                 }),
               );
 
-              return {
-                items,
-                total: response?.data?.total ?? 0,
-              };
+              return { items, total: response?.data?.total ?? 0 };
             }}
-            queryKey={["doctypes-for-role", role.tenant_id]}
+            queryKey={["doctypes-for-role", tenantId]}
             value={selectedDoctype}
             onValueChange={setSelectedDoctype}
             placeholder="Выберите тип документа..."
@@ -180,19 +175,12 @@ export const PermissionsTab = ({ role }: PermissionsTabProps) => {
           />
         </div>
         <Button
+          type="button"
           onClick={handleAddPermission}
-          disabled={
-            !selectedDoctype ||
-            isAdding ||
-            existingDoctypes.has(selectedDoctype)
-          }
+          disabled={!selectedDoctype || existingDoctypes.has(selectedDoctype)}
           className="h-10"
         >
-          {isAdding ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4 mr-1" />
-          )}
+          <Plus className="h-4 w-4 mr-1" />
           Добавить
         </Button>
       </div>
@@ -200,15 +188,15 @@ export const PermissionsTab = ({ role }: PermissionsTabProps) => {
       {/* Подсказка о дубликате */}
       {selectedDoctype && existingDoctypes.has(selectedDoctype) && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          ⚠ Полномочие для этого типа документа уже существует
+          ⚠ Полномочие для этого типа документа уже существует в черновике
         </p>
       )}
 
-      {/* Правило №11: Компактные таблицы */}
+      {/* Таблица полномочий */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="h-10 hover:bg-transparent">
               <TableHead className="py-1">Тип документа</TableHead>
               <TableHead className="py-1 text-center w-20">Полный</TableHead>
               <TableHead className="py-1 text-center w-20">Автор</TableHead>
@@ -221,85 +209,168 @@ export const PermissionsTab = ({ role }: PermissionsTabProps) => {
           <TableBody>
             {permissions.length === 0 ? (
               <TableRow>
-                <TableCell
-                  colSpan={7}
-                  className="py-6 text-center text-muted-foreground text-sm"
-                >
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground text-sm">
                   Полномочия не добавлены. Выберите тип документа выше.
                 </TableCell>
               </TableRow>
             ) : (
-              permissions.map((perm) => (
-                <TableRow key={perm.id} className="align-top">
-                  <TableCell className="py-1">
-                    <div className="font-medium text-sm">
-                      {perm.doctype_name || perm.doctype}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Код: {perm.doctype}
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-1 text-center">
-                    {renderFlag(perm.full_access, "text-purple-600")}
-                  </TableCell>
-                  <TableCell className="py-1 text-center">
-                    {renderFlag(perm.author, "text-blue-600")}
-                  </TableCell>
-                  <TableCell className="py-1 text-center">
-                    {renderFlag(perm.reader, "text-green-600")}
-                  </TableCell>
-                  <TableCell className="py-1 text-center">
-                    {renderFlag(perm.editor, "text-yellow-600")}
-                  </TableCell>
-                  <TableCell className="py-1 text-center">
-                    {renderFlag(perm.can_delete, "text-red-600")}
-                  </TableCell>
-                  <TableCell className="py-1 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => setPermissionToDelete(perm)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
+              permissions.map((perm, index) => {
+                const isMarkedForDeletion = perm.markedForDeletion === true;
+                const isNew = !perm.id;
+
+                return (
+                  <TableRow
+                    key={perm.id || perm.doctype}
+                    className={`align-top ${
+                      isMarkedForDeletion
+                        ? "bg-red-50 dark:bg-red-900/10 opacity-60"
+                        : isNew
+                          ? "bg-green-50 dark:bg-green-900/10"
+                          : ""
+                    }`}
+                  >
+                    <TableCell className="py-1">
+                      <div
+                        className={`font-medium text-sm ${
+                          isMarkedForDeletion ? "line-through text-red-600 dark:text-red-400" : ""
+                        }`}
+                      >
+                        {perm.doctype_name || perm.doctype}
+                        {isNew && !isMarkedForDeletion && (
+                          <span className="ml-2 text-xs text-green-600 dark:text-green-400 font-normal">
+                            (новый)
+                          </span>
+                        )}
+                        {isMarkedForDeletion && (
+                          <span className="ml-2 text-xs text-red-600 dark:text-red-400 font-normal">
+                            (будет удалено)
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Код: {perm.doctype}</div>
+                    </TableCell>
+                    <TableCell className="py-1 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Checkbox
+                          checked={perm.full_access || false}
+                          onCheckedChange={() => handleToggleFlag(index, "full_access")}
+                          disabled={isMarkedForDeletion}
+                        />
+                        {renderFlagIcon(perm.full_access, "text-purple-600")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-1 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Checkbox
+                          checked={perm.author || false}
+                          onCheckedChange={() => handleToggleFlag(index, "author")}
+                          disabled={isMarkedForDeletion}
+                        />
+                        {renderFlagIcon(perm.author, "text-blue-600")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-1 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Checkbox
+                          checked={perm.reader || false}
+                          onCheckedChange={() => handleToggleFlag(index, "reader")}
+                          disabled={isMarkedForDeletion}
+                        />
+                        {renderFlagIcon(perm.reader, "text-green-600")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-1 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Checkbox
+                          checked={perm.editor || false}
+                          onCheckedChange={() => handleToggleFlag(index, "editor")}
+                          disabled={isMarkedForDeletion}
+                        />
+                        {renderFlagIcon(perm.editor, "text-yellow-600")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-1 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Checkbox
+                          checked={perm.can_delete || false}
+                          onCheckedChange={() => handleToggleFlag(index, "can_delete")}
+                          disabled={isMarkedForDeletion}
+                        />
+                        {renderFlagIcon(perm.can_delete, "text-red-600")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-1 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`h-7 w-7 ${
+                          isMarkedForDeletion
+                            ? "text-green-600 hover:text-green-700 hover:bg-green-100 dark:hover:bg-green-900/20"
+                            : "text-destructive hover:text-destructive hover:bg-destructive/10"
+                        }`}
+                        onClick={() => setPermissionToToggle(perm)}
+                        title={isMarkedForDeletion ? "Восстановить" : "Пометить на удаление"}
+                      >
+                        {isMarkedForDeletion ? (
+                          <Undo2 className="h-4 w-4" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
 
-      {/* Правило №16: Удаление через AlertDialog */}
+      {/* Диалог подтверждения удаления/восстановления */}
       <AlertDialog
-        open={!!permissionToDelete}
-        onOpenChange={(open) => !open && setPermissionToDelete(null)}
+        open={!!permissionToToggle}
+        onOpenChange={(open) => !open && setPermissionToToggle(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить полномочие?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {permissionToToggle?.markedForDeletion
+                ? "Восстановить полномочие?"
+                : "Пометить полномочие на удаление?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Роль потеряет доступ к типу документа{" "}
-              <strong>
-                {permissionToDelete?.doctype_name ||
-                  permissionToDelete?.doctype}
-              </strong>
-              . Это действие нельзя отменить.
+              {permissionToToggle?.markedForDeletion ? (
+                <>
+                  Полномочие для типа документа{" "}
+                  <strong>
+                    {permissionToToggle?.doctype_name || permissionToToggle?.doctype}
+                  </strong>{" "}
+                  будет восстановлено.
+                </>
+              ) : (
+                <>
+                  Полномочие для типа документа{" "}
+                  <strong>
+                    {permissionToToggle?.doctype_name || permissionToToggle?.doctype}
+                  </strong>{" "}
+                  будет помечено на удаление. Вы сможете восстановить его до нажатия кнопки "Сохранить".
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleRemovePermission}
-              disabled={isRemoving}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              type="button"
+              onClick={handleToggleDeletion}
+              className={
+                permissionToToggle?.markedForDeletion
+                  ? "bg-green-600 text-white hover:bg-green-700"
+                  : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              }
             >
-              {isRemoving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                "Удалить"
-              )}
+              {permissionToToggle?.markedForDeletion ? "Восстановить" : "Пометить на удаление"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

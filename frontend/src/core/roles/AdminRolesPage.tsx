@@ -103,6 +103,17 @@ export function AdminRolesPage() {
     setIsCreateOpen(true);
   };
 
+  const handleModalOpenChange = (open: boolean) => {
+    setEditModalOpen(open);
+    
+    // ✅ КРИТИЧЕСКИ ВАЖНО: При закрытии модалки мы ОБЯЗАНЫ обнулить editingRole.
+    // Это гарантирует, что при следующем открытии React Query (или другой источник) 
+    // предоставит абсолютно свежий объект роли, а не закэшированный черновик.
+    if (!open) {
+      setEditingRole(null);
+    }
+  };
+
   // Умная навигация после создания/обновления (Правило №18, 23)
   const handleRoleSaved = async (newId: string, newName: string) => {
     const result = await refetch();
@@ -446,7 +457,8 @@ export function AdminRolesPage() {
         <EditRoleModal
           key={editingRole.id}
           open={editModalOpen}
-          onOpenChange={setEditModalOpen}
+          // onOpenChange={setEditModalOpen}
+          onOpenChange={handleModalOpenChange}
           role={editingRole}
           onRoleSaved={handleRoleSaved}
         />
