@@ -306,6 +306,7 @@ export function EditRoleModal({
   );
 
   const { data: sectionsData } = useGetSectionsSectionsGet({
+    tenant_id: effectiveTenantId,
     limit: 1000,
     skip: 0,
   });
@@ -664,6 +665,7 @@ export function EditRoleModal({
                       skip: params.skip,
                       limit: params.limit,
                       search: params.search,
+                      tenant_id: effectiveTenantId,
                     });
                     const items = (response?.data?.items ?? []).map(
                       (item: unknown) => {
@@ -681,7 +683,7 @@ export function EditRoleModal({
                     );
                     return { items, total: response?.data?.total ?? 0 };
                   }}
-                  queryKey={["sections"]}
+                  queryKey={["sections", effectiveTenantId]}
                   value={selectedSectionIds}
                   onValueChange={setSelectedSectionIds}
                   allItems={sections.map((s) => ({ id: s.id, name: s.name }))}

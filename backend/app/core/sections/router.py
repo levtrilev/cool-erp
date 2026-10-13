@@ -1,7 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.auth.dependencies import get_current_session
 from app.core.auth.models import UserSession
 from app.core.database import get_db
@@ -25,7 +24,6 @@ async def create_section(
     """Создание нового раздела. tenant_id берется из сессии."""
     db_obj = await crud_section.create(db, data, tenant_id=session.tenant_id)
     await db.commit()
-
     return ApiResponse(
         success=True,
         message="Раздел создан",
@@ -38,10 +36,24 @@ async def get_sections(
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
+    # ✅ НОВОЕ: опциональный tenant_id для суперадмина
+    tenant_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
-    """Получение пагинированного списка разделов с опциональным поиском."""
+    """
+    Получение пагинированного списка разделов с опциональным поиском.
+    
+    Если передан tenant_id и пользователь — суперадмин,
+    возвращаются разделы указанного предприятия.
+    """
+    # ✅ Защита: обычный админ не может запросить чужой tenant_id
+    if tenant_id and not session.is_superadmin:
+        raise HTTPException(
+            status_code=403,
+            detail="Только суперадмин может запрашивать разделы другого предприятия",
+        )
+
     items, total = await crud_section.get_multi_paginated(
         db,
         user_tenant_id=session.tenant_id,
@@ -49,8 +61,8 @@ async def get_sections(
         limit=limit,
         search=search,
         user_is_superadmin=session.is_superadmin,
+        target_tenant_id=tenant_id,  # ✅ Передаём target_tenant_id
     )
-
     return ApiResponse(
         success=True,
         message="Разделы получены",
@@ -73,7 +85,6 @@ async def get_section(
     db_obj = await crud_section.get(db, id=section_id, tenant_id=session.tenant_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Раздел не найден")
-
     return ApiResponse(
         success=True,
         message="Раздел получен",
@@ -92,10 +103,8 @@ async def update_section(
     db_obj = await crud_section.get(db, id=section_id, tenant_id=session.tenant_id)
     if not db_obj:
         raise HTTPException(status_code=404, detail="Раздел не найден")
-
     updated_obj = await crud_section.update(db, db_obj=db_obj, obj_in=data)
     await db.commit()
-
     return ApiResponse(
         success=True,
         message="Раздел обновлен",
@@ -115,9 +124,7 @@ async def delete_section(
     )
     if not deleted_obj:
         raise HTTPException(status_code=404, detail="Раздел не найден")
-
     await db.commit()
-
     return ApiResponse(
         success=True,
         message="Раздел удален",
