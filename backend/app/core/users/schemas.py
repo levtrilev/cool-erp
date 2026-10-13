@@ -6,10 +6,6 @@ from typing import Optional
 # ==========================================
 # БАЗОВЫЕ СХЕМЫ
 # ==========================================
-# class UserBaseSchema(BaseModel):
-#     """Базовая схема пользователя (для наследования)"""
-#     name: str
-#     email: EmailStr
 class UserBaseSchema(BaseModel):
     name: str
     email: str
@@ -64,7 +60,9 @@ class UserResponseSchema(BaseModel):
     tenant_name: Optional[str] = None
     is_admin: bool
     is_superadmin: bool = False
-
+    role_ids: Optional[list[uuid.UUID]] = None
+    role_names: Optional[list[str]] = None
+    
     model_config = {"from_attributes": True}  # Pydantic v2 стиль
 
 

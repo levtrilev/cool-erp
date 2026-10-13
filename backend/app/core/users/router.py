@@ -1,4 +1,4 @@
-from typing import Optional
+# from typing import Optional
 
 # from datetime import datetime, timedelta, timezone
 import uuid
@@ -271,16 +271,21 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
 #     )
 @router.get("/", response_model=PaginatedResponse[UserResponseSchema])
 async def read_users(
+    tenant_id: uuid.UUID,
     skip: int = 0,
     limit: int = 100,
-    search: Optional[str] = None,
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
+    # Если tenant_id не указан, использовать tenant_id из сессии
+    # if tenant_id is None and session:
+    #     tenant_id = session.tenant_id
+
     """Получение списка пользователей с пагинацией"""
     items, total = await crud_user.get_multi_paginated(
         db,
-        tenant_id=session.tenant_id,
+        tenant_id=tenant_id,  # ✅ Передать в CRUD
         skip=skip,
         limit=limit,
         search=search,

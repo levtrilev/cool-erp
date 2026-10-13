@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useForm, Controller, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -17,20 +16,17 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useSaveRoleRolesSavePost } from "@/api/generated/roles/roles";
-import { useGetSectionsSectionsGet } from "@/api/generated/sections/sections";
+import {
+  getSectionsSectionsGet,
+  useGetSectionsSectionsGet,
+} from "@/api/generated/sections/sections";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
 import { PermissionsTab, type PermissionDraft } from "./PermissionsTab";
+import { UsersTab, type UserDraft } from "./UsersTab";
+import { MultiSelectChips } from "@/lib/reusable/MultiSelectChips";
 
 // ✅ Правило №20: Константа для сброса формы
 const CREATE_DEFAULTS: RoleFormData = {
@@ -52,6 +48,14 @@ interface EditRoleModalProps {
   onRoleSaved: (id: string, name: string) => void;
 }
 
+// ✅ Правило №36: Кастомный тип для пользователя с role_ids
+interface UserWithRoles {
+  id: string;
+  name: string;
+  email?: string | null;
+  role_ids?: string[];
+}
+
 export function EditRoleModal({
   open,
   onOpenChange,
@@ -64,28 +68,118 @@ export function EditRoleModal({
   const currentTenantId = userData?.data?.tenant_id;
   const isEdit = !!role;
 
-  // ✅ Динамические defaultValues для useForm.
-  // Благодаря паттерну с `key` ниже, useForm пересоздается с правильными значениями.
-  const formDefaultValues: RoleFormData = isEdit
-    ? {
-        name: role.name || "",
-        description: role.description || "",
-      }
-    : CREATE_DEFAULTS;
-
-  const { control, handleSubmit } = useForm<RoleFormData>({
+  const { control, handleSubmit, reset } = useForm<RoleFormData>({
     resolver: zodResolver(roleSchema),
-    defaultValues: formDefaultValues,
+    defaultValues: CREATE_DEFAULTS,
   });
 
-  // ✅ Инициализация состояний напрямую.
-  // При смене `key` компонент монтируется заново, и эти значения становятся актуальными.
+  // ✅ Правило №37: Паттерн с sessionKey для гарантированного перемонта при открытии
+  const [sessionKey, setSessionKey] = useState(0);
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen && !open) {
+      setSessionKey((prev) => prev + 1);
+    }
+    if (!newOpen) {
+      reset(CREATE_DEFAULTS); // ✅ Правило №20
+    }
+    onOpenChange(newOpen);
+  };
+
+  // ==========================================
+  // ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ (РАБОТАЕТ)
+  // ==========================================
+  const { data: usersData, isLoading: isUsersLoading } = useReadUsersUsersGet({
+    tenant_id: currentTenantId ?? "",
+    limit: 1000,
+    skip: 0,
+  });
+
+  const allUsers = useMemo(() => {
+    return (usersData?.items ?? []).map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role_ids: (u as unknown as UserWithRoles).role_ids || [],
+    }));
+  }, [usersData]);
+
+  const roleId = role?.id;
+
+  const initialUserIds = useMemo(() => {
+    if (!roleId || allUsers.length === 0) return [];
+    return allUsers
+      .filter((u) => u.role_ids?.includes(roleId))
+      .map((u) => u.id);
+  }, [roleId, allUsers]);
+
+  const initialUsersDraft: UserDraft[] = useMemo(() => {
+    return allUsers
+      .filter((u) => initialUserIds.includes(u.id))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email || undefined,
+        markedForDeletion: false,
+      }));
+  }, [allUsers, initialUserIds]);
+
+  const [usersDraft, setUsersDraft] = useState<UserDraft[]>([]);
+  const lastInitializedRoleId = useRef<string | null>(null);
+  const role_id = role?.id;
+
+  useEffect(() => {
+    if (open) {
+      if (role_id) {
+        if (!isUsersLoading && usersData) {
+          if (lastInitializedRoleId.current !== role_id) {
+            setUsersDraft(initialUsersDraft);
+            lastInitializedRoleId.current = role_id;
+          }
+        }
+      } else {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setUsersDraft([]);
+        lastInitializedRoleId.current = null;
+      }
+    } else {
+      setUsersDraft([]);
+      lastInitializedRoleId.current = null;
+    }
+  }, [open, role_id, initialUsersDraft, isUsersLoading, usersData]);
+
+  const selectedUserIds = useMemo(() => {
+    return usersDraft.filter((u) => !u.markedForDeletion).map((u) => u.id);
+  }, [usersDraft]);
+
+  // ==========================================
+  // ДАННЫЕ РАЗДЕЛОВ (ИСПРАВЛЕНО)
+  // ==========================================
+  // ✅ Правило №37: Инициализация напрямую из пропсов
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>(
     role?.section_ids || [],
   );
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
-  // ✅ Преобразование null в undefined для строгой типизации (TypeScript)
+  const { data: sectionsData } = useGetSectionsSectionsGet({
+    limit: 1000,
+    skip: 0,
+  });
+
+  const sections = useMemo(
+    () => sectionsData?.data?.items ?? [],
+    [sectionsData],
+  );
+
+  // ✅ ИСПРАВЛЕНИЕ: Вычисляем объекты для отображения чипов (как в copy 06)
+  //   const selectedSections = useMemo(() => {
+  //     return sections
+  //       .filter((s) => selectedSectionIds.includes(s.id))
+  //       .map((s) => ({ id: s.id, name: s.name, description: s.name }));
+  //   }, [sections, selectedSectionIds]);
+
+  // ==========================================
+  // ДАННЫЕ ПОЛНОМОЧИЙ (РАБОТАЕТ)
+  // ==========================================
   const initialPerms: PermissionDraft[] = role?.permissions
     ? role.permissions.map((p) => ({
         id: p.id,
@@ -108,21 +202,32 @@ export function EditRoleModal({
     JSON.stringify(initialPerms),
   );
 
-  // ✅ Вычисляем наличие несохранённых изменений
-  const hasUnsavedChanges = useMemo(() => {
+  // ==========================================
+  // ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+  // ==========================================
+  const hasPermissionChanges = useMemo(() => {
     return JSON.stringify(permissions) !== initialPermissionsSnapshot;
   }, [permissions, initialPermissionsSnapshot]);
 
-  // Загрузка данных для вкладок
-  const { data: sectionsData } = useGetSectionsSectionsGet({
-    limit: 1000,
-    skip: 0,
-  });
-  const { data: usersData } = useReadUsersUsersGet({ limit: 1000, skip: 0 });
+  const initialSectionIds = useMemo(
+    () => role?.section_ids || [],
+    [role?.section_ids],
+  );
+  const hasSectionChanges = useMemo(() => {
+    const initial = initialSectionIds.slice().sort();
+    const current = selectedSectionIds.slice().sort();
+    return JSON.stringify(initial) !== JSON.stringify(current);
+  }, [initialSectionIds, selectedSectionIds]);
 
-  const sections = sectionsData?.data?.items ?? [];
-  const users = usersData?.items ?? [];
+  const hasUserChanges = useMemo(() => {
+    const initial = initialUserIds.slice().sort();
+    const current = selectedUserIds.slice().sort();
+    return JSON.stringify(initial) !== JSON.stringify(current);
+  }, [initialUserIds, selectedUserIds]);
 
+  // ==========================================
+  // ОБРАБОТЧИКИ
+  // ==========================================
   const saveMutation = useSaveRoleRolesSavePost();
 
   const onSubmit = async (data: RoleFormData) => {
@@ -135,34 +240,6 @@ export function EditRoleModal({
       return;
     }
 
-    // ✅ Формируем payload, включая permissions из локального edit-состояния
-    // const payload = {
-    //   name: data.name,
-    //   description: data.description || "",
-    //   tenant_id: currentTenantId,
-    //   section_ids: selectedSectionIds,
-    //   section_names: sections
-    //     .filter((s) => selectedSectionIds.includes(s.id))
-    //     .map((s) => s.name),
-    //   permissions: permissions.map((p) => ({
-    //     doctype: p.doctype,
-    //     doctype_name: p.doctype_name || p.doctype,
-    //     role_name: p.role_name || data.name,
-    //     tenant_name: "",
-    //     tenant_id: currentTenantId, // ✅ Обязательно для PermissionCreateSchema
-    //     full_access: p.full_access,
-    //     author: p.author,
-    //     reader: p.reader,
-    //     editor: p.editor,
-    //     can_delete: p.can_delete,
-    //     access_by_tags: p.access_by_tags,
-    //     ...(p.id ? { id: p.id } : {}), // ✅ ID только для существующих записей
-    //   })),
-    //   user_ids: selectedUserIds,
-    // };
-    // ✅ ФИЛЬТРАЦИЯ: Исключаем permissions, помеченные на удаление
-    const permissionsToSend = permissions.filter((p) => !p.markedForDeletion);
-
     const payload = {
       name: data.name,
       description: data.description || "",
@@ -171,23 +248,25 @@ export function EditRoleModal({
       section_names: sections
         .filter((s) => selectedSectionIds.includes(s.id))
         .map((s) => s.name),
-      // ✅ Отправляем только НЕ помеченные на удаление
-      permissions: permissionsToSend.map((p) => ({
-        doctype: p.doctype,
-        doctype_name: p.doctype_name || p.doctype,
-        role_name: p.role_name || data.name,
-        tenant_name: "",
-        tenant_id: currentTenantId,
-        full_access: p.full_access,
-        author: p.author,
-        reader: p.reader,
-        editor: p.editor,
-        can_delete: p.can_delete,
-        access_by_tags: p.access_by_tags,
-        ...(p.id ? { id: p.id } : {}),
-      })),
+      permissions: permissions
+        .filter((p) => !p.markedForDeletion)
+        .map((p) => ({
+          doctype: p.doctype,
+          doctype_name: p.doctype_name || p.doctype,
+          role_name: p.role_name || data.name,
+          tenant_name: "",
+          tenant_id: currentTenantId,
+          full_access: p.full_access,
+          author: p.author,
+          reader: p.reader,
+          editor: p.editor,
+          can_delete: p.can_delete,
+          access_by_tags: p.access_by_tags,
+          ...(p.id ? { id: p.id } : {}),
+        })),
       user_ids: selectedUserIds,
     };
+
     const mutationParams =
       isEdit && role?.id
         ? { data: payload, params: { role_id: role.id } }
@@ -204,15 +283,26 @@ export function EditRoleModal({
             await queryClient.invalidateQueries({
               queryKey: ["role", role.id],
             });
+            await queryClient.invalidateQueries({
+              queryKey: ["permissions", role.id],
+            });
           }
 
-          onOpenChange(false);
+          await queryClient.invalidateQueries({
+            predicate: (query) => {
+              const key = query.queryKey[0];
+              return (
+                typeof key === "string" && key.toLowerCase().includes("user")
+              );
+            },
+          });
+
+          handleOpenChange(false);
           await onRoleSaved(savedRole.id, savedRole.name);
           toast({ title: "Роль сохранена" });
         }
       },
       onError: (error: unknown) => {
-        // ✅ Правило №36: Безопасная обработка ошибок
         const err = error as { response?: { data?: { detail?: string } } };
         toast({
           variant: "destructive",
@@ -224,13 +314,40 @@ export function EditRoleModal({
     });
   };
 
+  const onInvalid = (formErrors: FieldErrors<RoleFormData>) => {
+    console.warn("Ошибки валидации формы:", formErrors);
+    toast({
+      variant: "destructive",
+      title: "Ошибка заполнения формы",
+      description:
+        "Пожалуйста, проверьте правильность заполнения полей. Название роли обязательно.",
+    });
+  };
+
+  // ✅ Правило №37: useEffect ТОЛЬКО для reset формы
+  useEffect(() => {
+    if (open) {
+      if (role) {
+        reset({
+          name: role.name || "",
+          description: role.description || "",
+        });
+      } else {
+        reset(CREATE_DEFAULTS);
+      }
+    }
+  }, [open, role, reset]);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* ✅ Правило №37: Паттерн с `key`. 
-            При закрытии (open=false) или смене роли компонент полностью пересоздается.
-            Это автоматически сбрасывает все useState в исходные значения без useEffect. */}
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        key={open ? (isEdit ? `edit-${role.id}` : "create") : "closed"}
+        key={
+          open
+            ? isEdit
+              ? `edit-${role?.id}-${sessionKey}`
+              : `create-${sessionKey}`
+            : "closed"
+        }
         className="max-h-[90vh] items-start pt-8"
         style={{
           width: "800px",
@@ -247,20 +364,41 @@ export function EditRoleModal({
           </DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form
+          key={role?.id || "new"}
+          onSubmit={handleSubmit(onSubmit, onInvalid)}
+          className="space-y-4"
+        >
           <Tabs defaultValue="main" className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="main">Основное</TabsTrigger>
-              <TabsTrigger value="sections">Разделы</TabsTrigger>
-              <TabsTrigger value="permissions" className="relative">
-                Полномочия
-                {hasUnsavedChanges && (
+
+              <TabsTrigger value="sections" className="relative">
+                Разделы
+                {hasSectionChanges && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
                   </span>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="users">Пользователи</TabsTrigger>
+
+              <TabsTrigger value="permissions" className="relative">
+                Полномочия
+                {hasPermissionChanges && (
+                  <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
+                    *
+                  </span>
+                )}
+              </TabsTrigger>
+
+              <TabsTrigger value="users" className="relative">
+                Пользователи
+                {hasUserChanges && (
+                  <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
+                    *
+                  </span>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             {/* Вкладка 1: Основное */}
@@ -298,41 +436,49 @@ export function EditRoleModal({
               </div>
             </TabsContent>
 
-            {/* Вкладка 2: Разделы */}
+            {/* Вкладка 2: Разделы (ИСПРАВЛЕНО: добавлен проп selectedItems) */}
             <TabsContent
               value="sections"
               className="space-y-4 mt-0 min-h-[400px]"
             >
-              <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
-                      <TableHead className="w-[50px]"></TableHead>
-                      <TableHead>Название раздела</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sections.map((section) => (
-                      <TableRow key={section.id} className="py-1">
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedSectionIds.includes(section.id)}
-                            onCheckedChange={(checked) => {
-                              const current = selectedSectionIds;
-                              const next = checked
-                                ? [...current, section.id]
-                                : current.filter((id) => id !== section.id);
-                              setSelectedSectionIds(next);
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell className="py-1 font-medium">
-                          {section.name}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Разделы доступа</label>
+                <MultiSelectChips
+                  fetchFn={async (params) => {
+                    const response = await getSectionsSectionsGet({
+                      skip: params.skip,
+                      limit: params.limit,
+                      search: params.search,
+                    });
+                    const items = (response?.data?.items ?? []).map(
+                      (item: unknown) => {
+                        const typedItem = item as {
+                          id: string;
+                          name: string;
+                          description?: string | null;
+                        };
+                        return {
+                          id: typedItem.id,
+                          name: typedItem.name,
+                          description: typedItem.description,
+                        };
+                      },
+                    );
+                    return { items, total: response?.data?.total ?? 0 };
+                  }}
+                  queryKey={["sections"]}
+                  value={selectedSectionIds}
+                  onValueChange={setSelectedSectionIds}
+                  allItems={sections.map((s) => ({ id: s.id, name: s.name }))}
+                  //   selectedItems={selectedSections} // ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
+                  placeholder="Добавить разделы..."
+                  limit={100}
+                  heading="Доступные разделы"
+                  columns={[{ column: "description", label: "Описание" }]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Выбрано разделов: {selectedSectionIds.length}
+                </p>
               </div>
             </TabsContent>
 
@@ -351,41 +497,20 @@ export function EditRoleModal({
 
             {/* Вкладка 4: Пользователи */}
             <TabsContent value="users" className="space-y-4 mt-0 min-h-[400px]">
-              <div className="rounded-md border max-h-[400px] overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="h-10 hover:bg-transparent sticky top-0 bg-background z-10 shadow-sm">
-                      <TableHead className="w-[50px]"></TableHead>
-                      <TableHead>Имя</TableHead>
-                      <TableHead>Email</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id} className="py-1">
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedUserIds.includes(user.id)}
-                            onCheckedChange={(checked) => {
-                              const current = selectedUserIds;
-                              const next = checked
-                                ? [...current, user.id]
-                                : current.filter((id) => id !== user.id);
-                              setSelectedUserIds(next);
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell className="py-1 font-medium">
-                          {user.name}
-                        </TableCell>
-                        <TableCell className="py-1 text-muted-foreground">
-                          {user.email}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {isUsersLoading ? (
+                <div className="flex items-center justify-center h-40">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : (
+                <UsersTab
+                  users={usersDraft}
+                  onUsersChange={setUsersDraft}
+                  allUsers={
+                    allUsers as unknown as import("@/api/generated/fastAPI.schemas").UserResponseSchema[]
+                  }
+                  initialUserIds={initialUserIds}
+                />
+              )}
             </TabsContent>
           </Tabs>
 
@@ -393,7 +518,7 @@ export function EditRoleModal({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
             >
               Отмена
             </Button>

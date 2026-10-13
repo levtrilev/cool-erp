@@ -99,7 +99,8 @@ class CRUDPermission:
         for key, value in update_data.items():
             setattr(db_obj, key, value)
             
-        await db.commit()
+        # await db.commit()
+        await db.flush()
         await db.refresh(db_obj)
         return db_obj
 
@@ -120,7 +121,8 @@ class CRUDPermission:
             raise HTTPException(status_code=404, detail="Полномочие не найдено")
 
         await db.delete(db_obj)
-        await db.commit()
+        # await db.commit()
+        await db.flush()
         return db_obj
 
     # Специальный метод для массового удаления полномочий роли (удобно при синхронизации на фронте)
@@ -157,7 +159,8 @@ class CRUDPermission:
             stmt = stmt.where(self.model.tenant_id == current_tenant_id)
             
         result = await db.execute(stmt)
-        await db.commit()
+        # await db.commit()
+        await db.flush()
         return result.rowcount
 
 crud_permission = CRUDPermission()
