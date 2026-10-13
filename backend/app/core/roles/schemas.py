@@ -24,6 +24,7 @@ class RoleUpdateSchema(BaseModel):
     description: Optional[str] = None
     section_ids: Optional[list[uuid.UUID]] = None
     section_names: Optional[list[str]] = None
+    tenant_id: Optional[uuid.UUID] = None
 
 # Схема для ответа (с from_attributes=True - Правило №1)
 class RoleResponseSchema(RoleBaseSchema):

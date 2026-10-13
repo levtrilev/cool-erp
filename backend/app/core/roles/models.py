@@ -45,3 +45,9 @@ class RoleModel(Base):
     def permissions_count(self) -> int:
         """Количество полномочий роли."""
         return len(self.permissions) if self.permissions else 0
+
+    # ✅ Property для автоматического извлечения tenant_name
+    @property
+    def tenant_name(self) -> str | None:
+        """Название организации (автоматически извлекается из relationship)"""
+        return self.tenant.name if self.tenant else None

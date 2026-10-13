@@ -3,7 +3,7 @@ import { useForm, Controller, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check } from "lucide-react";
+import { Loader2, Check, Building2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,10 +23,18 @@ import {
 } from "@/api/generated/sections/sections";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import {
+  readTenantsTenantsGet,
+  useReadTenantsTenantsGet,
+} from "@/api/generated/tenants/tenants";
 import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
 import { PermissionsTab, type PermissionDraft } from "./PermissionsTab";
 import { UsersTab, type UserDraft } from "./UsersTab";
 import { MultiSelectChips } from "@/lib/reusable/MultiSelectChips";
+import {
+  ReferenceSelect,
+  type ReferenceItem,
+} from "@/lib/reusable/ReferenceSelect";
 
 // ✅ Правило №20: Константа для сброса формы
 const CREATE_DEFAULTS: RoleFormData = {
@@ -66,6 +74,7 @@ export function EditRoleModal({
   const { toast } = useToast();
   const { data: userData } = useGetUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
+  const isSuperadmin = userData?.data?.is_superadmin === true;
   const isEdit = !!role;
 
   const { control, handleSubmit, reset } = useForm<RoleFormData>({
@@ -87,14 +96,142 @@ export function EditRoleModal({
   };
 
   // ==========================================
-  // ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ (РАБОТАЕТ)
+  // ✅ ПОЛЕ ПРЕДПРИЯТИЕ (ОРГАНИЗАЦИЯ) - СОСТОЯНИЕ : единый источник названий
   // ==========================================
-  const { data: usersData, isLoading: isUsersLoading } = useReadUsersUsersGet({
-    tenant_id: currentTenantId ?? "",
+  const { data: tenantsData } = useReadTenantsTenantsGet({
     limit: 1000,
     skip: 0,
   });
 
+  const tenants = useMemo<ReferenceItem[]>(() => {
+    const response = tenantsData as unknown as {
+      items?: ReferenceItem[];
+      data?: { items?: ReferenceItem[] };
+    };
+    return response?.items ?? response?.data?.items ?? [];
+  }, [tenantsData]);
+
+  // Пустая строка = "использовать предприятие текущего пользователя".
+  const [selectedTenantId, setSelectedTenantId] = useState<string>(
+    role?.tenant_id ?? "",
+  );
+
+  // ✅ Эффективный ID сам адаптируется к асинхронной загрузке профиля/роли.
+  // Никаких setState внутри useEffect (Правило №37).
+  const effectiveTenantId = selectedTenantId || currentTenantId || "";
+
+  // ✅ Название — производное значение, а не состояние.
+  const selectedTenantName = useMemo<string>(() => {
+    // Текущее предприятие берём из профиля: работает даже без справочника.
+    if (effectiveTenantId && effectiveTenantId === currentTenantId) {
+      const fromProfile = userData?.data?.tenant_name;
+      if (fromProfile) return fromProfile;
+    }
+    return (
+      tenants.find((t) => t.id === effectiveTenantId)?.name ??
+      role?.tenant_name ??
+      ""
+    );
+  }, [
+    tenants,
+    effectiveTenantId,
+    currentTenantId,
+    userData?.data?.tenant_name,
+    role?.tenant_name,
+  ]);
+
+  //   ======= END ПРЕДПРИЯТИЕ ===========================
+
+  // Разрешена смена организации (только суперадмин и при создании, и при редактировании)
+  const canChangeTenant = isSuperadmin;
+
+  // ✅ Проверка наличия связей перед сменой организации
+  // ✅ Исправлено: принимает только (value: string), как требует ReferenceSelect
+  //   const handleTenantChange = (newTenantId: string) => {
+  //     if (newTenantId === selectedTenantId) return;
+
+  //     // Проверяем наличие связей в ИСХОДНЫХ данных роли (из БД)
+  //     const hasSections = (role?.section_ids?.length ?? 0) > 0;
+  //     const hasPermissions = (role?.permissions?.length ?? 0) > 0;
+  //     const hasUsers = initialUserIds.length > 0;
+
+  //     if (hasSections || hasPermissions || hasUsers) {
+  //       const assigned: string[] = [];
+  //       if (hasSections) assigned.push("Разделы");
+  //       if (hasPermissions) assigned.push("Полномочия");
+  //       if (hasUsers) assigned.push("Пользователи");
+
+  //       toast({
+  //         variant: "destructive",
+  //         title: "Нельзя изменить организацию",
+  //         description: `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. Сначала удалите все назначения.`,
+  //       });
+  //       return; // ❌ Отменяем изменение
+  //     }
+
+  //     // ✅ Связей нет — разрешаем смену
+  //     setSelectedTenantId(newTenantId);
+  //     // Примечание: мы не обновляем selectedTenantName здесь, так как ReferenceSelect
+  //     // передаёт только ID. Название корректно отобразится после сохранения и перезагрузки.
+
+  //     toast({
+  //       title: "Организация изменена",
+  //       description: "Роль будет сохранена для новой организации.",
+  //     });
+  //   };
+
+  //   const hasTenantChanges = useMemo(
+  //     () => canChangeTenant && selectedTenantId !== (role?.tenant_id || ""),
+  //     [canChangeTenant, selectedTenantId, role?.tenant_id],
+  //   );
+  const handleTenantChange = (newTenantId: string): void => {
+    if (!canChangeTenant || newTenantId === effectiveTenantId) return;
+
+    // Проверяем только СОХРАНЁННЫЕ связи (Правило из ТЗ).
+    const hasSections = (role?.section_ids?.length ?? 0) > 0;
+    const hasPermissions = (role?.permissions?.length ?? 0) > 0;
+    const hasUsers = initialUserIds.length > 0;
+
+    if (hasSections || hasPermissions || hasUsers) {
+      const assigned: string[] = [];
+      if (hasSections) assigned.push("Разделы");
+      if (hasPermissions) assigned.push("Полномочия");
+      if (hasUsers) assigned.push("Пользователи");
+
+      toast({
+        variant: "destructive",
+        title: "Нельзя изменить предприятие",
+        description:
+          `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. ` +
+          "Сначала удалите все назначения.",
+      });
+      return;
+    }
+
+    setSelectedTenantId(newTenantId);
+    toast({
+      title: "Предприятие изменено",
+      description: "Роль будет сохранена для выбранного предприятия.",
+    });
+  };
+
+  const hasTenantChanges = useMemo<boolean>(
+    () =>
+      canChangeTenant &&
+      effectiveTenantId !== (role?.tenant_id || currentTenantId || ""),
+    [canChangeTenant, effectiveTenantId, role?.tenant_id, currentTenantId],
+  );
+
+  // ==========================================
+  // ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ (НЕ ТРОНУТО)
+  // ==========================================
+  const { data: usersData, isLoading: isUsersLoading } = useReadUsersUsersGet({
+    tenant_id: effectiveTenantId, // ✅ Используем выбранную организацию
+    limit: 1000,
+    skip: 0,
+  });
+
+  // ✅ Правило №36: Безопасное приведение типа для role_ids
   const allUsers = useMemo(() => {
     return (usersData?.items ?? []).map((u) => ({
       id: u.id,
@@ -104,8 +241,11 @@ export function EditRoleModal({
     }));
   }, [usersData]);
 
+  // ✅ Выносим roleId в примитивную переменную (Правило №37 + exhaustive-deps)
   const roleId = role?.id;
 
+  // ✅ Инициализация initialUserIds из role_ids пользователей
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const initialUserIds = useMemo(() => {
     if (!roleId || allUsers.length === 0) return [];
     return allUsers
@@ -113,6 +253,7 @@ export function EditRoleModal({
       .map((u) => u.id);
   }, [roleId, allUsers]);
 
+  // ✅ Вычисляем исходный черновик пользователей
   const initialUsersDraft: UserDraft[] = useMemo(() => {
     return allUsers
       .filter((u) => initialUserIds.includes(u.id))
@@ -124,36 +265,40 @@ export function EditRoleModal({
       }));
   }, [allUsers, initialUserIds]);
 
+  // ✅ ИСПРАВЛЕНИЕ F5: Состояние черновика начинается пустым
   const [usersDraft, setUsersDraft] = useState<UserDraft[]>([]);
   const lastInitializedRoleId = useRef<string | null>(null);
-  const role_id = role?.id;
 
+  // ✅ Синхронизация черновика ТОЛЬКО когда данные гарантированно загружены
   useEffect(() => {
     if (open) {
-      if (role_id) {
+      if (roleId) {
         if (!isUsersLoading && usersData) {
-          if (lastInitializedRoleId.current !== role_id) {
+          if (lastInitializedRoleId.current !== roleId) {
             setUsersDraft(initialUsersDraft);
-            lastInitializedRoleId.current = role_id;
+            lastInitializedRoleId.current = roleId;
           }
         }
       } else {
+        // Режим создания новой роли
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setUsersDraft([]);
         lastInitializedRoleId.current = null;
       }
     } else {
+      // Закрытие модалки
       setUsersDraft([]);
       lastInitializedRoleId.current = null;
     }
-  }, [open, role_id, initialUsersDraft, isUsersLoading, usersData]);
+  }, [open, roleId, initialUsersDraft, isUsersLoading, usersData]);
 
+  // ✅ selectedUserIds вычисляется из usersDraft (фильтрует помеченных на удаление)
   const selectedUserIds = useMemo(() => {
     return usersDraft.filter((u) => !u.markedForDeletion).map((u) => u.id);
   }, [usersDraft]);
 
   // ==========================================
-  // ДАННЫЕ РАЗДЕЛОВ (ИСПРАВЛЕНО)
+  // ДАННЫЕ РАЗДЕЛОВ (НЕ ТРОНУТО)
   // ==========================================
   // ✅ Правило №37: Инициализация напрямую из пропсов
   const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>(
@@ -170,15 +315,8 @@ export function EditRoleModal({
     [sectionsData],
   );
 
-  // ✅ ИСПРАВЛЕНИЕ: Вычисляем объекты для отображения чипов (как в copy 06)
-  //   const selectedSections = useMemo(() => {
-  //     return sections
-  //       .filter((s) => selectedSectionIds.includes(s.id))
-  //       .map((s) => ({ id: s.id, name: s.name, description: s.name }));
-  //   }, [sections, selectedSectionIds]);
-
   // ==========================================
-  // ДАННЫЕ ПОЛНОМОЧИЙ (РАБОТАЕТ)
+  // ДАННЫЕ ПОЛНОМОЧИЙ (НЕ ТРОНУТО)
   // ==========================================
   const initialPerms: PermissionDraft[] = role?.permissions
     ? role.permissions.map((p) => ({
@@ -203,16 +341,18 @@ export function EditRoleModal({
   );
 
   // ==========================================
-  // ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+  // ИНДИКАТОРЫ ИЗМЕНЕНИЙ (НЕ ТРОНУТО)
   // ==========================================
   const hasPermissionChanges = useMemo(() => {
     return JSON.stringify(permissions) !== initialPermissionsSnapshot;
   }, [permissions, initialPermissionsSnapshot]);
 
+  // ✅ Обёртываем в useMemo для стабильной ссылки (exhaustive-deps)
   const initialSectionIds = useMemo(
     () => role?.section_ids || [],
     [role?.section_ids],
   );
+
   const hasSectionChanges = useMemo(() => {
     const initial = initialSectionIds.slice().sort();
     const current = selectedSectionIds.slice().sort();
@@ -226,16 +366,16 @@ export function EditRoleModal({
   }, [initialUserIds, selectedUserIds]);
 
   // ==========================================
-  // ОБРАБОТЧИКИ
+  // ОБРАБОТЧИКИ (ОБНОВЛЕН ТОЛЬКО PAYLOAD)
   // ==========================================
   const saveMutation = useSaveRoleRolesSavePost();
 
   const onSubmit = async (data: RoleFormData) => {
-    if (!currentTenantId) {
+    if (!selectedTenantId) {
       toast({
         variant: "destructive",
         title: "Ошибка",
-        description: "Не удалось определить организацию",
+        description: "Не выбрана организация для роли",
       });
       return;
     }
@@ -243,7 +383,7 @@ export function EditRoleModal({
     const payload = {
       name: data.name,
       description: data.description || "",
-      tenant_id: currentTenantId,
+      tenant_id: effectiveTenantId,
       section_ids: selectedSectionIds,
       section_names: sections
         .filter((s) => selectedSectionIds.includes(s.id))
@@ -254,8 +394,8 @@ export function EditRoleModal({
           doctype: p.doctype,
           doctype_name: p.doctype_name || p.doctype,
           role_name: p.role_name || data.name,
-          tenant_name: "",
-          tenant_id: currentTenantId,
+          tenant_name: selectedTenantName,
+          tenant_id: effectiveTenantId,
           full_access: p.full_access,
           author: p.author,
           reader: p.reader,
@@ -303,6 +443,7 @@ export function EditRoleModal({
         }
       },
       onError: (error: unknown) => {
+        // ✅ Правило №36: Безопасная обработка ошибок
         const err = error as { response?: { data?: { detail?: string } } };
         toast({
           variant: "destructive",
@@ -314,6 +455,7 @@ export function EditRoleModal({
     });
   };
 
+  // ✅ Правило №36: Строгая типизация onInvalid
   const onInvalid = (formErrors: FieldErrors<RoleFormData>) => {
     console.warn("Ошибки валидации формы:", formErrors);
     toast({
@@ -364,6 +506,7 @@ export function EditRoleModal({
           </DialogTitle>
         </DialogHeader>
 
+        {/* ✅ Правило №37: key на форме гарантирует перемонт при смене role */}
         <form
           key={role?.id || "new"}
           onSubmit={handleSubmit(onSubmit, onInvalid)}
@@ -371,7 +514,14 @@ export function EditRoleModal({
         >
           <Tabs defaultValue="main" className="w-full">
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="main">Основное</TabsTrigger>
+              <TabsTrigger value="main" className="relative">
+                Основное
+                {hasTenantChanges && (
+                  <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
+                    *
+                  </span>
+                )}
+              </TabsTrigger>
 
               <TabsTrigger value="sections" className="relative">
                 Разделы
@@ -401,8 +551,72 @@ export function EditRoleModal({
               </TabsTrigger>
             </TabsList>
 
-            {/* Вкладка 1: Основное */}
+            {/* Вкладка 1: Основное + Предприятие */}
             <TabsContent value="main" className="space-y-4 mt-0 min-h-[400px]">
+              {/* --- Обычный Админ: всегда только чтение --- */}
+              {!isSuperadmin && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    Предприятие
+                  </label>
+                  <div className="px-3 py-2 rounded-md border bg-muted/50 text-sm">
+                    {selectedTenantName || effectiveTenantId || "—"}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {isEdit
+                      ? "Изменить предприятие может только суперадмин."
+                      : "Роль будет создана для вашего предприятия."}
+                  </p>
+                </div>
+              )}
+
+              {/* --- Суперадмин: выбор и при создании, и при редактировании --- */}
+              {isSuperadmin && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    Предприятие
+                  </label>
+                  <ReferenceSelect
+                    fetchFn={async (params) => {
+                      const response = await readTenantsTenantsGet({
+                        skip: params.skip,
+                        limit: params.limit,
+                        search: params.search,
+                      });
+
+                      // ✅ Адаптер: приводим к ReferenceItem с индексной сигнатурой
+                      const items: ReferenceItem[] = (
+                        response?.items ?? []
+                      ).map((t) => ({
+                        id: t.id,
+                        name: t.name,
+                      }));
+
+                      return {
+                        items,
+                        total: response?.total ?? 0,
+                      };
+                    }}
+                    queryKey={["tenants-for-role"]}
+                    value={selectedTenantId}
+                    onValueChange={handleTenantChange}
+                    placeholder="Выберите предприятие..."
+                    selectedLabel={
+                      selectedTenantName || "Выберите предприятие..."
+                    }
+                    heading="Предприятия"
+                  />
+                  {hasTenantChanges && (
+                    <p className="text-xs text-amber-600">
+                      ⚠ Предприятие изменено. Сохраните роль для применения
+                      изменений.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-sm font-medium">Название роли</label>
                 <Controller
@@ -420,6 +634,7 @@ export function EditRoleModal({
                   )}
                 />
               </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium">Описание</label>
                 <Controller
@@ -436,7 +651,7 @@ export function EditRoleModal({
               </div>
             </TabsContent>
 
-            {/* Вкладка 2: Разделы (ИСПРАВЛЕНО: добавлен проп selectedItems) */}
+            {/* Вкладка 2: Разделы */}
             <TabsContent
               value="sections"
               className="space-y-4 mt-0 min-h-[400px]"
@@ -470,7 +685,6 @@ export function EditRoleModal({
                   value={selectedSectionIds}
                   onValueChange={setSelectedSectionIds}
                   allItems={sections.map((s) => ({ id: s.id, name: s.name }))}
-                  //   selectedItems={selectedSections} // ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
                   placeholder="Добавить разделы..."
                   limit={100}
                   heading="Доступные разделы"
@@ -490,7 +704,7 @@ export function EditRoleModal({
               <PermissionsTab
                 permissions={permissions}
                 onPermissionsChange={setPermissions}
-                tenantId={currentTenantId || ""}
+                tenantId={effectiveTenantId}
                 roleName={role?.name || ""}
               />
             </TabsContent>
