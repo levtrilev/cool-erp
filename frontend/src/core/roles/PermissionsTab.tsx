@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Trash2, Undo2, CheckCircle2, PauseCircle } from "lucide-react";
+import { Trash2, Undo2, CheckCircle2, PauseCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
@@ -60,28 +60,36 @@ export const PermissionsTab = ({
   roleName,
 }: PermissionsTabProps) => {
   const { toast } = useToast();
-  const [selectedDoctype, setSelectedDoctype] = useState<string>("");
-  const [permissionToToggle, setPermissionToToggle] = useState<PermissionDraft | null>(null);
+  // const [selectedDoctype, setSelectedDoctype] = useState<string>("");
+  const [permissionToToggle, setPermissionToToggle] =
+    useState<PermissionDraft | null>(null);
 
   // ✅ Множество существующих doctype (исключаем помеченные на удаление)
   const existingDoctypes = useMemo(
-    () => new Set(
-      permissions
-        .filter((p) => !p.markedForDeletion)
-        .map((p) => p.doctype),
-    ),
+    () =>
+      new Set(
+        permissions.filter((p) => !p.markedForDeletion).map((p) => p.doctype),
+      ),
     [permissions],
   );
 
-  const handleAddPermission = () => {
-    if (!selectedDoctype) {
-      toast({ variant: "destructive", title: "Выберите тип документа" });
+  // const handleAddPermission = (doctype: string, doctype_name: string): void => {
+  const handleAddPermission = (doctype: string): void => {
+    if (!doctype) return;
+
+    // ✅ Защита от дубликата (вместо блокировки кнопки)
+    if (existingDoctypes.has(doctype)) {
+      toast({
+        variant: "destructive",
+        title: "Полномочие уже существует",
+        description: `Тип документа "${doctype}" уже добавлен в черновик.`,
+      });
       return;
     }
 
     const newPermission: PermissionDraft = {
-      doctype: selectedDoctype,
-      doctype_name: selectedDoctype,
+      doctype,
+      doctype_name: doctype,
       role_name: roleName,
       tenant_name: "",
       full_access: false,
@@ -94,7 +102,7 @@ export const PermissionsTab = ({
     };
 
     onPermissionsChange([...permissions, newPermission]);
-    setSelectedDoctype("");
+    // setSelectedDoctype("");
     toast({ title: "Полномочие добавлено в черновик" });
   };
 
@@ -115,13 +123,18 @@ export const PermissionsTab = ({
     onPermissionsChange(updated);
     setPermissionToToggle(null);
 
-    const action = permissionToToggle.markedForDeletion ? "восстановлено" : "помечено на удаление";
+    const action = permissionToToggle.markedForDeletion
+      ? "восстановлено"
+      : "помечено на удаление";
     toast({ title: `Полномочие ${action}` });
   };
 
   const handleToggleFlag = (
     index: number,
-    flag: keyof Pick<PermissionDraft, "full_access" | "author" | "reader" | "editor" | "can_delete">,
+    flag: keyof Pick<
+      PermissionDraft,
+      "full_access" | "author" | "reader" | "editor" | "can_delete"
+    >,
   ) => {
     const updated = [...permissions];
     updated[index] = {
@@ -131,7 +144,10 @@ export const PermissionsTab = ({
     onPermissionsChange(updated);
   };
 
-  const renderFlagIcon = (value: boolean | null | undefined, colorClass: string) => {
+  const renderFlagIcon = (
+    value: boolean | null | undefined,
+    colorClass: string,
+  ) => {
     return value ? (
       <CheckCircle2 className={`h-4 w-4 ${colorClass}`} />
     ) : (
@@ -163,8 +179,10 @@ export const PermissionsTab = ({
               return { items, total: response?.data?.total ?? 0 };
             }}
             queryKey={["doctypes-for-role", tenantId]}
-            value={selectedDoctype}
-            onValueChange={setSelectedDoctype}
+            // ✅ value всегда пустое — ReferenceSelect работает как триггер
+            value=""
+            // ✅ Выбор сразу добавляет полномочие (аналогично UsersTab)
+            onValueChange={handleAddPermission}
             placeholder="Выберите тип документа..."
             limit={50}
             heading="Доступные типы документов"
@@ -174,7 +192,7 @@ export const PermissionsTab = ({
             ]}
           />
         </div>
-        <Button
+        {/* <Button
           type="button"
           onClick={handleAddPermission}
           disabled={!selectedDoctype || existingDoctypes.has(selectedDoctype)}
@@ -182,15 +200,15 @@ export const PermissionsTab = ({
         >
           <Plus className="h-4 w-4 mr-1" />
           Добавить
-        </Button>
+        </Button> */}
       </div>
 
       {/* Подсказка о дубликате */}
-      {selectedDoctype && existingDoctypes.has(selectedDoctype) && (
+      {/* {selectedDoctype && existingDoctypes.has(selectedDoctype) && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
           ⚠ Полномочие для этого типа документа уже существует в черновике
         </p>
-      )}
+      )} */}
 
       {/* Таблица полномочий */}
       <div className="rounded-md border">
@@ -209,7 +227,10 @@ export const PermissionsTab = ({
           <TableBody>
             {permissions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground text-sm">
+                <TableCell
+                  colSpan={7}
+                  className="py-6 text-center text-muted-foreground text-sm"
+                >
                   Полномочия не добавлены. Выберите тип документа выше.
                 </TableCell>
               </TableRow>
@@ -232,7 +253,9 @@ export const PermissionsTab = ({
                     <TableCell className="py-1">
                       <div
                         className={`font-medium text-sm ${
-                          isMarkedForDeletion ? "line-through text-red-600 dark:text-red-400" : ""
+                          isMarkedForDeletion
+                            ? "line-through text-red-600 dark:text-red-400"
+                            : ""
                         }`}
                       >
                         {perm.doctype_name || perm.doctype}
@@ -247,13 +270,17 @@ export const PermissionsTab = ({
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">Код: {perm.doctype}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Код: {perm.doctype}
+                      </div>
                     </TableCell>
                     <TableCell className="py-1 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Checkbox
                           checked={perm.full_access || false}
-                          onCheckedChange={() => handleToggleFlag(index, "full_access")}
+                          onCheckedChange={() =>
+                            handleToggleFlag(index, "full_access")
+                          }
                           disabled={isMarkedForDeletion}
                         />
                         {renderFlagIcon(perm.full_access, "text-purple-600")}
@@ -263,7 +290,9 @@ export const PermissionsTab = ({
                       <div className="flex items-center justify-center gap-1">
                         <Checkbox
                           checked={perm.author || false}
-                          onCheckedChange={() => handleToggleFlag(index, "author")}
+                          onCheckedChange={() =>
+                            handleToggleFlag(index, "author")
+                          }
                           disabled={isMarkedForDeletion}
                         />
                         {renderFlagIcon(perm.author, "text-blue-600")}
@@ -273,7 +302,9 @@ export const PermissionsTab = ({
                       <div className="flex items-center justify-center gap-1">
                         <Checkbox
                           checked={perm.reader || false}
-                          onCheckedChange={() => handleToggleFlag(index, "reader")}
+                          onCheckedChange={() =>
+                            handleToggleFlag(index, "reader")
+                          }
                           disabled={isMarkedForDeletion}
                         />
                         {renderFlagIcon(perm.reader, "text-green-600")}
@@ -283,7 +314,9 @@ export const PermissionsTab = ({
                       <div className="flex items-center justify-center gap-1">
                         <Checkbox
                           checked={perm.editor || false}
-                          onCheckedChange={() => handleToggleFlag(index, "editor")}
+                          onCheckedChange={() =>
+                            handleToggleFlag(index, "editor")
+                          }
                           disabled={isMarkedForDeletion}
                         />
                         {renderFlagIcon(perm.editor, "text-yellow-600")}
@@ -293,7 +326,9 @@ export const PermissionsTab = ({
                       <div className="flex items-center justify-center gap-1">
                         <Checkbox
                           checked={perm.can_delete || false}
-                          onCheckedChange={() => handleToggleFlag(index, "can_delete")}
+                          onCheckedChange={() =>
+                            handleToggleFlag(index, "can_delete")
+                          }
                           disabled={isMarkedForDeletion}
                         />
                         {renderFlagIcon(perm.can_delete, "text-red-600")}
@@ -310,7 +345,11 @@ export const PermissionsTab = ({
                             : "text-destructive hover:text-destructive hover:bg-destructive/10"
                         }`}
                         onClick={() => setPermissionToToggle(perm)}
-                        title={isMarkedForDeletion ? "Восстановить" : "Пометить на удаление"}
+                        title={
+                          isMarkedForDeletion
+                            ? "Восстановить"
+                            : "Пометить на удаление"
+                        }
                       >
                         {isMarkedForDeletion ? (
                           <Undo2 className="h-4 w-4" />
@@ -344,7 +383,8 @@ export const PermissionsTab = ({
                 <>
                   Полномочие для типа документа{" "}
                   <strong>
-                    {permissionToToggle?.doctype_name || permissionToToggle?.doctype}
+                    {permissionToToggle?.doctype_name ||
+                      permissionToToggle?.doctype}
                   </strong>{" "}
                   будет восстановлено.
                 </>
@@ -352,9 +392,11 @@ export const PermissionsTab = ({
                 <>
                   Полномочие для типа документа{" "}
                   <strong>
-                    {permissionToToggle?.doctype_name || permissionToToggle?.doctype}
+                    {permissionToToggle?.doctype_name ||
+                      permissionToToggle?.doctype}
                   </strong>{" "}
-                  будет помечено на удаление. Вы сможете восстановить его до нажатия кнопки "Сохранить".
+                  будет помечено на удаление. Вы сможете восстановить его до
+                  нажатия кнопки "Сохранить".
                 </>
               )}
             </AlertDialogDescription>
@@ -370,7 +412,9 @@ export const PermissionsTab = ({
                   : "bg-destructive text-destructive-foreground hover:bg-destructive/90"
               }
             >
-              {permissionToToggle?.markedForDeletion ? "Восстановить" : "Пометить на удаление"}
+              {permissionToToggle?.markedForDeletion
+                ? "Восстановить"
+                : "Пометить на удаление"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
