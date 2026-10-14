@@ -38,84 +38,6 @@ class SectionCRUD:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_multi(
-        self,
-        db: AsyncSession,
-        tenant_id: uuid.UUID,
-        skip: int = 0,
-        limit: int = 100,
-        search: str | None = None,
-        user_is_superadmin: bool = False,
-        # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
-        target_tenant_id: uuid.UUID | None = None,
-    ) -> list[SectionModel]:
-        """
-        Получить список разделов с опциональным поиском по имени.
-        
-        Если передан target_tenant_id и пользователь — суперадмин,
-        фильтрация идёт по target_tenant_id (разделы другого предприятия).
-        """
-        # ✅ Определяем фактический tenant_id для фильтрации
-        effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else tenant_id
-
-        if user_is_superadmin and not target_tenant_id:
-            # Суперадмин без target_tenant_id видит ВСЕ разделы
-            stmt = select(self.model)
-        else:
-            # Обычный админ ИЛИ суперадмин с target_tenant_id — фильтрация по tenant
-            stmt = select(self.model).where(self.model.tenant_id == effective_tenant_id)
-
-        if search:
-            stmt = stmt.where(self.model.name.ilike(f"%{search}%"))
-
-        stmt = stmt.offset(skip).limit(limit).order_by(self.model.name)
-        result = await db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_multi_paginated(
-        self,
-        db: AsyncSession,
-        user_tenant_id: uuid.UUID,
-        skip: int = 0,
-        limit: int = 10,
-        search: str | None = None,
-        user_is_superadmin: bool = False,
-        # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
-        target_tenant_id: uuid.UUID | None = None,
-    ) -> tuple[list[SectionModel], int]:
-        """
-        Получить пагинированный список разделов.
-        Возвращает кортеж: (список объектов, общее количество).
-        """
-        # ✅ Определяем фактический tenant_id для фильтрации
-        effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else user_tenant_id
-
-        if user_is_superadmin and not target_tenant_id:
-            count_stmt = select(func.count()).select_from(self.model)
-        else:
-            count_stmt = (
-                select(func.count())
-                .select_from(self.model)
-                .where(self.model.tenant_id == effective_tenant_id)
-            )
-
-        if search:
-            count_stmt = count_stmt.where(self.model.name.ilike(f"%{search}%"))
-
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar_one()
-
-        items = await self.get_multi(
-            db,
-            user_tenant_id,
-            skip,
-            limit,
-            search,
-            user_is_superadmin,
-            target_tenant_id=target_tenant_id,
-        )
-        return items, total
-
     async def create(
         self, db: AsyncSession, obj_in: SectionCreateSchema, tenant_id: uuid.UUID
     ) -> SectionModel:
@@ -175,5 +97,134 @@ class SectionCRUD:
         await db.flush()
         return obj
 
+    async def get_multi(
+        self,
+        db: AsyncSession,
+        tenant_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 100,
+        search: str | None = None,
+        user_is_superadmin: bool = False,
+        target_tenant_id: uuid.UUID | None = None,  # ✅ НОВОЕ
+    ) -> list[SectionModel]:
+        # ✅ Приоритет: если передан target_tenant_id (для суперадмина), используем его
+        effective_tenant = target_tenant_id if (user_is_superadmin and target_tenant_id) else tenant_id
+
+        # ✅ Для справочника роли всегда фильтруем по предприятию
+        stmt = select(self.model).where(self.model.tenant_id == effective_tenant)
+
+        if search:
+            stmt = stmt.where(self.model.name.ilike(f"%{search}%"))
+
+        stmt = stmt.offset(skip).limit(limit).order_by(self.model.name)
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_multi_paginated(
+        self,
+        db: AsyncSession,
+        user_tenant_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 10,
+        search: str | None = None,
+        user_is_superadmin: bool = False,
+        target_tenant_id: uuid.UUID | None = None,  # ✅ НОВОЕ
+    ) -> tuple[list[SectionModel], int]:
+        effective_tenant = target_tenant_id if (user_is_superadmin and target_tenant_id) else user_tenant_id
+
+        count_stmt = (
+            select(func.count())
+            .select_from(self.model)
+            .where(self.model.tenant_id == effective_tenant)
+        )
+        if search:
+            count_stmt = count_stmt.where(self.model.name.ilike(f"%{search}%"))
+
+        count_result = await db.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        items = await self.get_multi(
+            db, user_tenant_id, skip, limit, search, user_is_superadmin, target_tenant_id=target_tenant_id
+        )
+        return items, total
 
 crud_section = SectionCRUD(SectionModel)
+
+
+    # async def get_multi(
+    #     self,
+    #     db: AsyncSession,
+    #     tenant_id: uuid.UUID,
+    #     skip: int = 0,
+    #     limit: int = 100,
+    #     search: str | None = None,
+    #     user_is_superadmin: bool = False,
+    #     # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
+    #     target_tenant_id: uuid.UUID | None = None,
+    # ) -> list[SectionModel]:
+    #     """
+    #     Получить список разделов с опциональным поиском по имени.
+        
+    #     Если передан target_tenant_id и пользователь — суперадмин,
+    #     фильтрация идёт по target_tenant_id (разделы другого предприятия).
+    #     """
+    #     # ✅ Определяем фактический tenant_id для фильтрации
+    #     effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else tenant_id
+
+    #     if user_is_superadmin and not target_tenant_id:
+    #         # Суперадмин без target_tenant_id видит ВСЕ разделы
+    #         stmt = select(self.model)
+    #     else:
+    #         # Обычный админ ИЛИ суперадмин с target_tenant_id — фильтрация по tenant
+    #         stmt = select(self.model).where(self.model.tenant_id == effective_tenant_id)
+
+    #     if search:
+    #         stmt = stmt.where(self.model.name.ilike(f"%{search}%"))
+
+    #     stmt = stmt.offset(skip).limit(limit).order_by(self.model.name)
+    #     result = await db.execute(stmt)
+    #     return list(result.scalars().all())
+
+    # async def get_multi_paginated(
+    #     self,
+    #     db: AsyncSession,
+    #     user_tenant_id: uuid.UUID,
+    #     skip: int = 0,
+    #     limit: int = 10,
+    #     search: str | None = None,
+    #     user_is_superadmin: bool = False,
+    #     # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
+    #     target_tenant_id: uuid.UUID | None = None,
+    # ) -> tuple[list[SectionModel], int]:
+    #     """
+    #     Получить пагинированный список разделов.
+    #     Возвращает кортеж: (список объектов, общее количество).
+    #     """
+    #     # ✅ Определяем фактический tenant_id для фильтрации
+    #     effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else user_tenant_id
+
+    #     if user_is_superadmin and not target_tenant_id:
+    #         count_stmt = select(func.count()).select_from(self.model)
+    #     else:
+    #         count_stmt = (
+    #             select(func.count())
+    #             .select_from(self.model)
+    #             .where(self.model.tenant_id == effective_tenant_id)
+    #         )
+
+    #     if search:
+    #         count_stmt = count_stmt.where(self.model.name.ilike(f"%{search}%"))
+
+    #     count_result = await db.execute(count_stmt)
+    #     total = count_result.scalar_one()
+
+    #     items = await self.get_multi(
+    #         db,
+    #         user_tenant_id,
+    #         skip,
+    #         limit,
+    #         search,
+    #         user_is_superadmin,
+    #         target_tenant_id=target_tenant_id,
+    #     )
+    #     return items, total

@@ -1,10 +1,8 @@
 import uuid
 from typing import Any
-
 from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.sections.models import SectionModel
 from app.core.sections.schemas import SectionCreateSchema, SectionUpdateSchema
 
@@ -23,8 +21,8 @@ class SectionCRUD:
     ) -> SectionModel | None:
         """Получить раздел по ID и tenant_id."""
         stmt = select(self.model).where(
-            self.model.id == id, 
-            self.model.tenant_id == tenant_id
+            self.model.id == id,
+            self.model.tenant_id == tenant_id,
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -35,7 +33,7 @@ class SectionCRUD:
         """Получить раздел по имени и tenant_id (для проверки уникальности)."""
         stmt = select(self.model).where(
             self.model.tenant_id == tenant_id,
-            self.model.name == name
+            self.model.name == name,
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
@@ -48,19 +46,28 @@ class SectionCRUD:
         limit: int = 100,
         search: str | None = None,
         user_is_superadmin: bool = False,
+        # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
+        target_tenant_id: uuid.UUID | None = None,
     ) -> list[SectionModel]:
-        """Получить список разделов с опциональным поиском по имени."""
-        # 1. Если пользователь является суперадмином, то он видит все разделы
-        if user_is_superadmin:
+        """
+        Получить список разделов с опциональным поиском по имени.
+        
+        Если передан target_tenant_id и пользователь — суперадмин,
+        фильтрация идёт по target_tenant_id (разделы другого предприятия).
+        """
+        # ✅ Определяем фактический tenant_id для фильтрации
+        effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else tenant_id
+
+        if user_is_superadmin and not target_tenant_id:
+            # Суперадмин без target_tenant_id видит ВСЕ разделы
             stmt = select(self.model)
         else:
-            # 2. Если пользователь не является суперадмином, то он видит только свои разделы
-            stmt = select(self.model).where(self.model.tenant_id == tenant_id)
-        
+            # Обычный админ ИЛИ суперадмин с target_tenant_id — фильтрация по tenant
+            stmt = select(self.model).where(self.model.tenant_id == effective_tenant_id)
+
         if search:
-            # Регистронезависимый поиск по подстроке
             stmt = stmt.where(self.model.name.ilike(f"%{search}%"))
-            
+
         stmt = stmt.offset(skip).limit(limit).order_by(self.model.name)
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -73,28 +80,40 @@ class SectionCRUD:
         limit: int = 10,
         search: str | None = None,
         user_is_superadmin: bool = False,
+        # ✅ НОВОЕ: опциональный target_tenant_id для суперадмина
+        target_tenant_id: uuid.UUID | None = None,
     ) -> tuple[list[SectionModel], int]:
         """
         Получить пагинированный список разделов.
         Возвращает кортеж: (список объектов, общее количество).
         """
-        # 1. Подсчет общего количества записей
-        # (если пользователь является суперадмином, то он видит все разделы)
-        if user_is_superadmin:
+        # ✅ Определяем фактический tenant_id для фильтрации
+        effective_tenant_id = target_tenant_id if (user_is_superadmin and target_tenant_id) else user_tenant_id
+
+        if user_is_superadmin and not target_tenant_id:
             count_stmt = select(func.count()).select_from(self.model)
         else:
-            count_stmt = select(func.count()).select_from(self.model).where(
-            self.model.tenant_id == user_tenant_id
-        )
+            count_stmt = (
+                select(func.count())
+                .select_from(self.model)
+                .where(self.model.tenant_id == effective_tenant_id)
+            )
+
         if search:
             count_stmt = count_stmt.where(self.model.name.ilike(f"%{search}%"))
-            
+
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
 
-        # 2. Получение самих записей
-        items = await self.get_multi(db, user_tenant_id, skip, limit, search, user_is_superadmin)
-        
+        items = await self.get_multi(
+            db,
+            user_tenant_id,
+            skip,
+            limit,
+            search,
+            user_is_superadmin,
+            target_tenant_id=target_tenant_id,
+        )
         return items, total
 
     async def create(
@@ -102,17 +121,15 @@ class SectionCRUD:
     ) -> SectionModel:
         """
         Создать новый раздел.
-        tenant_id берется из аргумента (обычно из сессии), а не из схемы, 
+        tenant_id берется из аргумента (обычно из сессии), а не из схемы,
         чтобы предотвратить подмену тенанта злоумышленником.
         """
-        # Проверка уникальности имени в рамках тенанта
         existing = await self.get_by_name(db, tenant_id, obj_in.name)
         if existing:
             raise HTTPException(
-                status_code=400, 
-                detail="Раздел с таким названием уже существует в этой организации"
+                status_code=400,
+                detail="Раздел с таким названием уже существует в этой организации",
             )
-
         db_obj = self.model(
             name=obj_in.name,
             tenant_id=tenant_id,
@@ -130,22 +147,19 @@ class SectionCRUD:
     ) -> SectionModel:
         """Обновить существующий раздел."""
         update_data = obj_in if isinstance(obj_in, dict) else obj_in.model_dump(exclude_unset=True)
-        
-        # Если меняется имя, проверяем уникальность
+
         if "name" in update_data and update_data["name"] != db_obj.name:
             existing = await self.get_by_name(db, db_obj.tenant_id, update_data["name"])
-            # Если нашли другой объект с таким именем
             if existing and existing.id != db_obj.id:
                 raise HTTPException(
-                    status_code=400, 
-                    detail="Раздел с таким названием уже существует в этой организации"
+                    status_code=400,
+                    detail="Раздел с таким названием уже существует в этой организации",
                 )
 
         for field, value in update_data.items():
-            # Используем 'is not None', чтобы корректно обрабатывать False, 0, ""
             if value is not None:
                 setattr(db_obj, field, value)
-                
+
         await db.flush()
         await db.refresh(db_obj)
         return db_obj
@@ -153,21 +167,13 @@ class SectionCRUD:
     async def delete(
         self, db: AsyncSession, id: uuid.UUID, tenant_id: uuid.UUID
     ) -> SectionModel | None:
-        """
-        Удалить раздел.
-        Использует get() для проверки принадлежности к tenant_id (безопасность).
-        """
+        """Удалить раздел."""
         obj = await self.get(db, id, tenant_id)
         if not obj:
             return None
-            
-        # TODO: В будущем добавить проверку на связанные записи (если появятся),
-        # иначе бросать HTTPException(400, detail="Нельзя удалить раздел, так как он используется в...")
-        
         await db.delete(obj)
         await db.flush()
         return obj
 
 
-# Экземпляр CRUD для использования в роутерах
 crud_section = SectionCRUD(SectionModel)

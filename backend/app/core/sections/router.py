@@ -31,28 +31,60 @@ async def create_section(
     )
 
 
+# @router.get("/", response_model=ApiResponse[PaginatedResponse[SectionResponseSchema]])
+# async def get_sections(
+#     skip: int = 0,
+#     limit: int = 10,
+#     search: str | None = None,
+#     # ✅ НОВОЕ: опциональный tenant_id для суперадмина
+#     tenant_id: uuid.UUID | None = None,
+#     db: AsyncSession = Depends(get_db),
+#     session: UserSession = Depends(get_current_session),
+# ):
+#     """
+#     Получение пагинированного списка разделов с опциональным поиском.
+    
+#     Если передан tenant_id и пользователь — суперадмин,
+#     возвращаются разделы указанного предприятия.
+#     """
+#     # ✅ Защита: обычный админ не может запросить чужой tenant_id
+#     if tenant_id and not session.is_superadmin:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Только суперадмин может запрашивать разделы другого предприятия",
+#         )
+
+#     items, total = await crud_section.get_multi_paginated(
+#         db,
+#         user_tenant_id=session.tenant_id,
+#         skip=skip,
+#         limit=limit,
+#         search=search,
+#         user_is_superadmin=session.is_superadmin,
+#         target_tenant_id=tenant_id,  # ✅ Передаём target_tenant_id
+#     )
+#     return ApiResponse(
+#         success=True,
+#         message="Разделы получены",
+#         data=PaginatedResponse(
+#             items=[SectionResponseSchema.model_validate(item) for item in items],
+#             total=total,
+#             page=(skip // limit) + 1,
+#             size=limit,
+#         ),
+#     )
 @router.get("/", response_model=ApiResponse[PaginatedResponse[SectionResponseSchema]])
 async def get_sections(
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
-    # ✅ НОВОЕ: опциональный tenant_id для суперадмина
-    tenant_id: uuid.UUID | None = None,
+    tenant_id: uuid.UUID | None = None,  # ✅ НОВЫЙ query-параметр
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
-    """
-    Получение пагинированного списка разделов с опциональным поиском.
-    
-    Если передан tenant_id и пользователь — суперадмин,
-    возвращаются разделы указанного предприятия.
-    """
-    # ✅ Защита: обычный админ не может запросить чужой tenant_id
+    # ✅ Правило №26: Защита от запроса чужих разделов обычным админом
     if tenant_id and not session.is_superadmin:
-        raise HTTPException(
-            status_code=403,
-            detail="Только суперадмин может запрашивать разделы другого предприятия",
-        )
+        tenant_id = session.tenant_id
 
     items, total = await crud_section.get_multi_paginated(
         db,
@@ -61,8 +93,9 @@ async def get_sections(
         limit=limit,
         search=search,
         user_is_superadmin=session.is_superadmin,
-        target_tenant_id=tenant_id,  # ✅ Передаём target_tenant_id
+        target_tenant_id=tenant_id,  # ✅ Передаём в CRUD
     )
+    
     return ApiResponse(
         success=True,
         message="Разделы получены",
@@ -73,7 +106,6 @@ async def get_sections(
             size=limit,
         ),
     )
-
 
 @router.get("/{section_id}", response_model=ApiResponse[SectionResponseSchema])
 async def get_section(

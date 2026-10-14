@@ -372,7 +372,7 @@ export function EditRoleModal({
   const saveMutation = useSaveRoleRolesSavePost();
 
   const onSubmit = async (data: RoleFormData) => {
-    if (!selectedTenantId) {
+    if (!effectiveTenantId) {
       toast({
         variant: "destructive",
         title: "Ошибка",

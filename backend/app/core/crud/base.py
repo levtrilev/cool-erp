@@ -122,6 +122,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         search: Optional[str] = None,
         search_field: str = "name",
         user_is_superadmin: bool = False,
+        target_tenant_id: uuid.UUID | None = None,
     ) -> Tuple[List[ModelType], int]:
         # Исправленный вариант
         if hasattr(self.model, "tenant_id") and not user_is_superadmin:
@@ -134,10 +135,14 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                 .select_from(self.model)
                 .where(tenant_attr == tenant_id)
             )
+        elif hasattr(self.model, "target_tenant_id") and user_is_superadmin:
+            tenant_attr = getattr(self.model, "tenant_id")
+            data_query = select(self.model).where(tenant_attr == target_tenant_id)
+            count_query = select(func.count()).select_from(self.model).where(tenant_attr == target_tenant_id)
         else:
             data_query = select(self.model)
             count_query = select(func.count()).select_from(self.model)
-
+        
         if search and hasattr(self.model, search_field):
             # Используем явное приведение типов (cast), чтобы Pylance знал:
             # динамический атрибут имеет тип SQLAlchemy InstrumentableAttribute (у которого есть .ilike())

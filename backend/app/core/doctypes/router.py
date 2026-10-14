@@ -33,6 +33,7 @@ async def get_doctypes(
         limit=limit,
         search=search,
         user_is_superadmin=current_session.is_superadmin,
+        target_tenant_id=available_for_tenant_id,
     )
 
     # ✅ 1. Явное создание экземпляра (ОБЯЗАТЕЛЬНО со скобками и аргументами!)

@@ -253,22 +253,7 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
 # ==========================================
 # CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
 # ==========================================
-# @router.get("/", response_model=PaginatedUserResponse)
-# async def read_users(
-#     skip: int = 0,
-#     limit: int = 100,
-#     search: Optional[str] = None,
-#     db: AsyncSession = Depends(get_db),
-# ):
-#     """Получение списка пользователей с пагинацией"""
-#     items, total = await crud_user.get_multi_paginated(
-#         db, skip=skip, limit=limit, search=search
-#     )
-#     # ✅ Явная конвертация списка ORM → список Pydantic
-#     return PaginatedUserResponse(
-#         items=[UserResponseSchema.model_validate(item) for item in items],
-#         total=total
-#     )
+
 @router.get("/", response_model=PaginatedResponse[UserResponseSchema])
 async def read_users(
     tenant_id: uuid.UUID,
@@ -278,9 +263,11 @@ async def read_users(
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
-    # Если tenant_id не указан, использовать tenant_id из сессии
-    # if tenant_id is None and session:
-    #     tenant_id = session.tenant_id
+    is_superadmin = session.is_superadmin if session else False
+
+    # ✅ Правило №26: Обычный админ не может запрашивать чужой тенант
+    if tenant_id and not is_superadmin:
+        tenant_id = session.tenant_id
 
     """Получение списка пользователей с пагинацией"""
     items, total = await crud_user.get_multi_paginated(
@@ -289,7 +276,8 @@ async def read_users(
         skip=skip,
         limit=limit,
         search=search,
-        user_is_superadmin=session.is_superadmin,
+        user_is_superadmin=is_superadmin,
+        target_tenant_id=tenant_id,  # ✅ Передаём в CRUD
     )
 
     # Явно создаем экземпляр дженерика

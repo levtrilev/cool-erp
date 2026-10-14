@@ -133,7 +133,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         search: Optional[str] = None,
         search_field: str = "doctype_name",  # Не используется, но сохраняем для совместимости
         user_is_superadmin: bool = False,
-        available_for_tenant_id: Optional[uuid.UUID] = None,
+        target_tenant_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[DoctypeModel], int]:
         """
         Получение списка типов документов с пагинацией и фильтрацией.
@@ -147,12 +147,12 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
 
         # ✅ ПРИОРИТЕТ: Если передан available_for_tenant_id — фильтруем по нему
         # Это используется, когда суперадмин редактирует роль конкретной организации
-        if available_for_tenant_id:
+        if target_tenant_id:
             stmt = stmt.join(doctype_tenants).where(
-                doctype_tenants.c.tenant_id == available_for_tenant_id
+                doctype_tenants.c.tenant_id == target_tenant_id
             )
             count_stmt = count_stmt.join(doctype_tenants).where(
-                doctype_tenants.c.tenant_id == available_for_tenant_id
+                doctype_tenants.c.tenant_id == target_tenant_id
             )
         # ✅ Обычная фильтрация по tenant_id текущего пользователя
         elif not user_is_superadmin and tenant_id:
