@@ -85,6 +85,16 @@ export function EditRoleModal({
   // ✅ Правило №37: Паттерн с sessionKey для гарантированного перемонта при открытии
   const [sessionKey, setSessionKey] = useState(0);
 
+  // ✅ НОВОЕ: Сохранённая версия роли — источник истины после успешного сохранения.
+  // Проп role из родителя не обновляется автоматически, поэтому используем ответ мутации.
+  const [savedRoleOverride, setSavedRoleOverride] =
+    useState<RoleResponseSchema | null>(null);
+  const effectiveRole: RoleResponseSchema | null =
+    savedRoleOverride ?? role ?? null;
+
+  // ✅ НОВОЕ: Триггер принудительной пересинхронизации черновика пользователей
+  const [usersResyncKey, setUsersResyncKey] = useState(0);
+
   const handleOpenChange = (newOpen: boolean) => {
     if (newOpen && !open) {
       setSessionKey((prev) => prev + 1);
@@ -131,7 +141,7 @@ export function EditRoleModal({
     }
     return (
       tenants.find((t) => t.id === effectiveTenantId)?.name ??
-      role?.tenant_name ??
+      effectiveRole?.tenant_name ??
       ""
     );
   }, [
@@ -139,7 +149,7 @@ export function EditRoleModal({
     effectiveTenantId,
     currentTenantId,
     userData?.data?.tenant_name,
-    role?.tenant_name,
+    effectiveRole?.tenant_name,
   ]);
 
   //   ======= END ОРГАНИЗАЦИЯ ===========================
@@ -168,7 +178,7 @@ export function EditRoleModal({
         variant: "destructive",
         title: "Нельзя изменить организацию",
         description:
-          `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. ` +
+          `Для роли "${effectiveRole?.name}" уже назначены: ${assigned.join(", ")}. ` +
           "Сначала удалите все назначения.",
       });
 
@@ -189,8 +199,13 @@ export function EditRoleModal({
   const hasTenantChanges = useMemo<boolean>(
     () =>
       canChangeTenant &&
-      effectiveTenantId !== (role?.tenant_id || currentTenantId || ""),
-    [canChangeTenant, effectiveTenantId, role?.tenant_id, currentTenantId],
+      effectiveTenantId !== (effectiveRole?.tenant_id || currentTenantId || ""),
+    [
+      canChangeTenant,
+      effectiveTenantId,
+      effectiveRole?.tenant_id,
+      currentTenantId,
+    ],
   );
 
   // ==========================================
@@ -261,7 +276,14 @@ export function EditRoleModal({
       setUsersDraft([]);
       lastInitializedRoleId.current = null;
     }
-  }, [open, roleId, initialUsersDraft, isUsersLoading, usersData]);
+  }, [
+    open,
+    roleId,
+    initialUsersDraft,
+    isUsersLoading,
+    usersData,
+    usersResyncKey,
+  ]);
 
   // ✅ selectedUserIds вычисляется из usersDraft (фильтрует помеченных на удаление)
   const selectedUserIds = useMemo(() => {
@@ -308,9 +330,8 @@ export function EditRoleModal({
 
   const [permissions, setPermissions] =
     useState<PermissionDraft[]>(initialPerms);
-  const [initialPermissionsSnapshot] = useState<string>(
-    JSON.stringify(initialPerms),
-  );
+  const [initialPermissionsSnapshot, setInitialPermissionsSnapshot] =
+    useState<string>(JSON.stringify(initialPerms));
 
   // ==========================================
   // ИНДИКАТОРЫ ИЗМЕНЕНИЙ (НЕ ТРОНУТО)
@@ -327,8 +348,8 @@ export function EditRoleModal({
 
   // ✅ Обёртываем в useMemo для стабильной ссылки (exhaustive-deps)
   const initialSectionIds = useMemo(
-    () => role?.section_ids || [],
-    [role?.section_ids],
+    () => effectiveRole?.section_ids || [],
+    [effectiveRole?.section_ids],
   );
 
   const hasSectionChanges = useMemo(() => {
@@ -395,7 +416,7 @@ export function EditRoleModal({
         if (res.data) {
           const savedRole = res.data;
 
-          // ✅ Правило №24: Строгий порядок действий
+          // ✅ Правило №24: Инвалидация кэшей
           await queryClient.invalidateQueries({ queryKey: ["roles"] });
           if (isEdit && role?.id) {
             await queryClient.invalidateQueries({
@@ -406,7 +427,9 @@ export function EditRoleModal({
             });
           }
 
-          await queryClient.invalidateQueries({
+          // ✅ Дожидаемся актуальных данных пользователей,
+          // чтобы пересинхронизация черновика произошла на свежих данных
+          await queryClient.refetchQueries({
             predicate: (query) => {
               const key = query.queryKey[0];
               return (
@@ -415,13 +438,45 @@ export function EditRoleModal({
             },
           });
 
-          handleOpenChange(false);
+          // ✅ 1. Обновляем источник истины на сохранённую версию
+          setSavedRoleOverride(savedRole);
+
+          // ✅ 2. Синхронизируем черновик полномочий с ответом бэкенда.
+          // Все записи имеют id → пометка "(новый)" исчезнет.
+          // Нет поля markedForDeletion → пометка "(будет удалено)" исчезнет.
+          const freshPerms: PermissionDraft[] = (
+            savedRole.permissions ?? []
+          ).map((p) => ({
+            id: p.id,
+            doctype: p.doctype,
+            doctype_name: p.doctype_name ?? undefined,
+            role_name: p.role_name ?? undefined,
+            tenant_name: p.tenant_name ?? undefined,
+            full_access: p.full_access ?? false,
+            author: p.author ?? false,
+            reader: p.reader ?? false,
+            editor: p.editor ?? false,
+            can_delete: p.can_delete ?? false,
+            access_by_tags: p.access_by_tags ?? false,
+          }));
+          setPermissions(freshPerms);
+          // ✅ Синхронизируем снапшот → индикатор "*" на вкладке Полномочия исчезнет
+          setInitialPermissionsSnapshot(JSON.stringify(freshPerms));
+
+          // ✅ 3. Пересинхронизируем черновик пользователей.
+          // Сбрасываем флаг инициализации и триггерим useEffect через usersResyncKey.
+          // После обновления usersData все пользователи будут в initialUserIds →
+          // пометки "(новый)" и "(будет удалён)" исчезнут, индикатор "*" сбросится.
+          lastInitializedRoleId.current = null;
+          setUsersResyncKey((prev) => prev + 1);
+
+          // ✅ 4. Модалку НЕ закрываем. Обновляем список родителя.
           await onRoleSaved(savedRole.id, savedRole.name);
+
           toast({ title: "Роль сохранена" });
         }
       },
       onError: (error: unknown) => {
-        // ✅ Правило №36: Безопасная обработка ошибок
         const err = error as { response?: { data?: { detail?: string } } };
         toast({
           variant: "destructive",
@@ -479,7 +534,7 @@ export function EditRoleModal({
         <DialogHeader>
           <DialogTitle>
             {isEdit
-              ? `Редактирование роли: ${role.name}`
+              ? `Редактирование роли: ${effectiveRole?.name}`
               : "Создание новой роли"}
           </DialogTitle>
         </DialogHeader>
@@ -487,6 +542,7 @@ export function EditRoleModal({
         {/* ✅ Правило №37: key на форме гарантирует перемонт при смене role */}
         <form
           key={role?.id || "new"}
+          // eslint-disable-next-line react-hooks/refs
           onSubmit={handleSubmit(onSubmit, onInvalid)}
           className="space-y-4"
         >
@@ -688,7 +744,7 @@ export function EditRoleModal({
                 permissions={permissions}
                 onPermissionsChange={setPermissions}
                 tenantId={effectiveTenantId}
-                roleName={role?.name || ""}
+                roleName={effectiveRole?.name || ""}
               />
             </TabsContent>
 
