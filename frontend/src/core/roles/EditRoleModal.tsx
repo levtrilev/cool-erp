@@ -96,7 +96,7 @@ export function EditRoleModal({
   };
 
   // ==========================================
-  // ✅ ПОЛЕ ПРЕДПРИЯТИЕ (ОРГАНИЗАЦИЯ) - СОСТОЯНИЕ : единый источник названий
+  // ✅ ПОЛЕ ОРГАНИЗАЦИЯ - СОСТОЯНИЕ : единый источник названий
   // ==========================================
   const { data: tenantsData } = useReadTenantsTenantsGet({
     limit: 1000,
@@ -111,7 +111,7 @@ export function EditRoleModal({
     return response?.items ?? response?.data?.items ?? [];
   }, [tenantsData]);
 
-  // Пустая строка = "использовать предприятие текущего пользователя".
+  // Пустая строка = "использовать организацию текущего пользователя".
   const [selectedTenantId, setSelectedTenantId] = useState<string>(
     role?.tenant_id ?? "",
   );
@@ -124,7 +124,7 @@ export function EditRoleModal({
 
   // ✅ Название — производное значение, а не состояние.
   const selectedTenantName = useMemo<string>(() => {
-    // Текущее предприятие берём из профиля: работает даже без справочника.
+    // Текущую Организацию берём из профиля: работает даже без справочника.
     if (effectiveTenantId && effectiveTenantId === currentTenantId) {
       const fromProfile = userData?.data?.tenant_name;
       if (fromProfile) return fromProfile;
@@ -142,7 +142,7 @@ export function EditRoleModal({
     role?.tenant_name,
   ]);
 
-  //   ======= END ПРЕДПРИЯТИЕ ===========================
+  //   ======= END ОРГАНИЗАЦИЯ ===========================
 
   // Разрешена смена организации (только суперадмин и при создании, и при редактировании)
   const canChangeTenant = isSuperadmin;
@@ -166,7 +166,7 @@ export function EditRoleModal({
 
       toast({
         variant: "destructive",
-        title: "Нельзя изменить предприятие",
+        title: "Нельзя изменить организацию",
         description:
           `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. ` +
           "Сначала удалите все назначения.",
@@ -181,8 +181,8 @@ export function EditRoleModal({
 
     setSelectedTenantId(newTenantId);
     toast({
-      title: "Предприятие изменено",
-      description: "Роль будет сохранена для выбранного предприятия.",
+      title: "Организация изменена",
+      description: "Роль будет сохранена для выбранной организации.",
     });
   };
 
@@ -318,6 +318,12 @@ export function EditRoleModal({
   const hasPermissionChanges = useMemo(() => {
     return JSON.stringify(permissions) !== initialPermissionsSnapshot;
   }, [permissions, initialPermissionsSnapshot]);
+
+  // ✅ НОВОЕ: Количество активных (не помеченных на удаление) полномочий для счётчика на вкладке
+  const activePermissionsCount = useMemo(
+    () => permissions.filter((p) => !p.markedForDeletion).length,
+    [permissions],
+  );
 
   // ✅ Обёртываем в useMemo для стабильной ссылки (exhaustive-deps)
   const initialSectionIds = useMemo(
@@ -495,8 +501,9 @@ export function EditRoleModal({
                 )}
               </TabsTrigger>
 
+              {/* ✅ Счётчик разделов */}
               <TabsTrigger value="sections" className="relative">
-                Разделы
+                Разделы({selectedSectionIds.length})
                 {hasSectionChanges && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
@@ -504,8 +511,9 @@ export function EditRoleModal({
                 )}
               </TabsTrigger>
 
+              {/* ✅ Счётчик полномочий (типов документов) */}
               <TabsTrigger value="permissions" className="relative">
-                Полномочия
+                Полномочия({activePermissionsCount})
                 {hasPermissionChanges && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
@@ -513,8 +521,9 @@ export function EditRoleModal({
                 )}
               </TabsTrigger>
 
+              {/* ✅ Счётчик пользователей */}
               <TabsTrigger value="users" className="relative">
-                Пользователи
+                Пользователи({selectedUserIds.length})
                 {hasUserChanges && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
@@ -523,22 +532,22 @@ export function EditRoleModal({
               </TabsTrigger>
             </TabsList>
 
-            {/* Вкладка 1: Основное + Предприятие */}
+            {/* Вкладка 1: Основное + Организация */}
             <TabsContent value="main" className="space-y-4 mt-0 min-h-[400px]">
               {/* --- Обычный Админ: всегда только чтение --- */}
               {!isSuperadmin && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
-                    Предприятие
+                    Организация
                   </label>
                   <div className="px-3 py-2 rounded-md border bg-muted/50 text-sm">
                     {selectedTenantName || effectiveTenantId || "—"}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {isEdit
-                      ? "Изменить предприятие может только суперадмин."
-                      : "Роль будет создана для вашего предприятия."}
+                      ? "Изменить организацию может только суперадмин."
+                      : "Роль будет создана для вашей организации."}
                   </p>
                 </div>
               )}
@@ -548,7 +557,7 @@ export function EditRoleModal({
                 <div className="space-y-2">
                   <label className="text-sm font-medium flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
-                    Предприятие
+                    Организация
                   </label>
                   <ReferenceSelect
                     key={tenantSelectKey} // ✅ Перемонт при отклонении смены
@@ -575,15 +584,15 @@ export function EditRoleModal({
                     queryKey={["tenants-for-role"]}
                     value={selectedTenantId}
                     onValueChange={handleTenantChange}
-                    placeholder="Выберите предприятие..."
+                    placeholder="Выберите организацию..."
                     selectedLabel={
-                      selectedTenantName || "Выберите предприятие..."
+                      selectedTenantName || "Выберите организацию..."
                     }
-                    heading="Предприятия"
+                    heading="Организации"
                   />
                   {hasTenantChanges && (
                     <p className="text-xs text-amber-600">
-                      ⚠ Предприятие изменено. Сохраните роль для применения
+                      ⚠ Организация изменена. Сохраните роль для применения
                       изменений.
                     </p>
                   )}
