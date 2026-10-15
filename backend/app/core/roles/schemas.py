@@ -35,7 +35,8 @@ class RoleResponseSchema(RoleBaseSchema):
     # Денормализованное имя тенанта для UI
     tenant_name: Optional[str] = None
     permissions: Optional[list[PermissionResponseSchema]] = None 
-
+    # ✅ Имена пользователей для отображения чипсами в списке ролей
+    user_names: Optional[list[str]] = None
 
 # Для агрегированного сохранения
 class RoleSaveSchema(BaseModel):

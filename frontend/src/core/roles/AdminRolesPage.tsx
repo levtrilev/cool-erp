@@ -105,9 +105,9 @@ export function AdminRolesPage() {
 
   const handleModalOpenChange = (open: boolean) => {
     setEditModalOpen(open);
-    
+
     // ✅ КРИТИЧЕСКИ ВАЖНО: При закрытии модалки мы ОБЯЗАНЫ обнулить editingRole.
-    // Это гарантирует, что при следующем открытии React Query (или другой источник) 
+    // Это гарантирует, что при следующем открытии React Query (или другой источник)
     // предоставит абсолютно свежий объект роли, а не закэшированный черновик.
     if (!open) {
       setEditingRole(null);
@@ -183,8 +183,9 @@ export function AdminRolesPage() {
   // Определяем колонки
   const columns = [
     { id: "name", initialWidth: 150, minWidth: 100 },
-    { id: "description", initialWidth: 250, minWidth: 100 },
-    { id: "sections", initialWidth: 500, minWidth: 250 },
+    { id: "description", initialWidth: 200, minWidth: 100 },
+    { id: "sections", initialWidth: 350, minWidth: 250 },
+    { id: "users", initialWidth: 200, minWidth: 150 },
     { id: "actions", initialWidth: 30, minWidth: 30 },
   ];
 
@@ -281,6 +282,19 @@ export function AdminRolesPage() {
                 />
               </TableHead>
 
+              {/* ✅ Колонка: Пользователи */}
+              <TableHead
+                className="relative"
+                style={{ width: `${widths.users}px` }}
+              >
+                Пользователи
+                {/* Resizer между users и actions */}
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
+                  onMouseDown={(e) => handleMouseDown("users", e)}
+                />
+              </TableHead>
+
               {/* Колонка: Действия (БЕЗ resizer, так как это последняя колонка) */}
               <TableHead
                 className="relative"
@@ -292,14 +306,14 @@ export function AdminRolesPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-8">
+                <TableCell colSpan={5} className="text-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : roles.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="text-center text-muted-foreground py-8"
                 >
                   Роли не найдены
@@ -348,6 +362,29 @@ export function AdminRolesPage() {
                     <div className="flex flex-wrap gap-1">
                       {role.section_names && role.section_names.length > 0 ? (
                         role.section_names.map((name, idx) => (
+                          <Badge
+                            key={idx}
+                            variant="secondary"
+                            className="text-xs truncate max-w-[140px]"
+                          >
+                            {name}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground text-xs">
+                          Не назначены
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+
+                  <TableCell
+                    className="py-2 align-top overflow-hidden"
+                    style={{ width: `${widths.users}px` }}
+                  >
+                    <div className="flex flex-wrap gap-1">
+                      {role.user_names && role.user_names.length > 0 ? (
+                        role.user_names.map((name, idx) => (
                           <Badge
                             key={idx}
                             variant="secondary"

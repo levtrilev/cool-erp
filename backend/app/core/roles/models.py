@@ -1,9 +1,10 @@
 import uuid
-from sqlalchemy import String, ForeignKey, text
+from sqlalchemy import String, ForeignKey, func, text
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.users.models import UserModel
 
 class RoleModel(Base):
     __tablename__ = "roles"
@@ -40,6 +41,16 @@ class RoleModel(Base):
         cascade="all, delete-orphan"
     )
 
+    # ✅ Обратная связь с пользователями через ARRAY role_ids.
+    # Генерирует SQL: WHERE roles.id = ANY(users.role_ids)
+    # viewonly=True — связь только для чтения, не участвует в каскадах
+    users = relationship(
+        "UserModel",
+        primaryjoin=lambda: RoleModel.id == func.any(foreign(UserModel.role_ids)),
+        lazy="selectin",
+        viewonly=True,
+    )
+
     # ✅ Вычисляемое поле: количество полномочий
     @property
     def permissions_count(self) -> int:
@@ -51,3 +62,11 @@ class RoleModel(Base):
     def tenant_name(self) -> str | None:
         """Название организации (автоматически извлекается из relationship)"""
         return self.tenant.name if self.tenant else None
+
+    # ✅ Имена пользователей для чипсов в списке ролей
+    # Правило №33: @property только для чтения
+    # Правило №1: читается из relationship users с lazy="selectin"
+    @property
+    def user_names(self) -> list[str]:
+        """Имена пользователей, которым назначена роль."""
+        return [u.name for u in self.users] if self.users else []

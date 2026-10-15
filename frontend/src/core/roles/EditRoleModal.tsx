@@ -115,6 +115,8 @@ export function EditRoleModal({
   const [selectedTenantId, setSelectedTenantId] = useState<string>(
     role?.tenant_id ?? "",
   );
+  // ✅ Ключ для принудительного перемонта ReferenceSelect при отклонении смены
+  const [tenantSelectKey, setTenantSelectKey] = useState(0);
 
   // ✅ Эффективный ID сам адаптируется к асинхронной загрузке профиля/роли.
   // Никаких setState внутри useEffect (Правило №37).
@@ -147,43 +149,7 @@ export function EditRoleModal({
 
   // ✅ Проверка наличия связей перед сменой организации
   // ✅ Исправлено: принимает только (value: string), как требует ReferenceSelect
-  //   const handleTenantChange = (newTenantId: string) => {
-  //     if (newTenantId === selectedTenantId) return;
 
-  //     // Проверяем наличие связей в ИСХОДНЫХ данных роли (из БД)
-  //     const hasSections = (role?.section_ids?.length ?? 0) > 0;
-  //     const hasPermissions = (role?.permissions?.length ?? 0) > 0;
-  //     const hasUsers = initialUserIds.length > 0;
-
-  //     if (hasSections || hasPermissions || hasUsers) {
-  //       const assigned: string[] = [];
-  //       if (hasSections) assigned.push("Разделы");
-  //       if (hasPermissions) assigned.push("Полномочия");
-  //       if (hasUsers) assigned.push("Пользователи");
-
-  //       toast({
-  //         variant: "destructive",
-  //         title: "Нельзя изменить организацию",
-  //         description: `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. Сначала удалите все назначения.`,
-  //       });
-  //       return; // ❌ Отменяем изменение
-  //     }
-
-  //     // ✅ Связей нет — разрешаем смену
-  //     setSelectedTenantId(newTenantId);
-  //     // Примечание: мы не обновляем selectedTenantName здесь, так как ReferenceSelect
-  //     // передаёт только ID. Название корректно отобразится после сохранения и перезагрузки.
-
-  //     toast({
-  //       title: "Организация изменена",
-  //       description: "Роль будет сохранена для новой организации.",
-  //     });
-  //   };
-
-  //   const hasTenantChanges = useMemo(
-  //     () => canChangeTenant && selectedTenantId !== (role?.tenant_id || ""),
-  //     [canChangeTenant, selectedTenantId, role?.tenant_id],
-  //   );
   const handleTenantChange = (newTenantId: string): void => {
     if (!canChangeTenant || newTenantId === effectiveTenantId) return;
 
@@ -205,6 +171,11 @@ export function EditRoleModal({
           `Для роли "${role?.name}" уже назначены: ${assigned.join(", ")}. ` +
           "Сначала удалите все назначения.",
       });
+
+      // ✅ Принудительный перемонт ReferenceSelect для сброса
+      // его внутреннего состояния на текущее значение selectedTenantId
+      setTenantSelectKey((prev) => prev + 1);
+
       return;
     }
 
@@ -580,6 +551,7 @@ export function EditRoleModal({
                     Предприятие
                   </label>
                   <ReferenceSelect
+                    key={tenantSelectKey} // ✅ Перемонт при отклонении смены
                     fetchFn={async (params) => {
                       const response = await readTenantsTenantsGet({
                         skip: params.skip,
