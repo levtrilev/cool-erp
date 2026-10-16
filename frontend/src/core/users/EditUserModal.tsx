@@ -13,11 +13,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { useUpdateUserAuthUserIdPut } from "@/api/generated/authentication/authentication";
+import { useGetUserAuthUserGet, useUpdateUserAuthUserIdPut } from "@/api/generated/authentication/authentication";
 import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Plus, Tag, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+
+// ✅ Валидация формата тега (ТЗ §6.2.1–6.2.3)
+// Формат: <пространство>:<значение>, без пробелов, регистр значим
+const TAG_REGEX = /^[^\s:]+:[^\s:]+$/;
 
 const editUserSchema = z.object({
   name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
@@ -28,6 +34,7 @@ const editUserSchema = z.object({
     .optional()
     .or(z.literal("")),
   tenant_id: z.string().uuid("Выберите организацию"),
+  tags: z.array(z.string()).optional(),
 });
 
 type EditUserFormData = z.infer<typeof editUserSchema>;
@@ -41,7 +48,6 @@ interface EditUserModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: UserResponseSchema | null;
-  // ✅ ИСПРАВЛЕНИЕ: добавляем аргументы, чтобы соответствовать handleUserUpdated
   onUserUpdated: (userId: string, userName: string) => Promise<void>;
 }
 
@@ -54,6 +60,12 @@ export const EditUserModal = ({
   const { toast } = useToast();
   const updateUserMutation = useUpdateUserAuthUserIdPut();
 
+    // ✅ Определяем права текущего пользователя (ТЗ §6.3.2: теги назначает только Админ/Суперадмин)
+  const { data: currentUserData } = useGetUserAuthUserGet();
+  const canEditTags =
+    currentUserData?.data?.is_admin === true ||
+    currentUserData?.data?.is_superadmin === true;
+    
   const {
     register,
     handleSubmit,
@@ -70,6 +82,10 @@ export const EditUserModal = ({
     },
   });
 
+  // ✅ Состояние для ввода нового тега
+  const [tagInput, setTagInput] = useState("");
+  const [tagError, setTagError] = useState<string | null>(null);
+
   useEffect(() => {
     if (open && user) {
       reset({
@@ -77,9 +93,47 @@ export const EditUserModal = ({
         email: user.email,
         password: "",
         tenant_id: user.tenant_id || "", // ✅ Controller автоматически подхватит это значение
+        tags: (user as unknown as { tags?: string[] })?.tags ?? [],
       });
     }
   }, [open, user, reset]);
+  
+    // ✅ Добавление тега с валидацией формата (ТЗ §6.2)
+  const handleAddTag = (
+    currentTags: string[],
+    onChange: (tags: string[]) => void,
+  ) => {
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+
+    // Проверка формата (ТЗ §6.2.1–6.2.2)
+    if (!TAG_REGEX.test(trimmed)) {
+      setTagError(
+        "Формат тега: пространство:значение (без пробелов). Пример: регион:сибирь",
+      );
+      return;
+    }
+
+    // Проверка на дубликат (ТЗ §6.2.3: регистр значим)
+    if (currentTags.includes(trimmed)) {
+      setTagError(`Тег "${trimmed}" уже добавлен`);
+      return;
+    }
+
+    onChange([...currentTags, trimmed]);
+    setTagInput("");
+    setTagError(null);
+  };
+
+    // ✅ Удаление тега
+  const handleRemoveTag = (
+    tagToRemove: string,
+    currentTags: string[],
+    onChange: (tags: string[]) => void,
+  ) => {
+    onChange(currentTags.filter((t) => t !== tagToRemove));
+  };
+
   const onSubmit = (data: EditUserFormData) => {
     if (!user?.id) return;
 
@@ -88,6 +142,7 @@ export const EditUserModal = ({
       email: data.email,
       ...(data.password ? { password: data.password } : {}),
       tenant_id: data.tenant_id,
+      tags: data.tags ?? [],
     };
 
     updateUserMutation.mutate(
@@ -211,6 +266,105 @@ export const EditUserModal = ({
                 {errors.tenant_id.message}
               </p>
             )}
+          </div>
+
+         {/* ✅ НОВОЕ: Редактор тегов доступа (ТЗ §6.3) */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-muted-foreground" />
+              Теги доступа
+              <span className="text-xs text-muted-foreground font-normal">
+                (формат: пространство:значение)
+              </span>
+            </Label>
+
+            <Controller
+              name="tags"
+              control={control}
+              render={({ field }) => {
+                const tags = field.value ?? [];
+                return (
+                  <div className="space-y-2">
+                    {/* Отображение текущих тегов */}
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 p-2 rounded-md border bg-muted/30 min-h-[36px]">
+                        {tags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="secondary"
+                            className="text-xs gap-1 pr-1"
+                          >
+                            {tag}
+                            {canEditTags && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleRemoveTag(tag, tags, field.onChange)
+                                }
+                                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+                                title={`Удалить тег ${tag}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {tags.length === 0 && (
+                      <p className="text-xs text-muted-foreground px-2 py-1">
+                        Теги не назначены
+                      </p>
+                    )}
+
+                    {/* Ввод нового тега (только для Админа/Суперадмина — ТЗ §6.3.2) */}
+                    {canEditTags && (
+                      <div className="flex gap-2">
+                        <Input
+                          value={tagInput}
+                          onChange={(e) => {
+                            setTagInput(e.target.value);
+                            setTagError(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddTag(tags, field.onChange);
+                            }
+                          }}
+                          placeholder="регион:сибирь"
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleAddTag(tags, field.onChange)}
+                          disabled={!tagInput.trim()}
+                          className="shrink-0"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Добавить
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Ошибка валидации тега */}
+                    {tagError && (
+                      <p className="text-xs text-destructive">{tagError}</p>
+                    )}
+
+                    {/* Подсказка */}
+                    <p className="text-xs text-muted-foreground">
+                      Теги определяют доступ пользователя к документам с
+                      соответствующими тегами. Примеры: регион:сибирь,
+                      отдел:бухгалтерия, гриф:секретно
+                    </p>
+                  </div>
+                );
+              }}
+            />
           </div>
 
           <DialogFooter className="gap-2">

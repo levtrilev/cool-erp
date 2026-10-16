@@ -27,12 +27,18 @@ class UserModel(Base):
     role_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=True
     )
-    # ✅ НОВОЕ: Денормализованные имена ролей для UI
+    # ✅ Денормализованные имена ролей для UI
     role_names: Mapped[list[str] | None] = mapped_column(
         ARRAY(String(255)), nullable=True
     )
     is_superadmin: Mapped[bool | None] = mapped_column(
         default=False, server_default=text("false")
+    )
+    # ✅ Теги доступа пользователя (ТЗ §6.3.1)
+    # Формат: ["пространство:значение", ...] например ["регион:сибирь", "отдел:бухгалтерия"]
+    # Присваиваются только Администратором или Суперадмином (ТЗ §6.3.2)
+    tags: Mapped[list[str] | None] = mapped_column(
+        ARRAY(String(128)), nullable=True
     )
 
     # Связь с сессиями

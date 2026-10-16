@@ -12,6 +12,7 @@ class UserBaseSchema(BaseModel):
     tenant_id: uuid.UUID
     role_ids: Optional[list[uuid.UUID]] = None
     role_names: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
 
 # ==========================================
 # СХЕМЫ ДЛЯ СОЗДАНИЯ/ОБНОВЛЕНИЯ
@@ -46,7 +47,7 @@ class UserUpdateSchema(BaseModel):
     is_superadmin: Optional[bool] = None
     role_ids: Optional[list[uuid.UUID]] = None
     role_names: Optional[list[str]] = None
-
+    tags: Optional[list[str]] = None
 
 # ==========================================
 # СХЕМЫ ОТВЕТА (используются в response_model)
@@ -62,6 +63,7 @@ class UserResponseSchema(BaseModel):
     is_superadmin: bool = False
     role_ids: Optional[list[uuid.UUID]] = None
     role_names: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
     
     model_config = {"from_attributes": True}  # Pydantic v2 стиль
 
