@@ -17,8 +17,9 @@ import { AdminUsersPage } from "@/core/users/AdminUsersPage";
 import { AdminTenantsPage } from "@/core/tenants/AdminTenantsPage";
 import { AdminSectionsPage } from "@/core/sections/AdminSectionsPage";
 import { AdminRolesPage } from "@/core/roles/AdminRolesPage";
-import { DomainsPage } from "./core/domains/DomainsPage";
-import { DoctypesPage } from "./core/doctypes/DoctypesPage";
+import { DomainsPage } from "@/core/domains/DomainsPage";
+import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
+import { TagsPage } from "./core/tags/TagsPage";
 
 const queryClient = new QueryClient();
 
@@ -94,6 +95,14 @@ function App() {
               element={
                 <ProtectedRoute requiredRole="admin">
                   <AdminRolesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/tags"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <TagsPage />
                 </ProtectedRoute>
               }
             />

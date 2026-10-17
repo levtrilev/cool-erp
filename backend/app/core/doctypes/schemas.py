@@ -8,6 +8,9 @@ class DoctypeBaseSchema(BaseModel):
     doctype_name: str
     description: str | None = None
     is_active: bool = True
+    apply_or_tags: bool = False
+    apply_and_tags: bool = False
+    audit_read: bool = False
 
 
 class DoctypeCreateSchema(DoctypeBaseSchema):
@@ -22,6 +25,9 @@ class DoctypeUpdateSchema(BaseModel):
     description: str | None = None
     is_active: bool | None = None
     tenant_ids: list[uuid.UUID] | None = None
+    apply_or_tags: bool | None = None
+    apply_and_tags: bool | None = None
+    audit_read: bool | None = None
 
 
 class DoctypeResponseSchema(DoctypeBaseSchema):

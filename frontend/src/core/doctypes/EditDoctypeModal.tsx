@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -31,14 +31,28 @@ import type {
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import { TenantMultiSelect } from "@/core/tenants/TenantMultiSelect";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const doctypeSchema = z.object({
   domain_id: z.string().uuid("Выберите домен"),
-  doctype: z.string().min(2, "Минимум 2 символа (например, invoices)"),
+  doctype: z.string().min(2, "Минимум 2 символа"),
   doctype_name: z.string().min(2, "Минимум 2 символа"),
   description: z.string().optional(),
   is_active: z.boolean().optional(),
   tenant_ids: z.array(z.string().uuid()).optional(),
+  // ✅ НОВОЕ (ТЗ §7.1)
+  apply_or_tags: z.boolean().optional(),
+  apply_and_tags: z.boolean().optional(),
+  audit_read: z.boolean().optional(),
 });
 
 type DoctypeFormData = z.infer<typeof doctypeSchema>;
@@ -51,6 +65,9 @@ const CREATE_DEFAULTS: DoctypeFormData = {
   description: "",
   is_active: true,
   tenant_ids: [],
+  apply_or_tags: false,
+  apply_and_tags: false,
+  audit_read: false,
 };
 
 interface EditDoctypeModalProps {
@@ -128,6 +145,11 @@ export const EditDoctypeModal = ({
 
   const createMutation = useCreateDoctypeDoctypesPost();
   const updateMutation = useUpdateDoctypeDoctypesDoctypeIdPut();
+  // ✅ ТЗ §7.3.2: Данные формы, ожидающие подтверждения перед сохранением
+  // (заполняются, если при сохранении включаются теги)
+  const [pendingSubmit, setPendingSubmit] = useState<DoctypeFormData | null>(
+    null,
+  );
 
   // ✅ Синхронизация формы при открытии модалки или смене initialData
   useEffect(() => {
@@ -140,6 +162,9 @@ export const EditDoctypeModal = ({
           description: initialData.description || "",
           is_active: initialData.is_active ?? true,
           tenant_ids: initialData.tenant_ids ?? [],
+          apply_or_tags: initialData.apply_or_tags ?? false,
+          apply_and_tags: initialData.apply_and_tags ?? false,
+          audit_read: initialData.audit_read ?? false,
         });
       } else {
         reset(CREATE_DEFAULTS);
@@ -147,7 +172,17 @@ export const EditDoctypeModal = ({
     }
   }, [open, initialData, reset]);
 
-  const onSubmit = async (formData: DoctypeFormData) => {
+  // ✅ Определение, включаются ли теги при сохранении (ТЗ §7.3.1)
+  const isEnablingTags = (formData: DoctypeFormData): boolean => {
+    const orWasOff = !(initialData?.apply_or_tags ?? false);
+    const andWasOff = !(initialData?.apply_and_tags ?? false);
+    const orNowOn = formData.apply_or_tags === true;
+    const andNowOn = formData.apply_and_tags === true;
+    return (orNowOn && orWasOff) || (andNowOn && andWasOff);
+  };
+
+  // ✅ Фактическое выполнение мутации (вызывается напрямую или после подтверждения)
+  const performSubmit = async (formData: DoctypeFormData) => {
     try {
       if (initialData) {
         // Режим редактирования
@@ -173,7 +208,7 @@ export const EditDoctypeModal = ({
       // ✅ Правило №20: Сброс формы после успешного сохранения
       reset(CREATE_DEFAULTS);
     } catch (error: unknown) {
-      // ✅ Безопасное извлечение ошибки (без any)
+      // ✅ Правило №36: Безопасное извлечение ошибки (без any)
       const err = error as { response?: { data?: { detail?: string } } };
       toast({
         variant: "destructive",
@@ -182,6 +217,23 @@ export const EditDoctypeModal = ({
           err?.response?.data?.detail || "Не удалось сохранить тип документа",
       });
     }
+  };
+
+  // ✅ ТЗ §7.3.2: При включении тегов — сначала предупреждение
+  const onSubmit = async (formData: DoctypeFormData) => {
+    if (isEnablingTags(formData)) {
+      setPendingSubmit(formData);
+      return;
+    }
+    await performSubmit(formData);
+  };
+
+  // ✅ Подтверждение включения тегов из диалога
+  const confirmTagEnabling = async () => {
+    if (!pendingSubmit) return;
+    const data = pendingSubmit;
+    setPendingSubmit(null);
+    await performSubmit(data);
   };
 
   const handleOpenChange = (newOpen: boolean) => {
@@ -323,6 +375,156 @@ export const EditDoctypeModal = ({
             />
           </div>
 
+          {/* ✅ НОВОЕ (ТЗ §7.1): Переключатели тег-применимости */}
+          <div className="space-y-4 p-4 border rounded-md bg-muted/30">
+            <Label className="text-sm font-semibold">
+              Доступ на основе тэгов (ABAC)
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Глобальные настройки для всех документов данного типа.
+            </p>
+
+            {/* Белые списки (or_tags) */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <Label
+                  htmlFor="apply_or_tags"
+                  className="text-sm font-normal cursor-pointer"
+                >
+                  Разрешающие тэги
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Документ доступен пользователям с хотя бы одним тегом из
+                  списка
+                </p>
+              </div>
+              <Controller
+                name="apply_or_tags"
+                control={control}
+                render={({ field }) => (
+                  <>
+                    <Switch
+                      id="apply_or_tags"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                    <Label
+                      htmlFor="apply_or_tags"
+                      className={`flex items-center gap-2 cursor-pointer font-medium transition-colors text-xs ${
+                        field.value
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {field.value ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" /> Применён
+                        </>
+                      ) : (
+                        <>
+                          <PauseCircle className="h-4 w-4" /> Выключен
+                        </>
+                      )}
+                    </Label>
+                  </>
+                )}
+              />
+            </div>
+
+            {/* Обязательные теги (and_tags) */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <Label
+                  htmlFor="apply_and_tags"
+                  className="text-sm font-normal cursor-pointer"
+                >
+                  Обязательные теги
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Документ доступен только пользователям, имеющим все указанные
+                  теги
+                </p>
+              </div>
+              <Controller
+                name="apply_and_tags"
+                control={control}
+                render={({ field }) => (
+                  <>
+                    <Switch
+                      id="apply_and_tags"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                    <Label
+                      htmlFor="apply_and_tags"
+                      className={`flex items-center gap-2 cursor-pointer font-medium transition-colors text-xs ${
+                        field.value
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {field.value ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" /> Применён
+                        </>
+                      ) : (
+                        <>
+                          <PauseCircle className="h-4 w-4" /> Выключен
+                        </>
+                      )}
+                    </Label>
+                  </>
+                )}
+              />
+            </div>
+
+            {/* Аудит чтения */}
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <Label
+                  htmlFor="audit_read"
+                  className="text-sm font-normal cursor-pointer"
+                >
+                  Аудит чтения
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Регистрировать события чтения документов данного типа
+                </p>
+              </div>
+              <Controller
+                name="audit_read"
+                control={control}
+                render={({ field }) => (
+                  <>
+                    <Switch
+                      id="audit_read"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                    <Label
+                      htmlFor="audit_read"
+                      className={`flex items-center gap-2 cursor-pointer font-medium transition-colors text-xs ${
+                        field.value
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {field.value ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4" /> Включён
+                        </>
+                      ) : (
+                        <>
+                          <PauseCircle className="h-4 w-4" /> Выключен
+                        </>
+                      )}
+                    </Label>
+                  </>
+                )}
+              />
+            </div>
+          </div>
+
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? (
@@ -332,6 +534,96 @@ export const EditDoctypeModal = ({
             </Button>
           </DialogFooter>
         </form>
+
+        {/* ✅ ТЗ §7.3.2: Предупреждение при включении тегов */}
+        <AlertDialog
+          open={!!pendingSubmit}
+          onOpenChange={(open) => !open && setPendingSubmit(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Включить доступ на основе тегов?
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>
+                    Для типа документа{" "}
+                    <strong>
+                      {pendingSubmit?.doctype_name || pendingSubmit?.doctype}
+                    </strong>{" "}
+                    будут включены:{" "}
+                    <strong>
+                      {[
+                        pendingSubmit?.apply_or_tags &&
+                        !(initialData?.apply_or_tags ?? false)
+                          ? "Разрешающие теги"
+                          : null,
+                        pendingSubmit?.apply_and_tags &&
+                        !(initialData?.apply_and_tags ?? false)
+                          ? "Обязательные теги"
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" и ")}
+                    </strong>
+                    .
+                  </p>
+
+                  {/* ✅ ТЗ §7.3.1: Последствия включения */}
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm">
+                    <p className="font-medium text-amber-800 dark:text-amber-300 mb-1">
+                      ⚠ Последствия включения:
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-amber-700 dark:text-amber-400">
+                      <li>
+                        Все существующие документы данного типа{" "}
+                        <strong>без тегов</strong> станут видимы только
+                        пользователям с <strong>полным уровнем доступа</strong>.
+                      </li>
+                      <li>
+                        Обычные пользователи (включая администраторов) потеряют
+                        доступ к неотмеченным документам до присвоения тегов.
+                      </li>
+                      {pendingSubmit?.apply_or_tags &&
+                        !(initialData?.apply_or_tags ?? false) && (
+                          <li>
+                            Доступ будет предоставляться при наличии хотя бы
+                            одного тега из списка документа.
+                          </li>
+                        )}
+                      {pendingSubmit?.apply_and_tags &&
+                        !(initialData?.apply_and_tags ?? false) && (
+                          <li>
+                            Доступ будет предоставляться только при наличии всех
+                            тегов из списка документа.
+                          </li>
+                        )}
+                    </ul>
+                  </div>
+
+                  <p className="text-muted-foreground">
+                    Рекомендуется заранее разметить документы тегами перед
+                    включением.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmTagEnabling}
+                disabled={updateMutation.isPending || createMutation.isPending}
+                className="bg-amber-600 text-white hover:bg-amber-700"
+              >
+                {updateMutation.isPending || createMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Включить и сохранить
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

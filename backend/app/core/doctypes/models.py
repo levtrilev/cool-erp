@@ -39,6 +39,21 @@ class DoctypeModel(Base):
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
 
+    # ✅ (ТЗ RBAC_ABAC §7.1): Переключатели тег-применимости
+    # Изменяет только Суперадмин (§7.2.2)
+    apply_or_tags: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"),
+        comment="Применять фильтр по or_tags (белый список)"
+    )
+    apply_and_tags: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"),
+        comment="Применять фильтр по and_tags (обязательный допуск)"
+    )
+    audit_read: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"),
+        comment="Регистрировать события чтения документов данного типа"
+    )
+
     # ✅ Правило №1: back_populates и lazy="selectin"
     domain = relationship("DomainModel", back_populates="doctypes", lazy="selectin")
     tenants = relationship("TenantModel", secondary=doctype_tenants, lazy="selectin")

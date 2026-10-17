@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Shield, Users, Factory, ShieldCheck } from "lucide-react";
+import { Shield, Users, Factory, ShieldCheck, Tag } from "lucide-react";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { Link } from "react-router-dom";
 
@@ -44,7 +44,6 @@ export const AdminPage = () => {
             </CardContent>
           </Link>
         </Card>
-
         {/* Карточка 2: Организации */}
         <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/tenants" className="block p-6">
@@ -62,7 +61,6 @@ export const AdminPage = () => {
             </CardContent>
           </Link>
         </Card>
-
         {/* Карточка 3: Разделы */}
         <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/sections" className="block p-6">
@@ -80,7 +78,6 @@ export const AdminPage = () => {
             </CardContent>
           </Link>
         </Card>
-
         {/* Карточка 4: Роли (НОВАЯ) */}
         <Card className="hover:shadow-md transition-shadow cursor-pointer">
           <Link to="/admin/roles" className="block p-6">
@@ -94,6 +91,26 @@ export const AdminPage = () => {
             <CardContent className="p-0">
               <p className="text-sm text-muted-foreground">
                 Настройка матрицы прав, разделов и пользователей
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+
+        {/* Карточка 5: Теги доступа (НОВАЯ) */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer">
+          <Link to="/admin/tags" className="block p-6">
+            <CardHeader className="p-0 mb-4">
+              <CardTitle className="flex items-center gap-2">
+                <Tag className="h-5 w-5" />
+                Теги доступа
+              </CardTitle>
+              <CardDescription>
+                Управление ABAC-тегами пользователей
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <p className="text-sm text-muted-foreground">
+                Список тегов и пользователей с доступом к редактированию
               </p>
             </CardContent>
           </Link>

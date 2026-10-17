@@ -85,3 +85,21 @@ class PaginatedUserResponse(BaseModel):
     total: int
     
     model_config = {"from_attributes": True}
+
+class TagUserResponseSchema(BaseModel):
+    """Пользователь, имеющий тег доступа."""
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    name: str
+    email: str
+    tenant_id: uuid.UUID
+    tenant_name: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+class TagWithUsersResponseSchema(BaseModel):
+    """Тег доступа и пользователи, которым он присвоен."""
+    model_config = {"from_attributes": True}
+
+    tag: str
+    users: list[TagUserResponseSchema]

@@ -1,6 +1,7 @@
 # from typing import Optional
 
 # from datetime import datetime, timedelta, timezone
+from typing import Any, Mapping
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status  # , Request, Response
@@ -20,13 +21,16 @@ from app.core.users.crud import crud_user
 # from app.core.auth.dependencies import require_admin
 # from app.core.auth.security import get_current_session
 # from app.core.user.models import UserModel  as User
-from app.core.schemas import PaginatedResponse  # , ApiResponse
+from app.core.schemas import ApiResponse, PaginatedResponse  # , ApiResponse
 from app.core.tenants.crud import crud_tenant
 
 # from app.core.admin.models import TenantModel
 from app.core.users.schemas import PublicRegisterResponseSchema
 from app.core.auth.models import UserSession
 from app.core.auth.security import get_current_session
+from sqlalchemy import text as sql_text
+
+from app.core.auth.dependencies import CurrentUser, DBSession
 
 # Создаем роутер для авторизации
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -296,6 +300,84 @@ async def read_users(
         size=limit,
     )
 
+from typing import Any, Mapping
+from sqlalchemy import text as sql_text
+
+from app.core.users.schemas import (
+    TagUserResponseSchema,
+    TagWithUsersResponseSchema,
+)
+
+
+@router.get("/tags", response_model=ApiResponse[list[TagWithUsersResponseSchema]])
+async def get_tags_with_users(
+    db: DBSession,
+    session: CurrentUser,
+) -> ApiResponse[list[TagWithUsersResponseSchema]]:
+    """
+    Список тегов доступа и пользователей, которым они присвоены.
+
+    ТЗ RBAC_ABAC v2.0 §6.3.5:
+    - Администратор видит только пользователей своей Организации
+    - Суперадмин видит пользователей всех Организаций
+
+    Фильтрация выполняется на уровне SQL (Правило №26).
+    """
+    is_superadmin: bool = bool(getattr(session, "is_superadmin", False))
+
+    where_clause: str
+    params: Mapping[str, Any]
+
+    if is_superadmin:
+        where_clause = ""
+        params = {}
+    else:
+        where_clause = "WHERE u.tenant_id = :tenant_id"
+        params = {"tenant_id": session.tenant_id}
+
+    query = sql_text(f"""
+        SELECT
+            distinct_tags.tag AS tag,
+            json_agg(
+                json_build_object(
+                    'id', u.id,
+                    'name', u.name,
+                    'email', u.email,
+                    'tenant_id', u.tenant_id,
+                    'tenant_name', t.name,
+                    'tags', COALESCE(u.tags, ARRAY[]::varchar[])
+                ) ORDER BY u.name
+            ) AS users
+        FROM (
+            SELECT DISTINCT unnest(u0.tags) AS tag
+            FROM public.users AS u0
+            WHERE u0.tags IS NOT NULL
+              AND array_length(u0.tags, 1) > 0
+        ) AS distinct_tags
+        JOIN public.users AS u
+            ON u.tags @> ARRAY[distinct_tags.tag]::varchar[]
+        LEFT JOIN public.tenants AS t
+            ON t.id = u.tenant_id
+        {where_clause}
+        GROUP BY distinct_tags.tag
+        ORDER BY distinct_tags.tag
+    """)
+
+    result = await db.execute(query, params)
+    rows = result.all()
+
+    items: list[TagWithUsersResponseSchema] = []
+    for row in rows:
+        raw_users: list[dict[str, Any]] = list(row.users or [])
+        users = [TagUserResponseSchema.model_validate(u) for u in raw_users]
+        items.append(TagWithUsersResponseSchema(tag=row.tag, users=users))
+
+    return ApiResponse(
+        success=True,
+        message="Теги получены",
+        data=items,
+    )
+
 
 @router.get("/{user_id}", response_model=UserResponseSchema)
 async def read_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
@@ -347,3 +429,4 @@ async def delete_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         "status": "success",
         "message": f"User {deleted_user.name} successfully deleted",
     }
+

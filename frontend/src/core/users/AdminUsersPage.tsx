@@ -104,7 +104,7 @@ export const AdminUsersPage = () => {
     return tenants.find((t) => t.id === selectedTenantId)?.name ?? "";
   }, [selectedTenantId, tenants]);
 
-  // ✅ НОВОЕ: Эффективный tenant_id для запроса
+  // ✅ Эффективный tenant_id для запроса
   // - Суперадмин без выбранной организации → все организации
   // - Суперадмин с выбранной организацией → конкретная
   // - Обычный пользователь → всегда своя организация
@@ -114,7 +114,7 @@ export const AdminUsersPage = () => {
 
   const skip = (page - 1) * limit;
 
-  // ✅ ИЗМЕНЕНО: Запрос через эндпоинт /users/ с поддержкой tenant_id
+  // ✅ Запрос через эндпоинт /users/ с поддержкой tenant_id
   const { data, isLoading, isError, refetch } = useReadUsersUsersGet({
     tenant_id: effectiveTenantId,
     skip,
@@ -122,7 +122,7 @@ export const AdminUsersPage = () => {
     search: search || undefined,
   });
 
-  // ✅ ИЗМЕНЕНО: Мутация удаления через модуль users
+  // ✅ Мутация удаления через модуль users
   const deleteUserMutation = useDeleteUserUsersUserIdDelete();
 
   useEffect(() => {
@@ -146,7 +146,7 @@ export const AdminUsersPage = () => {
     }
 
     try {
-      // ✅ ИЗМЕНЕНО: используем readUsersUsersGet с tenant_id
+      // ✅ Используем readUsersUsersGet с tenant_id
       const allUsersData = await readUsersUsersGet({
         tenant_id: effectiveTenantId,
         limit: 1000,
@@ -200,7 +200,7 @@ export const AdminUsersPage = () => {
   const handleUserCreated = async (newId: string) => {
     // console.log("🔍 handleUserCreated вызван с ID:", newId);
 
-    // ✅ ИЗМЕНЕНО: используем readUsersUsersGet с tenant_id
+    // ✅ Используем readUsersUsersGet с tenant_id
     const allUsersData = await readUsersUsersGet({
       tenant_id: effectiveTenantId,
       limit: 1000,
