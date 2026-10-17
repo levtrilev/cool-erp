@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,20 +29,34 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Trash2, Search, Loader2, Shield, User, Plus } from "lucide-react";
+import { Trash2, Search, Loader2, Shield, User, Plus, Building2, X } from "lucide-react";
+// ✅ НОВОЕ: эндпоинт из модуля users с поддержкой tenant_id
 import {
-  useReadUsersAuthGet,
-  useDeleteUserAuthUserIdDelete,
-  readUsersAuthGet,
-} from "@/api/generated/authentication/authentication";
+  useReadUsersUsersGet,
+  useDeleteUserUsersUserIdDelete,
+  readUsersUsersGet,
+} from "@/api/generated/users/users";
+// ✅ НОВОЕ: текущий пользователь и справочник организаций
+import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
+import { ReferenceSelect, type ReferenceItem } from "@/lib/reusable/ReferenceSelect";
 import { EditUserModal } from "@/core/users/EditUserModal";
-import { z } from "zod";
-import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
 import { CreateUserModal } from "@/core/users/CreateUserModal";
+// ✅ НОВОЕ: общий тип UserResponseSchema
+import type { UserResponseSchema } from "@/api/generated/fastAPI.schemas";
 
-type UserResponseSchema = z.infer<
-  typeof readUsersAuthGetResponse
->["items"][number];
+// import {
+//   useReadUsersAuthGet,
+//   useDeleteUserAuthUserIdDelete,
+//   readUsersAuthGet,
+// } from "@/api/generated/authentication/authentication";
+// import { z } from "zod";
+// import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
+import { Label } from "@/components/ui/label";
+
+// type UserResponseSchema = z.infer<
+//   typeof readUsersAuthGetResponse
+// >["items"][number];
 
 export const AdminUsersPage = () => {
   const { toast } = useToast();
@@ -63,17 +77,53 @@ export const AdminUsersPage = () => {
   const [highlightedUserId, setHighlightedUserId] = useState<string | null>(
     null,
   );
+  // ✅ НОВОЕ: Определяем права текущего пользователя
+  const { data: currentUserData } = useGetUserAuthUserGet();
+  const isSuperadmin = currentUserData?.data?.is_superadmin === true;
+  const currentTenantId = currentUserData?.data?.tenant_id || "";
+
+  // ✅ НОВОЕ: Фильтр по организации (только для суперадмина)
+  // Пустая строка = все организации
+  const [selectedTenantId, setSelectedTenantId] = useState<string>("");
+  // ✅ НОВОЕ: Справочник организаций для отображения имени в фильтре
+  const [tenants, setTenants] = useState<ReferenceItem[]>([]);
+  useEffect(() => {
+    if (isSuperadmin) {
+      readTenantsTenantsGet({ limit: 1000, skip: 0 }).then((response) => {
+        const items: ReferenceItem[] = (response?.items ?? []).map((t) => ({
+          id: t.id,
+          name: t.name,
+        }));
+        setTenants(items);
+      });
+    }
+  }, [isSuperadmin]);
+
+  const selectedTenantName = useMemo<string>(() => {
+    if (!selectedTenantId) return "";
+    return tenants.find((t) => t.id === selectedTenantId)?.name ?? "";
+  }, [selectedTenantId, tenants]);
+
+  // ✅ НОВОЕ: Эффективный tenant_id для запроса
+  // - Суперадмин без выбранной организации → все организации
+  // - Суперадмин с выбранной организацией → конкретная
+  // - Обычный пользователь → всегда своя организация
+  const effectiveTenantId: string | undefined = isSuperadmin
+    ? (selectedTenantId || undefined)
+    : currentTenantId;  
 
   const skip = (page - 1) * limit;
 
-  // ✅ Запрос срабатывает только при изменении подтвержденного `search`
-  const { data, isLoading, isError, refetch } = useReadUsersAuthGet({
+  // ✅ ИЗМЕНЕНО: Запрос через эндпоинт /users/ с поддержкой tenant_id
+  const { data, isLoading, isError, refetch } = useReadUsersUsersGet({
+    tenant_id: effectiveTenantId,
     skip,
     limit,
     search: search || undefined,
   });
 
-  const deleteUserMutation = useDeleteUserAuthUserIdDelete();
+  // ✅ ИЗМЕНЕНО: Мутация удаления через модуль users
+  const deleteUserMutation = useDeleteUserUsersUserIdDelete();
 
   useEffect(() => {
     if (highlightedUserId) {
@@ -96,7 +146,9 @@ export const AdminUsersPage = () => {
     }
 
     try {
-      const allUsersData = await readUsersAuthGet({
+      // ✅ ИЗМЕНЕНО: используем readUsersUsersGet с tenant_id
+      const allUsersData = await readUsersUsersGet({
+        tenant_id: effectiveTenantId,
         limit: 1000,
         skip: 0,
       });
@@ -146,14 +198,16 @@ export const AdminUsersPage = () => {
   };
 
   const handleUserCreated = async (newId: string) => {
-    console.log("🔍 handleUserCreated вызван с ID:", newId);
+    // console.log("🔍 handleUserCreated вызван с ID:", newId);
 
-    const allUsersData = await readUsersAuthGet({
+    // ✅ ИЗМЕНЕНО: используем readUsersUsersGet с tenant_id
+    const allUsersData = await readUsersUsersGet({
+      tenant_id: effectiveTenantId,
       limit: 1000,
       skip: 0,
     });
 
-    console.log("🔍 Результат запроса всех пользователей:", allUsersData);
+    // console.log("🔍 Результат запроса всех пользователей:", allUsersData);
 
     if (!allUsersData?.items) {
       console.log("❌ Нет items в allUsersData.data");
@@ -316,6 +370,51 @@ export const AdminUsersPage = () => {
           </form>
         </div>
       </div>
+
+      {/* ✅ Фильтр по организации (только для суперадмина) */}
+      {isSuperadmin && (
+        <div className="flex items-center gap-2 mb-3 p-2 rounded-md border bg-muted/30">
+          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+          <Label className="text-sm font-medium whitespace-nowrap shrink-0">
+            Организация:
+          </Label>
+          <div className="flex-1 max-w-md">
+            <ReferenceSelect
+              fetchFn={async (params) => {
+                const response = await readTenantsTenantsGet({
+                  skip: params.skip,
+                  limit: params.limit,
+                  search: params.search,
+                });
+                const items: ReferenceItem[] = (response?.items ?? []).map((t) => ({
+                  id: t.id,
+                  name: t.name,
+                }));
+                return { items, total: response?.total ?? 0 };
+              }}
+              queryKey={["tenants-for-user-filter"]}
+              value={selectedTenantId}
+              onValueChange={(value) => {
+                setSelectedTenantId(value);
+                setPage(1); // ✅ Сброс пагинации при смене фильтра
+              }}
+              placeholder="Все организации"
+              selectedLabel={selectedTenantName || "Все организации"}
+              heading="Выберите организацию"
+            />
+          </div>
+          {selectedTenantId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setSelectedTenantId(""); setPage(1); }}
+              className="shrink-0 text-muted-foreground"
+            >
+              <X className="h-4 w-4 mr-1" /> Сбросить
+            </Button>
+          )}
+        </div>
+      )}
 
       <div className="rounded-md border bg-card">
         <Table>

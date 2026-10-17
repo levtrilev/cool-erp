@@ -256,23 +256,31 @@ async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_d
 
 @router.get("/", response_model=PaginatedResponse[UserResponseSchema])
 async def read_users(
-    tenant_id: uuid.UUID,
+    tenant_id: uuid.UUID | None = None,
     skip: int = 0,
     limit: int = 100,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
     session: UserSession = Depends(get_current_session),
 ):
+    """Получение списка пользователей с пагинацией.
+    
+    - Обычный пользователь: всегда видит только свою организацию.
+    - Суперадмин без tenant_id: видит пользователей всех организаций.
+    - Суперадмин с tenant_id: видит пользователей указанной организации.
+    """
+        
     is_superadmin = session.is_superadmin if session else False
 
     # ✅ Правило №26: Обычный админ не может запрашивать чужой тенант
     if tenant_id and not is_superadmin:
         tenant_id = session.tenant_id
+    # Для суперадмина: если tenant_id не передан (None) — показываем все организации
 
     """Получение списка пользователей с пагинацией"""
     items, total = await crud_user.get_multi_paginated(
         db,
-        tenant_id=tenant_id,  # ✅ Передать в CRUD
+        tenant_id=session.tenant_id,  # ✅ (None) — показываем все организации
         skip=skip,
         limit=limit,
         search=search,

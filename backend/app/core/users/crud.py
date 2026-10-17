@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.crud.base import CRUDBase
 from app.core.users.models import UserModel
 from app.core.users.schemas import UserRegisterSchema, UserUpdateSchema
+# ✅ импорт для сортировки по имени организации
+from app.core.tenants.models import TenantModel
 
 # Глобальное хранилище сессий (в памяти: {session_id: {"user_id": UUID, ...}})
 sessions_storage: dict[str, dict[str, Any]] = {}
@@ -22,38 +24,50 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
     async def get_multi_paginated(
         self,
         db: AsyncSession,
-        tenant_id: uuid.UUID,
+        tenant_id: uuid.UUID | None = None,
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
         search_field: str = "email",
         user_is_superadmin: bool = False,
-        target_tenant_id: uuid.UUID | None = None,
+        target_tenant_id: uuid.UUID | None = None,  # ✅ конкретный тенант или все
     ) -> tuple[list[UserModel], int]:
         """
         Получение пагинированного списка пользователей.
         
-        ✅ Правило №26: Жёсткая фильтрация по tenant_id на уровне SQL.
+        Логика фильтрации (Правило №26):
+        - Суперадмин + target_tenant_id=None → все организации
+        - Суперадмин + target_tenant_id=UUID → конкретная организация
+        - Обычный пользователь → только своя организация (принудительно)
         
-        Логика фильтрации:
-        - Если передан target_tenant_id и пользователь — суперадмин,
-          фильтрация идёт по target_tenant_id (пользователи другого предприятия).
-        - Если пользователь НЕ суперадмин, фильтрация всегда по его собственному тенанту.
+        Сортировка: по имени организации, затем по имени пользователя.
         """
-        # ✅ Определяем фактический тенант для фильтрации
-        effective_tenant = (
-            target_tenant_id
-            if (user_is_superadmin and target_tenant_id)
-            else tenant_id
+        # ✅ JOIN с TenantModel для сортировки по имени организации
+        stmt = select(self.model).join(
+            TenantModel, self.model.tenant_id == TenantModel.id
         )
-
-        stmt = select(self.model)
         count_stmt = select(func.count()).select_from(self.model)
 
-        # ✅ ВСЕГДА фильтруем по конкретному предприятию (даже для суперадмина,
-        # если он запросил пользователей конкретной роли)
-        stmt = stmt.where(self.model.tenant_id == effective_tenant)
-        count_stmt = count_stmt.where(self.model.tenant_id == effective_tenant)
+        # ✅ Определяем фактический тенант для фильтрации
+        filter_tenant: uuid.UUID | None
+        if target_tenant_id:
+            # Суперадмин запросил конкретную организацию
+            filter_tenant = target_tenant_id
+        elif user_is_superadmin:
+            # Суперадмин без фильтра — все организации
+            filter_tenant = None
+        else:
+            # Обычный пользователь — только своя организация
+            filter_tenant = tenant_id        # effective_tenant = (
+        #     target_tenant_id
+        #     if (user_is_superadmin and target_tenant_id)
+        #     else tenant_id
+        # )
+
+        # ✅ Применяем фильтрацию только если есть конкретный тенант
+        if filter_tenant:
+            stmt = stmt.where(self.model.tenant_id == filter_tenant)
+            count_stmt = count_stmt.where(self.model.tenant_id == filter_tenant)
 
         if search:
             search_filter = (
@@ -66,7 +80,10 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
 
-        stmt = stmt.offset(skip).limit(limit).order_by(self.model.name)
+        # ✅ Сортировка по имени организации, затем по имени пользователя
+        stmt = stmt.order_by(TenantModel.name, self.model.name)
+        stmt = stmt.offset(skip).limit(limit)
+
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
 
