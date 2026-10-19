@@ -161,11 +161,11 @@ export const AppLayout = () => {
       </main>
 
       {/* Footer */}
-<footer className="border-t bg-background py-3 mt-auto">
-  <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
-    © 2026 Cool ERP. Все права защищены.
-  </div>
-</footer>
+      <footer className="border-t bg-background py-3 mt-auto">
+        <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
+          © 2026 Cool ERP. Все права защищены.
+        </div>
+      </footer>
     </div>
   );
 };

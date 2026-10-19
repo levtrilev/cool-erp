@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AppLayout } from "@/core/AppLayout";
+import { AppLayout } from "@/components/layout/AppLayout";
+// import { AppLayout} from "@/components/layout/AppLayout_1";
+import { NotesPage } from "@/core/notes/NotesPage";
 import { ProtectedRoute } from "@/core/auth/ProtectedRoute";
 
 // Публичные страницы
@@ -28,6 +30,15 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="/notes" element={<NotesPage />} />
+            {/* Другие маршруты будут добавлены здесь */}
+            <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
+          </Route>
+
+
+
+
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
           <Route path="/" element={<PublicHomePage />} />
           <Route path="/auth/login" element={<LoginPage />} />
