@@ -1,9 +1,10 @@
+from typing import TYPE_CHECKING
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.core.doctypes.document_base import (
@@ -12,6 +13,10 @@ from app.core.doctypes.document_base import (
     DocumentLifecycleMixin,
 )
 
+# ✅ TYPE_CHECKING для избежания циклических импортов
+if TYPE_CHECKING:
+    from app.core.sections.models import SectionModel
+    from app.core.users.models import UserModel
 
 class NotesModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     """
@@ -40,6 +45,30 @@ class NotesModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ✅ ПРАВИЛО №1 + №42: Связи для денормализованных имён
+    # ✅ Строковая форма foreign_keys — разрешается после определения класса
+    section: Mapped["SectionModel"] = relationship(
+        "SectionModel",
+        foreign_keys="NotesModel.section_id",
+        lazy="selectin",
+    )
+    author: Mapped["UserModel"] = relationship(
+        "UserModel",
+        foreign_keys="NotesModel.author_id",
+        lazy="selectin",
+    )
+
+    # ✅ ПРАВИЛО №42: @property для денормализации
+    @property
+    def section_name(self) -> str | None:
+        """Название раздела для ReferenceSelect."""
+        return self.section.name if self.section else None
+
+    @property
+    def author_name(self) -> str | None:
+        """Имя автора для отображения."""
+        return self.author.name if self.author else None
 
     # ✅ Правило №1 / №33: derived-поле только через @property, без присваиваний
     @property

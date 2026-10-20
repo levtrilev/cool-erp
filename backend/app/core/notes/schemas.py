@@ -57,6 +57,10 @@ class NoteResponseSchema(BaseModel):
     or_tags: list[str] | None = None
     and_tags: list[str] | None = None
 
+    # ✅ ПРАВИЛО №42: Денормализованные имена связанных сущностей для ReferenceSelect
+    section_name: str | None = None
+    author_name: str | None = None   # ← (для будущего использования)
+
     # Жизненный цикл
     doc_status: str
     doc_number: str | None = None
