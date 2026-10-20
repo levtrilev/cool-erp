@@ -123,42 +123,54 @@ class RoleService:
         # ============================================================
         # 2. Синхронизация полномочий (Permissions)
         # ============================================================
+
         stmt = select(PermissionModel).where(PermissionModel.role_id == role.id)
         if not is_superadmin:
             stmt = stmt.where(PermissionModel.tenant_id == current_tenant_id)
         result = await db.execute(stmt)
         existing_permissions = {p.id: p for p in result.scalars().all()}
-
         incoming_perm_ids: set[uuid.UUID] = set()
+
+        # ✅ КРИТИЧНО: tenant_id берётся из РОЛИ, а не из сессии пользователя
+        # Это гарантирует, что permission всегда принадлежит той же организации,
+        # что и роль, независимо от того, кто сохраняет (суперадмин или админ)
+        target_tenant_id: uuid.UUID = role.tenant_id
 
         if data.permissions:
             for perm_data in data.permissions:
                 if perm_data.id and perm_data.id in existing_permissions:
-                    # ✅ Правило №18: используем PermissionUpdateSchema для обновления
-                    perm_dict = perm_data.model_dump(exclude={"id"})
+                    # ✅ Обновление существующего permission
+                    # Исключаем id и tenant_id — они не изменяются
+                    perm_dict = perm_data.model_dump(exclude={"id", "tenant_id"})
                     perm_dict["role_id"] = role.id
-                    perm_dict["tenant_id"] = current_tenant_id
                     perm_dict["role_name"] = role.name
                     update_schema = PermissionUpdateSchema(**perm_dict)
-                    await crud_permission.update(
+                    
+                    # ✅ Используем переименованный метод (Правило №31)
+                    await crud_permission.update_permission(
                         db,
                         item_id=perm_data.id,
-                        data=update_schema,
-                        current_tenant_id=current_tenant_id,
+                        obj_in=update_schema,
+                        current_tenant_id=target_tenant_id,
                         is_superadmin=is_superadmin,
                     )
                     incoming_perm_ids.add(perm_data.id)
                 else:
-                    perm_dict = perm_data.model_dump()
+                    # ✅ Создание нового permission
+                    perm_dict = perm_data.model_dump(exclude={"id", "tenant_id"})
                     perm_dict["role_id"] = role.id
-                    perm_dict["tenant_id"] = current_tenant_id
                     perm_dict["role_name"] = role.name
-                    perm_dict.pop("id", None)
+                    # ✅ ОБЯЗАТЕЛЬНО: добавляем tenant_id из роли в схему
+                    # Без этого Pydantic выдаст ValidationError: tenant_id Field required
+                    perm_dict["tenant_id"] = target_tenant_id
+                    
                     safe_perm_data = PermissionCreateSchema(**perm_dict)
-                    new_perm = await crud_permission.create(
+                    
+                    # ✅ Используем переименованный метод (Правило №31)
+                    new_perm = await crud_permission.create_permission(
                         db,
-                        data=safe_perm_data,
-                        current_tenant_id=current_tenant_id,
+                        obj_in=safe_perm_data,
+                        current_tenant_id=target_tenant_id,
                         is_superadmin=is_superadmin,
                     )
                     incoming_perm_ids.add(new_perm.id)
@@ -166,10 +178,11 @@ class RoleService:
         # Удаление записей, которых нет во входящем списке
         perms_to_delete = set(existing_permissions.keys()) - incoming_perm_ids
         for perm_id in perms_to_delete:
-            await crud_permission.delete(
+            # ✅ Используем переименованный метод (Правило №31)
+            await crud_permission.delete_permission(
                 db,
                 item_id=perm_id,
-                current_tenant_id=current_tenant_id,
+                current_tenant_id=target_tenant_id,
                 is_superadmin=is_superadmin,
             )
 

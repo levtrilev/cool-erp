@@ -16,7 +16,9 @@ from app.core.notes.exceptions import (
 from app.core.notes.models import NotesModel
 from app.core.notes.schemas import NoteCreateSchema, NoteUpdateSchema
 from app.core.sections.models import SectionModel, SectionType
-
+from app.core.access import get_access_service
+from app.core.access.schemas import UserProtocol
+# from app.core.users.models import UserModel
 
 class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
     """
@@ -65,44 +67,98 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
 
         return note
 
+    # async def list_for_user(
+    #     self,
+    #     db: AsyncSession,
+    #     *,
+    #     tenant_id: uuid.UUID,
+    #     is_superadmin: bool = False,
+    #     target_tenant_id: uuid.UUID | None = None,
+    #     skip: int = 0,
+    #     limit: int = 10,
+    #     search: str | None = None,
+    # ) -> tuple[list[NotesModel], int]:
+    #     """
+    #     Список активных заметок с пагинацией и поиском.
+        
+    #     ✅ Кросс-организационный доступ: документы в разделе "Общий" (platform)
+    #     видны пользователям всех организаций.
+    #     """
+    #     model = self.model
+
+    #     effective_tenant: uuid.UUID | None = tenant_id
+    #     if is_superadmin:
+    #         effective_tenant = target_tenant_id
+
+    #     conditions: list[ColumnElement[bool]] = [model.deleted_at.is_(None)]
+
+    #     if effective_tenant is not None:
+    #         # ✅ Кросс-организационный доступ через раздел "Общий"
+    #         conditions.append(
+    #             or_(
+    #                 model.tenant_id == effective_tenant,
+    #                 model.section_id.in_(
+    #                     select(SectionModel.id).where(
+    #                         SectionModel.section_type == SectionType.PLATFORM
+    #                     )
+    #                 ),
+    #             )
+    #         )
+
+    #     if search:
+    #         pattern = f"%{search}%"
+    #         conditions.append(
+    #             or_(
+    #                 model.title.ilike(pattern),
+    #                 model.content.ilike(pattern),
+    #             )
+    #         )
+
+    #     count_stmt = select(func.count()).select_from(model).where(*conditions)
+    #     total = (await db.execute(count_stmt)).scalar_one()
+
+    #     stmt = (
+    #         select(model)
+    #         .where(*conditions)
+    #         .order_by(model.created_at.desc(), model.id.desc())
+    #         .offset(skip)
+    #         .limit(limit)
+    #     )
+
+    #     items = list((await db.execute(stmt)).scalars().all())
+
+    #     return items, total
+
     async def list_for_user(
         self,
         db: AsyncSession,
         *,
-        tenant_id: uuid.UUID,
-        is_superadmin: bool = False,
-        target_tenant_id: uuid.UUID | None = None,
+        user: UserProtocol,  # ✅ Передаём весь объект пользователя
         skip: int = 0,
         limit: int = 10,
         search: str | None = None,
     ) -> tuple[list[NotesModel], int]:
         """
-        Список активных заметок с пагинацией и поиском.
+        Список активных заметок с фильтрацией через AccessService.
         
-        ✅ Кросс-организационный доступ: документы в разделе "Общий" (platform)
-        видны пользователям всех организаций.
+        Использует SQL-фильтрацию для эффективной работы с большими объёмами данных.
         """
         model = self.model
-
-        effective_tenant: uuid.UUID | None = tenant_id
-        if is_superadmin:
-            effective_tenant = target_tenant_id
-
+        
+        # Базовые условия
         conditions: list[ColumnElement[bool]] = [model.deleted_at.is_(None)]
-
-        if effective_tenant is not None:
-            # ✅ Кросс-организационный доступ через раздел "Общий"
-            conditions.append(
-                or_(
-                    model.tenant_id == effective_tenant,
-                    model.section_id.in_(
-                        select(SectionModel.id).where(
-                            SectionModel.section_type == SectionType.PLATFORM
-                        )
-                    ),
-                )
-            )
-
+        
+        # Получаем SQL-фильтр доступа от AccessService
+        access_service = get_access_service(db)
+        access_filter = await access_service.build_access_filter(user, model)
+        
+        if access_filter is None:
+            # Доступа нет вообще — возвращаем пустой список
+            return [], 0
+        
+        conditions.append(access_filter)
+        
+        # Поиск по названию и содержимому
         if search:
             pattern = f"%{search}%"
             conditions.append(
@@ -111,10 +167,12 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
                     model.content.ilike(pattern),
                 )
             )
-
+        
+        # Подсчёт общего количества
         count_stmt = select(func.count()).select_from(model).where(*conditions)
         total = (await db.execute(count_stmt)).scalar_one()
-
+        
+        # Выборка с пагинацией
         stmt = (
             select(model)
             .where(*conditions)
@@ -122,9 +180,9 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             .offset(skip)
             .limit(limit)
         )
-
+        
         items = list((await db.execute(stmt)).scalars().all())
-
+        
         return items, total
 
     async def get_for_user(

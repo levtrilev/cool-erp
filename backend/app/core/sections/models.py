@@ -37,6 +37,12 @@ class SectionModel(Base):
     не связан с физическим хранением.
     """
 
+    # ✅ Явная типизация атрибутов класса
+    # __tablename__: str = "sections"
+    # __table_args__: ClassVar[tuple[UniqueConstraint, dict[str, str]]] = (
+    #     UniqueConstraint("tenant_id", "name", name="uq_section_tenant_name"),
+    #     {"schema": "public"},
+    # )
     __tablename__ = "sections"
     __table_args__ = (
         # ✅ Правило №28: именованное ограничение уникальности
