@@ -1,4 +1,3 @@
-import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -16,19 +15,12 @@ from app.core.notes.exceptions import (
 )
 from app.core.notes.models import NotesModel
 from app.core.notes.schemas import NoteCreateSchema, NoteUpdateSchema
-from app.core.sections.models import SectionModel
-
-logger = logging.getLogger(__name__)
+from app.core.sections.models import SectionModel, SectionType
 
 
 class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
     """
-    CRUD заметок.
-
-    ✅ Правило №31: наследование от CRUDBase с явными дженериками.
-    ✅ Используется self.model (не прямое имя класса).
-    ✅ Только flush(); commit выполняется в роутере/сервисе.
-    ✅ Новые методы не переопределяют сигнатуры базового класса.
+    CRUD заметок с поддержкой кросс-организационного доступа через раздел "Общий".
     """
 
     async def create_for_user(
@@ -48,7 +40,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         section = (await db.execute(section_stmt)).scalar_one_or_none()
 
         if section is None or (
-            section.tenant_id is not None and section.tenant_id != tenant_id # type: ignore
+            section.tenant_id is not None and section.tenant_id != tenant_id
         ):
             raise SectionNotInTenantError("Раздел недоступен в этой организации")
 
@@ -84,7 +76,12 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         limit: int = 10,
         search: str | None = None,
     ) -> tuple[list[NotesModel], int]:
-        """Список активных заметок с пагинацией и поиском."""
+        """
+        Список активных заметок с пагинацией и поиском.
+        
+        ✅ Кросс-организационный доступ: документы в разделе "Общий" (platform)
+        видны пользователям всех организаций.
+        """
         model = self.model
 
         effective_tenant: uuid.UUID | None = tenant_id
@@ -94,7 +91,17 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         conditions: list[ColumnElement[bool]] = [model.deleted_at.is_(None)]
 
         if effective_tenant is not None:
-            conditions.append(model.tenant_id == effective_tenant)
+            # ✅ Кросс-организационный доступ через раздел "Общий"
+            conditions.append(
+                or_(
+                    model.tenant_id == effective_tenant,
+                    model.section_id.in_(
+                        select(SectionModel.id).where(
+                            SectionModel.section_type == SectionType.PLATFORM
+                        )
+                    ),
+                )
+            )
 
         if search:
             pattern = f"%{search}%"
@@ -128,7 +135,12 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         tenant_id: uuid.UUID,
         is_superadmin: bool = False,
     ) -> NotesModel | None:
-        """Одна активная заметка с проверкой тенанта."""
+        """
+        Одна активная заметка с проверкой доступности.
+        
+        ✅ Кросс-организационный доступ: документы в разделе "Общий" (platform)
+        видны пользователям всех организаций.
+        """
         model = self.model
 
         conditions: list[ColumnElement[bool]] = [
@@ -137,7 +149,18 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         ]
 
         if not is_superadmin:
-            conditions.append(model.tenant_id == tenant_id)
+            # ✅ Документ доступен, если принадлежит своей организации
+            # ИЛИ находится в разделе "Общий" (platform)
+            conditions.append(
+                or_(
+                    model.tenant_id == tenant_id,
+                    model.section_id.in_(
+                        select(SectionModel.id).where(
+                            SectionModel.section_type == SectionType.PLATFORM
+                        )
+                    ),
+                )
+            )
 
         stmt = select(model).where(*conditions)
 
@@ -153,9 +176,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         user_id: uuid.UUID,
         is_superadmin: bool = False,
     ) -> NotesModel:
-        """
-        Атомарное сохранение с оптимистической блокировкой.
-        """
+        """Атомарное сохранение с оптимистической блокировкой."""
         model = self.model
 
         note = await self.get_for_user(
@@ -168,14 +189,6 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         if note is None:
             raise NoteNotFoundError("Заметка не найдена")
 
-        # ✅ ЛОГИРОВАНИЕ для диагностики
-        logger.info(
-            f"[save_with_version] note_id={note_id}, user_id={user_id}, "
-            f"is_superadmin={is_superadmin}, "
-            f"editing_by_user_id={note.editing_by_user_id}, "
-            f"editing_since={note.editing_since}"
-        )
-
         # ✅ ЖЁСТКАЯ проверка пессимистической блокировки
         if (
             note.editing_by_user_id is not None
@@ -183,14 +196,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             and not is_superadmin
         ):
             now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES_LOCAL)
-            
-            logger.info(
-                f"[save_with_version] Проверка блокировки: "
-                f"now={now}, cutoff={cutoff}, "
-                f"editing_since={note.editing_since}"
-            )
-            
+            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
             if note.editing_since is None or note.editing_since > cutoff:
                 raise NoteEditingLockedError(
                     "Документ заблокирован другим пользователем для редактирования"
@@ -203,7 +209,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             section = (await db.execute(section_stmt)).scalar_one_or_none()
 
             if section is None or (
-                section.tenant_id is not None # type: ignore
+                section.tenant_id is not None
                 and section.tenant_id != note.tenant_id
             ):
                 raise SectionNotInTenantError(
@@ -220,6 +226,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         values["editing_by_user_id"] = None
         values["editing_since"] = None
 
+        # ✅ Кросс-организационный доступ для UPDATE
         conditions: list[ColumnElement[bool]] = [
             model.id == note_id,
             model.version == obj_in.version,
@@ -227,7 +234,17 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         ]
 
         if not is_superadmin:
-            conditions.append(model.tenant_id == tenant_id)
+            # ✅ Разрешаем сохранение для своей организации ИЛИ для раздела "Общий"
+            conditions.append(
+                or_(
+                    model.tenant_id == tenant_id,
+                    model.section_id.in_(
+                        select(SectionModel.id).where(
+                            SectionModel.section_type == SectionType.PLATFORM
+                        )
+                    ),
+                )
+            )
 
         stmt = (
             update(model)
@@ -268,13 +285,14 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         if note is None:
             raise NoteNotFoundError("Заметка не найдена")
 
+        # ✅ Проверка пессимистической блокировки перед удалением
         if (
             note.editing_by_user_id is not None
             and note.editing_by_user_id != user_id
             and not is_superadmin
         ):
             now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES_LOCAL)
+            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
             if note.editing_since is None or note.editing_since > cutoff:
                 raise NoteEditingLockedError(
                     "Документ заблокирован другим пользователем и не может быть удалён"
@@ -301,27 +319,40 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         user_id: uuid.UUID,
         is_superadmin: bool = False,
     ) -> NotesModel:
-        """Атомарный захват блокировки с учётом таймаута."""
+        """
+        Атомарный захват блокировки с учётом таймаута.
+        
+        ✅ Кросс-организационный доступ: пользователи могут захватывать блокировку
+        на документы в разделе "Общий" (platform), даже если документ принадлежит
+        другой организации.
+        """
         model = self.model
 
         now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES_LOCAL)
+        cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
 
-        # ✅ УПРОЩЁННАЯ логика: разрешаем захват только в двух случаях:
-        # 1. Блокировка свободна (editing_by_user_id IS NULL)
-        # 2. Блокировка истекла (editing_since < cutoff)
-        # Убираем аномальные условия (editing_by_user_id == user_id, editing_since IS NULL)
         conditions: list[ColumnElement[bool]] = [
             model.id == note_id,
             model.deleted_at.is_(None),
             or_(
-                model.editing_by_user_id.is_(None),  # ✅ свободно
-                model.editing_since < cutoff,        # ✅ истекло
+                model.editing_by_user_id.is_(None),
+                model.editing_since < cutoff,
             ),
         ]
 
         if not is_superadmin:
-            conditions.append(model.tenant_id == tenant_id)
+            # ✅ Кросс-организационный доступ: разрешаем захват для своей организации
+            # ИЛИ для раздела "Общий" (platform)
+            conditions.append(
+                or_(
+                    model.tenant_id == tenant_id,
+                    model.section_id.in_(
+                        select(SectionModel.id).where(
+                            SectionModel.section_type == SectionType.PLATFORM
+                        )
+                    ),
+                )
+            )
 
         stmt = (
             update(model)
@@ -331,11 +362,6 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         )
 
         locked_id = (await db.execute(stmt)).scalar_one_or_none()
-
-        logger.info(
-            f"[acquire_editing_lock] note_id={note_id}, user_id={user_id}, "
-            f"locked_id={locked_id}, now={now}, cutoff={cutoff}"
-        )
 
         if locked_id is None:
             note = await self.get_for_user(
@@ -371,7 +397,12 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         user_id: uuid.UUID,
         is_superadmin: bool = False,
     ) -> NotesModel:
-        """Освобождение блокировки владельцем или суперадмином."""
+        """
+        Освобождение блокировки владельцем или суперадмином.
+        
+        ✅ Кросс-организационный доступ: пользователи могут освобождать блокировку
+        на документы в разделе "Общий" (platform).
+        """
         note = await self.get_for_user(
             db,
             note_id=note_id,

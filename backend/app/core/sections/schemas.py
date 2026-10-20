@@ -1,41 +1,39 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SectionBaseSchema(BaseModel):
-    """Базовая схема с общими полями."""
-    name: str = Field(
-        ..., 
-        min_length=1, 
-        max_length=128, 
-        description="Название раздела"
-    )
+class SectionCreateSchema(BaseModel):
+    """Создание произвольного раздела (только админ/суперадмин)."""
 
-
-class SectionCreateSchema(SectionBaseSchema):
-    """Схема для создания нового раздела."""
-    tenant_id: uuid.UUID | None = Field(
-        None, 
-        description="ID организации (обычно подставляется из сессии)"
-    )
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
 
 
 class SectionUpdateSchema(BaseModel):
-    """Схема для обновления раздела (все поля опциональны)."""
-    name: str | None = Field(
-        None, 
-        min_length=1, 
-        max_length=128, 
-        description="Название раздела"
-    )
+    """Обновление произвольного раздела."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
 
 
 class SectionResponseSchema(BaseModel):
-    """Схема ответа API (используется для возврата данных из ORM)."""
+    """Ответ API для раздела."""
+
+    # ✅ Правило №1: чтение из ORM-атрибутов, включая @property
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    tenant_id: uuid.UUID | None = None
     name: str
-    tenant_id: uuid.UUID
-    tenant_name: str
+    description: str | None = None
+    section_type: str
+    is_protected: bool = False
+    section_type_label: str = ""
+    # ✅ Правило №42: денормализованное имя организации
+    tenant_name: str | None = None
+    created_at: datetime
+    created_by_user_id: uuid.UUID | None = None
+    updated_at: datetime
+    updated_by_user_id: uuid.UUID | None = None

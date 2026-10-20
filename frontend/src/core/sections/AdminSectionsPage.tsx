@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Loader2, FolderOpen } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Plus, Search, Trash2, Loader2, FolderOpen, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,14 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,236 +22,203 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { CreateSectionModal } from "./CreateSectionModal";
+
+// ✅ Единая модалка для создания и редактирования
 import { EditSectionModal } from "./EditSectionModal";
+
+// ✅ Правило №9: Orval-хуки
 import {
   useGetSectionsSectionsGet,
   getSectionsSectionsGet,
   useDeleteSectionSectionsSectionIdDelete,
 } from "@/api/generated/sections/sections";
+import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
 
+import { useResizableColumns } from "@/components/hooks/useResizableColumns";
+import {
+  SECTION_TYPE_BADGE_CLASSES,
+  SECTION_TYPE_LABELS,
+} from "./schemas";
+
+// ✅ Правило №29: конфигурация колонок для ресайза
+const COLUMNS = [
+  { id: "name", initialWidth: 250, minWidth: 150 },
+  { id: "section_type", initialWidth: 200, minWidth: 130 },
+  { id: "tenant_name", initialWidth: 180, minWidth: 120 },
+  { id: "description", initialWidth: 220, minWidth: 140 },
+  { id: "updated_at", initialWidth: 160, minWidth: 120 },
+  { id: "actions", initialWidth: 100, minWidth: 80 },
+];
+
 export function AdminSectionsPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Состояния (Правило №22: разделение состояний поиска)
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit] = useState(10);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [limit] = useState(15);
+  // ✅ ЕДИНАЯ модалка: для создания — initialData = null
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSection, setEditingSection] =
     useState<SectionResponseSchema | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteSectionId, setDeleteSectionId] = useState<string | null>(null);
   const [highlightedSectionId, setHighlightedSectionId] = useState<
     string | null
   >(null);
 
-  const { toast } = useToast();
+  // ✅ Текущий пользователь для проверки прав
+  const { data: currentUser } = useGetUserAuthUserGet();
+  const canManageSections: boolean =
+    currentUser?.data?.is_admin === true ||
+    currentUser?.data?.is_superadmin === true;
 
-  const skip = (page - 1) * limit;
+  // ✅ Правило №29: ресайз колонок
+  // const { widths, handleMouseDown, resetWidths } = useResizableColumns(
+  const { widths, handleMouseDown } = useResizableColumns(
+    COLUMNS,
+    "sections-table-widths"
+  );
 
-  // Получение списка разделов
+  // ✅ Правило №9: Orval-хук для списка
   const {
     data: sectionsData,
     isLoading,
-    isError,
     refetch,
   } = useGetSectionsSectionsGet({
-    skip,
+    skip: (page - 1) * limit,
     limit,
     search: search || undefined,
   });
 
-  // Удаление раздела
   const deleteMutation = useDeleteSectionSectionsSectionIdDelete();
 
-  // Автосброс подсветки через 3 секунды
-  useEffect(() => {
-    if (highlightedSectionId) {
-      const timer = setTimeout(() => {
-        setHighlightedSectionId(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [highlightedSectionId]);
+  const items = sectionsData?.data?.items ?? [];
+  const total = sectionsData?.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
-  // ✅ Обработка обновления раздела (из EditSectionModal)
-  // Полная логика проверки, на какой странице оказалась запись
-  const handleSectionUpdated = async (
-    sectionId: string,
-    sectionName: string,
-  ) => {
-    // Сначала обновляем данные текущей страницы
-    const result = await refetch();
-    const updatedItems = result.data?.data?.items || [];
+  // ✅ Правило №18: Умная навигация + Правило №23: Подсветка
+  const handleSaved = useCallback(
+    async (id: string, name?: string) => {
+      await queryClient.invalidateQueries({ queryKey: ["sections"] });
+      await refetch();
 
-    // Проверяем, есть ли запись на текущей странице
-    const sectionExists = updatedItems.some((s) => s.id === sectionId);
-
-    if (sectionExists) {
-      // Запись на текущей странице - подсвечиваем
-      setHighlightedSectionId(sectionId);
-      toast({
-        title: "Раздел обновлен",
-        description: "Запись обновлена и выделена в списке",
-      });
-      return;
-    }
-
-    // Записи нет на текущей странице - ищем её в полном списке
-    try {
-      const allSectionsData = await getSectionsSectionsGet({
-        limit: 1000,
-        skip: 0,
-      });
-
-      if (allSectionsData?.data?.items) {
-        const sectionIndex = allSectionsData.data.items.findIndex(
-          (s: SectionResponseSchema) => s.id === sectionId,
-        );
-
-        if (sectionIndex !== -1) {
-          const targetPage = Math.floor(sectionIndex / limit) + 1;
-          toast({
-            title: "Раздел обновлен",
-            description: `Запись "${sectionName}" переместилась на страницу ${targetPage}`,
-            action: (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setPage(targetPage);
-                  setTimeout(() => {
-                    setHighlightedSectionId(sectionId);
-                  }, 500);
-                }}
-              >
-                Перейти
-              </Button>
-            ),
+      const currentItems = sectionsData?.data?.items ?? [];
+      if (currentItems.some((item) => item.id === id)) {
+        setHighlightedSectionId(id);
+        setTimeout(() => setHighlightedSectionId(null), 3000);
+        toast({ title: "Успешно сохранено" });
+      } else {
+        try {
+          const fullList = await getSectionsSectionsGet({
+            limit: 1000,
+            skip: 0,
+            search: search || undefined,
           });
-          return;
-        }
-      }
-
-      toast({
-        title: "Раздел обновлен",
-        description: "Запись переместилась на другую страницу",
-      });
-    } catch (error) {
-      console.error("Ошибка поиска раздела:", error);
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description: "Не удалось определить новое местоположение записи",
-      });
-    }
-  };
-
-  // ✅ Обработка создания раздела (из CreateSectionModal)
-  const handleSectionCreated = async (newId: string) => {
-    // Сначала обновляем данные текущей страницы
-    const result = await refetch();
-    const currentItems = result.data?.data?.items || [];
-
-    // Проверяем, есть ли новая запись на текущей странице
-    const sectionExists = currentItems.some((s) => s.id === newId);
-
-    if (sectionExists) {
-      // Запись на текущей странице - подсвечиваем
-      setHighlightedSectionId(newId);
-      toast({
-        title: "Создано",
-        description: "Запись добавлена и выделена в списке",
-      });
-      return;
-    }
-
-    // Записи нет на текущей странице - ищем её в полном списке
-    try {
-      const allSectionsData = await getSectionsSectionsGet({
-        limit: 1000,
-        skip: 0,
-      });
-
-      if (allSectionsData?.data?.items) {
-        const itemIndex = allSectionsData.data.items.findIndex(
-          (s: SectionResponseSchema) => s.id === newId,
-        );
-
-        if (itemIndex !== -1) {
-          const targetPage = Math.floor(itemIndex / limit) + 1;
-          toast({
-            title: "Создано",
-            description: `Запись переместилась на страницу ${targetPage}`,
-            action: (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setPage(targetPage);
-                  setTimeout(() => {
-                    setHighlightedSectionId(newId);
-                  }, 500);
-                }}
-              >
-                Перейти
-              </Button>
-            ),
-          });
-          return;
-        }
-      }
-
-      toast({
-        title: "Создано",
-        description: "Запись успешно добавлена в систему",
-      });
-    } catch (error) {
-      console.error("Ошибка поиска раздела:", error);
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description: "Не удалось определить местоположение записи",
-      });
-    }
-  };
-
-  // Удаление
-  const handleDelete = (sectionId: string) => {
-    deleteMutation.mutate(
-      { sectionId },
-      {
-        onSuccess: async () => {
-          toast({
-            title: "Раздел удален",
-            description: "Запись успешно удалена из базы данных",
-          });
-          await refetch();
-          setDeleteSectionId(null);
-        },
-        onError: () => {
+          const foundIndex = (fullList?.data?.items ?? []).findIndex(
+            (item) => item.id === id
+          );
+          if (foundIndex !== -1) {
+            const targetPage = Math.ceil((foundIndex + 1) / limit);
+            setPage(targetPage);
+            setHighlightedSectionId(id);
+            setTimeout(() => setHighlightedSectionId(null), 3000);
+            toast({
+              title: "Сохранено",
+              description: `Запись «${name ?? ""}» на странице ${targetPage}`,
+            });
+          }
+        } catch (error: unknown) {
+          // ✅ Правило №36: безопасная обработка ошибок (без console.error)
+          const err = error as { response?: { data?: { detail?: string } } };
           toast({
             variant: "destructive",
-            title: "Ошибка",
-            description: "Не удалось удалить раздел",
+            title: "Ошибка навигации",
+            description:
+              err?.response?.data?.detail || "Не удалось найти запись",
           });
-        },
-      },
-    );
+        }
+      }
+    },
+    [sectionsData, limit, search, toast, refetch, queryClient]
+  );
+
+  // ✅ Правило №16: Удаление через AlertDialog
+  // ✅ Правило №25: refetch после удаления
+  // ✅ Правило №36: безопасная обработка ошибок (без console.error)
+  const handleDelete = async () => {
+    if (!deleteSectionId) return;
+    try {
+      await deleteMutation.mutateAsync({ sectionId: deleteSectionId });
+      await refetch();
+      setDeleteSectionId(null);
+      toast({ title: "Раздел удалён" });
+    } catch (error: unknown) {
+      const err = error as {
+        response?: { data?: { detail?: string }; status?: number };
+      };
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+
+      let message = "Не удалось удалить раздел";
+      if (status === 403) {
+        message = detail || "Раздел защищён от удаления";
+      } else if (status === 409) {
+        message = detail || "Раздел содержит документы и не может быть удалён";
+      } else if (detail) {
+        message = detail;
+      }
+
+      toast({
+        variant: "destructive",
+        title: "Ошибка удаления",
+        description: message,
+      });
+    }
   };
 
-  const handleEdit = (section: SectionResponseSchema) => {
-    setEditingSection(section);
-    setEditModalOpen(true);
+  // ✅ Открытие модалки создания (Правило №35: одна модалка на два режима)
+  const openCreate = () => {
+    setEditingSection(null); // ✅ initialData = null → режим создания
+    setIsModalOpen(true);
   };
 
-  // Поиск через form
+  // ✅ Открытие модалки редактирования
+  const openEdit = (section: SectionResponseSchema) => {
+    setEditingSection(section); // ✅ initialData = section → режим редактирования
+    setIsModalOpen(true);
+  };
+
+  // ✅ Правило №12: Поиск через form
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSearch(searchInput);
     setPage(1);
+  };
+
+  // ✅ Правило №17: Автосброс подсветки через 3 секунды
+  useEffect(() => {
+    if (
+      highlightedSectionId &&
+      sectionsData?.data?.items?.some((i) => i.id === highlightedSectionId)
+    ) {
+      const timer = setTimeout(() => setHighlightedSectionId(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [sectionsData, highlightedSectionId]);
+
+  const formatDate = (iso: string | null | undefined): string => {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("ru-RU", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   if (isLoading) {
@@ -267,18 +228,6 @@ export function AdminSectionsPage() {
       </div>
     );
   }
-
-  if (isError || !sectionsData) {
-    return (
-      <div className="text-center text-destructive py-8">
-        Не удалось загрузить список разделов
-      </div>
-    );
-  }
-
-  const sections = sectionsData.data?.items || [];
-  const total = sectionsData.data?.total || 0;
-  const totalPages = Math.ceil(total / limit);
 
   return (
     <div className="container mx-auto px-4 py-3">
@@ -292,11 +241,13 @@ export function AdminSectionsPage() {
         </div>
 
         <div className="flex gap-2 w-full md:w-auto">
-          <Button onClick={() => setIsCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Создать
-          </Button>
-
+          {/* ✅ Кнопка создания только для админа/суперадмина (ТЗ §9) */}
+          {canManageSections && (
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4 mr-2" />
+              Создать
+            </Button>
+          )}
           <form
             onSubmit={handleSearch}
             className="flex gap-2 flex-1 md:flex-initial"
@@ -315,27 +266,75 @@ export function AdminSectionsPage() {
         </div>
       </div>
 
-      <div className="rounded-md border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="h-10 py-2">Название</TableHead>
-              <TableHead className="h-10 py-2">Организация</TableHead>
-              <TableHead className="h-10 py-2 text-right">Действия</TableHead>
+      {/* ✅ Правила №13/14: Фиксированная ширина + Sticky-заголовки */}
+      <div className="rounded-md border bg-card overflow-auto max-h-[calc(100vh-260px)]">
+        <Table className="table-fixed w-full">
+          <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+            <TableRow className="h-10 hover:bg-transparent">
+              <TableHead style={{ width: widths.name }} className="relative">
+                Название
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                  onMouseDown={(e) => handleMouseDown("name", e)}
+                />
+              </TableHead>
+              <TableHead
+                style={{ width: widths.section_type }}
+                className="relative"
+              >
+                Тип раздела
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                  onMouseDown={(e) => handleMouseDown("section_type", e)}
+                />
+              </TableHead>
+              <TableHead
+                style={{ width: widths.tenant_name }}
+                className="relative"
+              >
+                Организация
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                  onMouseDown={(e) => handleMouseDown("tenant_name", e)}
+                />
+              </TableHead>
+              <TableHead
+                style={{ width: widths.description }}
+                className="relative"
+              >
+                Описание
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                  onMouseDown={(e) => handleMouseDown("description", e)}
+                />
+              </TableHead>
+              <TableHead
+                style={{ width: widths.updated_at }}
+                className="relative"
+              >
+                Обновлено
+                <div
+                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                  onMouseDown={(e) => handleMouseDown("updated_at", e)}
+                />
+              </TableHead>
+              <TableHead style={{ width: widths.actions }} className="relative">
+                Действия
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sections.length === 0 ? (
+            {items.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={2}
+                  colSpan={6}
                   className="text-center text-muted-foreground py-8"
                 >
                   Разделы не найдены
                 </TableCell>
               </TableRow>
             ) : (
-              sections.map((section) => (
+              items.map((section) => (
                 <TableRow
                   key={section.id}
                   className={
@@ -344,58 +343,106 @@ export function AdminSectionsPage() {
                       : ""
                   }
                 >
-                  <TableCell className="py-1">
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(section)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left font-medium"
-                    >
-                      {section.name}
-                    </button>
-                  </TableCell>
-                  <TableCell className="py-1">{section.tenant_name}</TableCell>
-                  <TableCell className="py-1 text-right">
-                    <div className="flex justify-end gap-2">
-                      <AlertDialog
-                        open={deleteSectionId === section.id}
-                        onOpenChange={(open) =>
-                          !open && setDeleteSectionId(null)
-                        }
+                  {/* ✅ Правило №11: Компактная ячейка */}
+                  <TableCell
+                    style={{ width: widths.name }}
+                    className="py-1 align-top overflow-hidden"
+                  >
+                    {/* ✅ Название как кликабельная ссылка для редактирования */}
+                    {section.is_protected || !canManageSections ? (
+                      <div
+                        title={section.name}
+                        className="block w-full truncate font-medium"
                       >
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => setDeleteSectionId(section.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Это действие нельзя отменить. Раздел{" "}
-                              <strong>{section.name}</strong> будет безвозвратно
-                              удалён из системы.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDelete(section.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              disabled={deleteMutation.isPending}
-                            >
-                              {deleteMutation.isPending
-                                ? "Удаление..."
-                                : "Удалить"}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        {section.name}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openEdit(section)}
+                        className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium w-full truncate block"
+                        title={section.name}
+                      >
+                        {section.name}
+                      </button>
+                    )}
+                  </TableCell>
+
+                  {/* ✅ Тип раздела с бейджем */}
+                  <TableCell
+                    style={{ width: widths.section_type }}
+                    className="py-1 align-top"
+                  >
+                    <Badge
+                      variant="secondary"
+                      className={
+                        SECTION_TYPE_BADGE_CLASSES[section.section_type] ?? ""
+                      }
+                    >
+                      {section.section_type_label ||
+                        SECTION_TYPE_LABELS[section.section_type] ||
+                        section.section_type}
+                    </Badge>
+                  </TableCell>
+
+                  {/* ✅ Правило №42: денормализованное имя организации */}
+                  <TableCell
+                    style={{ width: widths.tenant_name }}
+                    className="py-1 align-top overflow-hidden"
+                  >
+                    <div className="truncate">
+                      {(section as SectionResponseSchema & { tenant_name?: string }).tenant_name ?? "—"}
                     </div>
+                  </TableCell>
+
+                  <TableCell
+                    style={{ width: widths.description }}
+                    className="py-1 align-top overflow-hidden"
+                  >
+                    <div className="truncate">
+                      {section.description ?? "—"}
+                    </div>
+                  </TableCell>
+
+                  <TableCell
+                    style={{ width: widths.updated_at }}
+                    className="py-1 align-top text-xs text-muted-foreground"
+                  >
+                    {formatDate(section.updated_at)}
+                  </TableCell>
+
+                  {/* ✅ Колонка Действия */}
+                  <TableCell
+                    style={{ width: widths.actions }}
+                    className="py-1 align-top"
+                  >
+                    {section.is_protected ? (
+                      // ✅ Защищённые разделы: только иконка защиты
+                      <div
+                        className="flex items-center gap-1 text-muted-foreground"
+                        title="Защищённый раздел: редактирование и удаление запрещены"
+                      >
+                        <ShieldCheck className="h-4 w-4 text-blue-500" />
+                        <span className="text-xs">Защищён</span>
+                      </div>
+                    ) : canManageSections ? (
+                      // ✅ Произвольные разделы: только удаление
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setDeleteSectionId(section.id)}
+                          title="Удалить"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Только просмотр
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -404,70 +451,71 @@ export function AdminSectionsPage() {
         </Table>
       </div>
 
+      {/* Пагинация */}
       {totalPages > 1 && (
-        <div className="mt-6 flex justify-center">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className={
-                    page === 1
-                      ? "pointer-events-none opacity-50"
-                      : "cursor-pointer"
-                  }
-                />
-              </PaginationItem>
-
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNum = i + 1;
-                if (totalPages > 5 && page > 3) {
-                  pageNum = page - 2 + i;
-                }
-                if (pageNum > totalPages) return null;
-                return (
-                  <PaginationItem key={pageNum}>
-                    <PaginationLink
-                      isActive={page === pageNum}
-                      onClick={() => setPage(pageNum)}
-                      className="cursor-pointer"
-                    >
-                      {pageNum}
-                    </PaginationLink>
-                  </PaginationItem>
-                );
-              })}
-
-              <PaginationItem>
-                <PaginationNext
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className={
-                    page === totalPages
-                      ? "pointer-events-none opacity-50"
-                      : "cursor-pointer"
-                  }
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">
+            Страница {page} из {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Назад
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Вперёд
+            </Button>
+          </div>
         </div>
       )}
 
-      <CreateSectionModal
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
-        onSectionCreated={handleSectionCreated}
+      {/* ✅ Правило №35: ЕДИНАЯ модалка для создания и редактирования */}
+      <EditSectionModal
+        open={isModalOpen}
+        onOpenChange={setIsModalOpen}
+        initialData={editingSection}
+        onSaved={handleSaved}
       />
 
-      {editingSection && (
-        <EditSectionModal
-          key={editingSection.id}
-          open={editModalOpen}
-          onOpenChange={setEditModalOpen}
-          section={editingSection}
-          onSectionUpdated={handleSectionUpdated}
-        />
-      )}
+      {/* ✅ Правило №16: Удаление через AlertDialog */}
+      <AlertDialog
+        open={!!deleteSectionId}
+        onOpenChange={(open) => !open && setDeleteSectionId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить раздел?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Раздел будет удалён безвозвратно. Если в разделе есть документы,
+              удаление будет отклонено. Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="animate-spin mr-2 h-4 w-4" />
+              ) : (
+                <Trash2 className="mr-2 h-4 w-4" />
+              )}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

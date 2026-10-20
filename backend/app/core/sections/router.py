@@ -1,11 +1,17 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.auth.dependencies import get_current_session
-from app.core.auth.models import UserSession
-from app.core.database import get_db
+
+from fastapi import APIRouter, HTTPException
+
+from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.core.sections.crud import crud_section
+from app.core.sections.exceptions import (
+    SectionHasDocumentsError,
+    SectionNotAdminError,
+    SectionNotFoundError,
+    SectionNotInTenantError, # pyright: ignore[reportUnusedImport]
+    SectionProtectedError,
+)
 from app.core.sections.schemas import (
     SectionCreateSchema,
     SectionResponseSchema,
@@ -15,150 +21,153 @@ from app.core.sections.schemas import (
 router = APIRouter(prefix="/sections", tags=["Sections"])
 
 
-@router.post("/", response_model=ApiResponse[SectionResponseSchema], status_code=201)
-async def create_section(
-    data: SectionCreateSchema,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    """Создание нового раздела. tenant_id берется из сессии."""
-    db_obj = await crud_section.create(db, data, tenant_id=session.tenant_id)
-    await db.commit()
-    return ApiResponse(
-        success=True,
-        message="Раздел создан",
-        data=SectionResponseSchema.model_validate(db_obj),
-    )
-
-
-# @router.get("/", response_model=ApiResponse[PaginatedResponse[SectionResponseSchema]])
-# async def get_sections(
-#     skip: int = 0,
-#     limit: int = 10,
-#     search: str | None = None,
-#     # ✅ НОВОЕ: опциональный tenant_id для суперадмина
-#     tenant_id: uuid.UUID | None = None,
-#     db: AsyncSession = Depends(get_db),
-#     session: UserSession = Depends(get_current_session),
-# ):
-#     """
-#     Получение пагинированного списка разделов с опциональным поиском.
-    
-#     Если передан tenant_id и пользователь — суперадмин,
-#     возвращаются разделы указанного предприятия.
-#     """
-#     # ✅ Защита: обычный админ не может запросить чужой tenant_id
-#     if tenant_id and not session.is_superadmin:
-#         raise HTTPException(
-#             status_code=403,
-#             detail="Только суперадмин может запрашивать разделы другого предприятия",
-#         )
-
-#     items, total = await crud_section.get_multi_paginated(
-#         db,
-#         user_tenant_id=session.tenant_id,
-#         skip=skip,
-#         limit=limit,
-#         search=search,
-#         user_is_superadmin=session.is_superadmin,
-#         target_tenant_id=tenant_id,  # ✅ Передаём target_tenant_id
-#     )
-#     return ApiResponse(
-#         success=True,
-#         message="Разделы получены",
-#         data=PaginatedResponse(
-#             items=[SectionResponseSchema.model_validate(item) for item in items],
-#             total=total,
-#             page=(skip // limit) + 1,
-#             size=limit,
-#         ),
-#     )
 @router.get("/", response_model=ApiResponse[PaginatedResponse[SectionResponseSchema]])
 async def get_sections(
+    current_session: CurrentUser,
+    db: DBSession,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 100,
     search: str | None = None,
-    tenant_id: uuid.UUID | None = None,  # ✅ НОВЫЙ query-параметр
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    # ✅ Правило №26: Защита от запроса чужих разделов обычным админом
-    if tenant_id and not session.is_superadmin:
-        tenant_id = session.tenant_id
-
-    items, total = await crud_section.get_multi_paginated(
+    target_tenant_id: uuid.UUID | None = None,  # ✅ для суперадмина
+) -> ApiResponse[PaginatedResponse[SectionResponseSchema]]:
+    """Список разделов, видимых пользователю."""
+    items, total = await crud_section.list_for_user(
         db,
-        user_tenant_id=session.tenant_id,
+        tenant_id=current_session.tenant_id,
+        is_superadmin=current_session.is_superadmin,
+        target_tenant_id=target_tenant_id,  # ✅ Передаём параметр
         skip=skip,
         limit=limit,
         search=search,
-        user_is_superadmin=session.is_superadmin,
-        target_tenant_id=tenant_id,  # ✅ Передаём в CRUD
     )
-    
+
+    paginated = PaginatedResponse[SectionResponseSchema](
+        items=[SectionResponseSchema.model_validate(item) for item in items],
+        total=total,
+        page=(skip // limit) + 1,
+        size=limit,
+    )
+
+    return ApiResponse(success=True, message="Разделы получены", data=paginated)
+
+
+@router.post("/", response_model=ApiResponse[SectionResponseSchema], status_code=201)
+async def create_section(
+    obj_in: SectionCreateSchema,
+    current_session: CurrentUser,
+    db: DBSession,
+) -> ApiResponse[SectionResponseSchema]:
+    """Создание произвольного раздела (только админ/суперадмин)."""
+    try:
+        section = await crud_section.create_custom(
+            db,
+            obj_in=obj_in,
+            tenant_id=current_session.tenant_id,
+            user_id=current_session.user.id,
+            is_admin=current_session.user.is_admin,
+            is_superadmin=current_session.is_superadmin,
+        )
+    except SectionNotAdminError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    await db.commit()
+    await db.refresh(section)
+
     return ApiResponse(
         success=True,
-        message="Разделы получены",
-        data=PaginatedResponse(
-            items=[SectionResponseSchema.model_validate(item) for item in items],
-            total=total,
-            page=(skip // limit) + 1,
-            size=limit,
-        ),
+        message="Раздел создан",
+        data=SectionResponseSchema.model_validate(section),
     )
+
 
 @router.get("/{section_id}", response_model=ApiResponse[SectionResponseSchema])
 async def get_section(
     section_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    """Получение одного раздела по ID."""
-    db_obj = await crud_section.get(db, id=section_id, tenant_id=session.tenant_id)
-    if not db_obj:
+    current_session: CurrentUser,
+    db: DBSession,
+) -> ApiResponse[SectionResponseSchema]:
+    """Один раздел."""
+    section = await crud_section.get_for_user(
+        db,
+        section_id=section_id,
+        tenant_id=current_session.tenant_id,
+        is_superadmin=current_session.is_superadmin,
+    )
+
+    if section is None:
         raise HTTPException(status_code=404, detail="Раздел не найден")
+
     return ApiResponse(
         success=True,
         message="Раздел получен",
-        data=SectionResponseSchema.model_validate(db_obj),
+        data=SectionResponseSchema.model_validate(section),
     )
 
 
 @router.put("/{section_id}", response_model=ApiResponse[SectionResponseSchema])
 async def update_section(
     section_id: uuid.UUID,
-    data: SectionUpdateSchema,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    """Обновление существующего раздела."""
-    db_obj = await crud_section.get(db, id=section_id, tenant_id=session.tenant_id)
-    if not db_obj:
-        raise HTTPException(status_code=404, detail="Раздел не найден")
-    updated_obj = await crud_section.update(db, db_obj=db_obj, obj_in=data)
+    obj_in: SectionUpdateSchema,
+    current_session: CurrentUser,
+    db: DBSession,
+) -> ApiResponse[SectionResponseSchema]:
+    """Переименование произвольного раздела."""
+    try:
+        section = await crud_section.update_custom(
+            db,
+            section_id=section_id,
+            obj_in=obj_in,
+            tenant_id=current_session.tenant_id,
+            user_id=current_session.user.id,
+            is_admin=current_session.user.is_admin,
+            is_superadmin=current_session.is_superadmin,
+        )
+    except SectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SectionProtectedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except SectionNotAdminError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
     await db.commit()
+    await db.refresh(section)
+
     return ApiResponse(
         success=True,
-        message="Раздел обновлен",
-        data=SectionResponseSchema.model_validate(updated_obj),
+        message="Раздел обновлён",
+        data=SectionResponseSchema.model_validate(section),
     )
 
 
 @router.delete("/{section_id}", response_model=ApiResponse[SectionResponseSchema])
 async def delete_section(
     section_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    """Удаление раздела."""
-    deleted_obj = await crud_section.delete(
-        db, id=section_id, tenant_id=session.tenant_id
-    )
-    if not deleted_obj:
-        raise HTTPException(status_code=404, detail="Раздел не найден")
+    current_session: CurrentUser,
+    db: DBSession,
+) -> ApiResponse[SectionResponseSchema]:
+    """Удаление произвольного раздела."""
+    try:
+        section = await crud_section.delete_custom(
+            db,
+            section_id=section_id,
+            tenant_id=current_session.tenant_id,
+            user_id=current_session.user.id,
+            is_admin=current_session.user.is_admin,
+            is_superadmin=current_session.is_superadmin,
+        )
+    except SectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SectionProtectedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except SectionNotAdminError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except SectionHasDocumentsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     await db.commit()
+
     return ApiResponse(
         success=True,
-        message="Раздел удален",
-        data=SectionResponseSchema.model_validate(deleted_obj),
+        message="Раздел удалён",
+        data=SectionResponseSchema.model_validate(section),
     )

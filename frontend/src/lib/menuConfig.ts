@@ -36,15 +36,46 @@ export const MENU_CONFIG: MenuItem[] = [
       {
         id: "users",
         label: "Пользователи",
-        path: "/users",
+        path: "/admin/users",
         icon: Users,
       },
       {
         id: "tenants",
         label: "Организации",
-        path: "/tenants",
+        path: "/admin/tenants",
         icon: Building2,
       },
+      {
+        id: "sections",
+        label: "Разделы",
+        path: "/admin/sections",
+        icon: Building2,
+      },
+      {
+        id: "domains",
+        label: "Домены",
+        path: "/admin/domains",
+        icon: Building2,
+      },
+      {
+        id: "doctypes",
+        label: "Типы документов",
+        path: "/admin/doctypes",
+        icon: Building2,
+      },
+      {
+        id: "roles",
+        label: "Роли",
+        path: "/admin/roles",
+        icon: Building2,
+      },
+      {
+        id: "tags",
+        label: "Тэги доступа",
+        path: "/admin/tags",
+        icon: Building2,
+      },
+
     ],
   },
 ];

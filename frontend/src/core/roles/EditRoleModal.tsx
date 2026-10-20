@@ -299,7 +299,7 @@ export function EditRoleModal({
   );
 
   const { data: sectionsData } = useGetSectionsSectionsGet({
-    tenant_id: effectiveTenantId,
+    target_tenant_id: effectiveTenantId,
     limit: 1000,
     skip: 0,
   });
@@ -702,7 +702,7 @@ export function EditRoleModal({
                       skip: params.skip,
                       limit: params.limit,
                       search: params.search,
-                      tenant_id: effectiveTenantId,
+                      target_tenant_id: effectiveTenantId,
                     });
                     const items = (response?.data?.items ?? []).map(
                       (item: unknown) => {

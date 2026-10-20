@@ -36,24 +36,40 @@ export const AppLayout = () => {
     }
   }, [isError, navigate]);
 
+  // const handleLogout = () => {
+  //   logoutMutation.mutate(undefined, {
+  //     onSuccess: async () => {
+  //       // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+  //       queryClient.clear();
+
+  //       // Небольшая задержка, чтобы кэш гарантированно очистился
+  //       await new Promise((resolve) => setTimeout(resolve, 50));
+
+  //       navigate("/", { replace: true });
+  //     },
+  //     onError: async () => {
+  //       // Даже если бэкенд упал, очищаем кэш
+  //       queryClient.clear();
+
+  //       await new Promise((resolve) => setTimeout(resolve, 50));
+
+  //       navigate("/", { replace: true });
+  //     },
+  //   });
+  // };
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: async () => {
-        // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+        // ✅ Полностью очищаем кэш
         queryClient.clear();
-
-        // Небольшая задержка, чтобы кэш гарантированно очистился
         await new Promise((resolve) => setTimeout(resolve, 50));
-
-        navigate("/", { replace: true });
+        // ✅ Редирект сразу на логин, а не на "/"
+        navigate("/auth/login", { replace: true });
       },
       onError: async () => {
-        // Даже если бэкенд упал, очищаем кэш
         queryClient.clear();
-
         await new Promise((resolve) => setTimeout(resolve, 50));
-
-        navigate("/", { replace: true });
+        navigate("/auth/login", { replace: true });
       },
     });
   };

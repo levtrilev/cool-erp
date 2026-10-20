@@ -58,7 +58,7 @@ const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
           "px-2 py-1 text-xs rounded transition-colors",
           current === "left"
             ? "bg-primary text-primary-foreground"
-            : "hover:bg-accent"
+            : "hover:bg-accent",
         )}
       >
         Слева
@@ -69,7 +69,7 @@ const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
           "px-2 py-1 text-xs rounded transition-colors",
           current === "top"
             ? "bg-primary text-primary-foreground"
-            : "hover:bg-accent"
+            : "hover:bg-accent",
         )}
       >
         Сверху
@@ -88,23 +88,39 @@ const UserOnLayout = () => {
   const queryClient = useQueryClient();
   const logoutMutation = useLogoutAuthLogoutPost();
 
+  // const handleLogout = () => {
+  //   logoutMutation.mutate(undefined, {
+  //     onSuccess: async () => {
+  //       // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+  //       queryClient.clear();
+  //       await new Promise((resolve) => setTimeout(resolve, 50));
+  //       navigate("/", { replace: true });
+  //     },
+  //     onError: async () => {
+  //       // Даже если бэкенд упал, очищаем кэш
+  //       queryClient.clear();
+  //       await new Promise((resolve) => setTimeout(resolve, 50));
+  //       navigate("/", { replace: true });
+  //     },
+  //   });
+  // };
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: async () => {
-        // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
+        // ✅ Полностью очищаем кэш
         queryClient.clear();
         await new Promise((resolve) => setTimeout(resolve, 50));
-        navigate("/", { replace: true });
+        // ✅ Редирект сразу на логин, а не на "/"
+        navigate("/auth/login", { replace: true });
       },
       onError: async () => {
-        // Даже если бэкенд упал, очищаем кэш
         queryClient.clear();
         await new Promise((resolve) => setTimeout(resolve, 50));
-        navigate("/", { replace: true });
+        navigate("/auth/login", { replace: true });
       },
     });
   };
-
+  
   // ✅ Показываем загрузку, пока получаем данные пользователя
   if (isLoading) {
     return (

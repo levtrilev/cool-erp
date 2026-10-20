@@ -31,6 +31,7 @@ class TenantModel(Base):
         back_populates="tenant", 
         lazy="selectin"
     )
+    # sections = relationship("SectionModel", lazy="selectin")
 
     # ✅  связь с ролями
     roles = relationship(

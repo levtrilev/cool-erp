@@ -6,7 +6,8 @@ from app.core.tenants.models import TenantModel
 from app.core.users.models import UserModel
 from typing import Optional
 import uuid
-
+from app.core.sections.crud import crud_section
+# from app.core.sections.models import SectionType
 
 class CRUDTenant:
     """CRUD операции для работы с организациями (Tenants)"""
@@ -24,6 +25,20 @@ class CRUDTenant:
             new_tenant.description = description
         db.add(new_tenant)
         await db.flush()  # Flush, чтобы получить ID до коммита
+
+        await db.refresh(new_tenant)
+
+        # ✅ Автоматическое создание раздела «Общий для организации»
+        # ТЗ §4.1: Общий для организации — создаётся автоматически
+        # при создании Организации. Удаление запрещено.
+        await crud_section.create_tenant_default(
+            db,
+            tenant_id=new_tenant.id,
+            tenant_name=new_tenant.name,
+        )
+
+        # ✅ commit выполняется в роутере, не здесь
+
         return new_tenant
 
     async def get(self, db: AsyncSession, id: uuid.UUID) -> Optional[TenantModel]:
