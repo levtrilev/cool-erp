@@ -12,3 +12,10 @@ class NoteEditingLockedError(Exception):
 
 class SectionNotInTenantError(Exception):
     """Раздел не существует или не принадлежит организации (400)."""
+
+# ✅ отказ в доступе по решению AccessService (ТЗ §8)
+class NoteAccessDeniedError(Exception):
+    """
+    Доступ к документу запрещён согласно алгоритму resolve_access.
+    Возвращается HTTP 403.
+    """
