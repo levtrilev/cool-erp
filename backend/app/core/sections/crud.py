@@ -22,7 +22,12 @@ from app.core.sections.schemas import (
     SectionCreateSchema,
     SectionUpdateSchema,
 )
-
+from app.core.sections.models import (
+    PROTECTED_SECTION_TYPES,
+    SectionModel,
+    SectionType,
+    tenant_default_section_name,
+)
 
 class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchema]):
     """
@@ -32,14 +37,14 @@ class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchem
     ✅ Используется self.model (не прямое имя класса).
     ✅ Только flush(); commit выполняется в роутере/сервисе.
     """
-
+    
     async def list_for_user(
         self,
         db: AsyncSession,
         *,
         tenant_id: uuid.UUID,
         is_superadmin: bool = False,
-        target_tenant_id: uuid.UUID | None = None,  # ✅ НОВОЕ
+        target_tenant_id: uuid.UUID | None = None,
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
@@ -47,14 +52,16 @@ class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchem
         """
         Список разделов, видимых пользователю.
 
-        Пользователь видит:
+        Обычный пользователь видит:
         - Платформенные разделы (tenant_id IS NULL)
         - Разделы своей организации
 
-        Суперадмин видит все разделы.
+        Суперадмин:
+        - Без target_tenant_id — все разделы (страница списка разделов)
+        - С target_tenant_id — платформенные + разделы указанной организации
+          (используется при выборе разделов для роли конкретной организации)
         """
         model = self.model
-
         conditions: list[ColumnElement[bool]] = []
 
         if not is_superadmin:
@@ -65,6 +72,19 @@ class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchem
                     model.tenant_id == tenant_id,    # своей организации
                 )
             )
+        elif target_tenant_id is not None:
+            # ✅ НОВОЕ: Суперадмин запросил разделы для конкретной организации
+            # (например, при выборе разделов в форме редактирования роли).
+            # Показываем только платформенные + разделы целевой организации,
+            # чтобы нельзя было выбрать раздел чужой организации.
+            conditions.append(
+                or_(
+                    model.tenant_id.is_(None),        # платформенные («Общий»)
+                    model.tenant_id == target_tenant_id,  # целевой организации
+                )
+            )
+        # ✅ Суперадмин без target_tenant_id видит все разделы
+        # (общая страница списка разделов) — условия не добавляются
 
         if search:
             pattern = f"%{search}%"
@@ -72,18 +92,15 @@ class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchem
 
         count_stmt = select(func.count()).select_from(model)
         stmt = select(model).order_by(model.name.asc())
-
         if conditions:
             count_stmt = count_stmt.where(*conditions)
             stmt = stmt.where(*conditions)
-
         stmt = stmt.offset(skip).limit(limit)
 
         total = (await db.execute(count_stmt)).scalar_one()
         items = list((await db.execute(stmt)).scalars().all())
-
         return items, total
-
+    
     async def get_for_user(
         self,
         db: AsyncSession,
@@ -165,15 +182,23 @@ class CRUDSection(CRUDBase[SectionModel, SectionCreateSchema, SectionUpdateSchem
         """
         model = self.model
 
+        # section = model(
+        #     tenant_id=tenant_id,
+        #     name=f"Общий для организации «{tenant_name}»",
+        #     description="Автоматически созданный раздел для организации",
+        #     section_type=SectionType.TENANT_DEFAULT,
+        #     created_by_user_id=None,  # системное создание
+        #     updated_by_user_id=None,
+        # )
         section = model(
             tenant_id=tenant_id,
-            name=f"Общий для организации «{tenant_name}»",
+            name=tenant_default_section_name(tenant_name),  # ✅ Было: f"Общий для организации «{tenant_name}»"
             description="Автоматически созданный раздел для организации",
             section_type=SectionType.TENANT_DEFAULT,
-            created_by_user_id=None,  # системное создание
+            created_by_user_id=None,
             updated_by_user_id=None,
         )
-
+        
         db.add(section)
         await db.flush()
         await db.refresh(section)

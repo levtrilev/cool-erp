@@ -29,7 +29,10 @@ import {
   useUpdateNoteNotesNoteIdPut,
 } from "@/api/generated/notes/notes";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import type { NoteResponseSchema, NoteCreateSchema } from "@/api/generated/fastAPI.schemas";
+import type {
+  NoteResponseSchema,
+  NoteCreateSchema,
+} from "@/api/generated/fastAPI.schemas";
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import {
@@ -45,6 +48,7 @@ interface EditNoteModalProps {
   initialData: NoteResponseSchema | null;
   onSaved: (id: string, title?: string) => Promise<void>;
   readOnly?: boolean;
+  readOnlyReason?: string;
 }
 
 export const EditNoteModal = ({
@@ -53,6 +57,7 @@ export const EditNoteModal = ({
   initialData,
   onSaved,
   readOnly = false,
+  readOnlyReason,
 }: EditNoteModalProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -150,14 +155,18 @@ export const EditNoteModal = ({
       }
     } catch (error: unknown) {
       let message = "Не удалось сохранить заметку";
-      const err = error as { response?: { data?: { detail?: string }; status?: number } };
+      const err = error as {
+        response?: { data?: { detail?: string }; status?: number };
+      };
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
 
       if (status === 409) {
-        message = "Документ был изменён другим пользователем. Обновите страницу и попробуйте снова.";
+        message =
+          "Документ был изменён другим пользователем. Обновите страницу и попробуйте снова.";
       } else if (status === 423) {
-        message = "Документ сейчас редактируется другим пользователем. Попробуйте позже.";
+        message =
+          "Документ сейчас редактируется другим пользователем. Попробуйте позже.";
       } else if (detail) {
         message = detail;
       }
@@ -189,8 +198,8 @@ export const EditNoteModal = ({
             {readOnly
               ? "Просмотр заметки (только чтение)"
               : initialData
-              ? "Редактировать заметку"
-              : "Новая заметка"}
+                ? "Редактировать заметку"
+                : "Новая заметка"}
           </DialogTitle>
         </DialogHeader>
 
@@ -200,12 +209,17 @@ export const EditNoteModal = ({
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Документ заблокирован</AlertTitle>
             <AlertDescription>
-              Документ редактируется другим пользователем. Вы можете только просматривать данные.
+              {readOnlyReason ||
+                "Документ недоступен для редактирования. Вы можете только просматривать данные."}
             </AlertDescription>
           </Alert>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" id="note-form">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-4"
+          id="note-form"
+        >
           <div className="space-y-2">
             <Label htmlFor="title">
               Название <span className="text-destructive">*</span>
@@ -222,7 +236,9 @@ export const EditNoteModal = ({
                 />
               )}
             />
-            {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
+            {errors.title && (
+              <p className="text-xs text-destructive">{errors.title.message}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -269,8 +285,11 @@ export const EditNoteModal = ({
                   onValueChange={field.onChange}
                   placeholder="Выберите раздел..."
                   selectedLabel={
-                    (initialData as (NoteResponseSchema & { section_name?: string }) | null)
-                      ?.section_name ?? "Выберите раздел..."
+                    (
+                      initialData as
+                        | (NoteResponseSchema & { section_name?: string })
+                        | null
+                    )?.section_name ?? "Выберите раздел..."
                   }
                   heading="Разделы"
                   limit={50}
@@ -278,7 +297,11 @@ export const EditNoteModal = ({
                 />
               )}
             />
-            {errors.section_id && <p className="text-xs text-destructive">{errors.section_id.message}</p>}
+            {errors.section_id && (
+              <p className="text-xs text-destructive">
+                {errors.section_id.message}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -290,16 +313,22 @@ export const EditNoteModal = ({
                 name="doc_status"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} disabled={readOnly}>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={readOnly}
+                  >
                     <SelectTrigger id="doc_status">
                       <SelectValue placeholder="Выберите статус" />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(DOC_STATUS_LABELS).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
-                          {label}
-                        </SelectItem>
-                      ))}
+                      {Object.entries(DOC_STATUS_LABELS).map(
+                        ([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ),
+                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -322,7 +351,11 @@ export const EditNoteModal = ({
                   />
                 )}
               />
-              {errors.doc_number && <p className="text-xs text-destructive">{errors.doc_number.message}</p>}
+              {errors.doc_number && (
+                <p className="text-xs text-destructive">
+                  {errors.doc_number.message}
+                </p>
+              )}
             </div>
           </div>
 
@@ -332,14 +365,23 @@ export const EditNoteModal = ({
               name="doc_date"
               control={control}
               render={({ field }) => (
-                <Input id="doc_date" type="date" {...field} value={field.value ?? ""} disabled={readOnly} />
+                <Input
+                  id="doc_date"
+                  type="date"
+                  {...field}
+                  value={field.value ?? ""}
+                  disabled={readOnly}
+                />
               )}
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="or_tags">
-              OR-теги <span className="text-xs text-muted-foreground">(через запятую, формат: пространство:значение)</span>
+              OR-теги{" "}
+              <span className="text-xs text-muted-foreground">
+                (через запятую, формат: пространство:значение)
+              </span>
             </Label>
             <Controller
               name="or_tags"
@@ -354,12 +396,19 @@ export const EditNoteModal = ({
                 />
               )}
             />
-            {errors.or_tags && <p className="text-xs text-destructive">{errors.or_tags.message}</p>}
+            {errors.or_tags && (
+              <p className="text-xs text-destructive">
+                {errors.or_tags.message}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="and_tags">
-              AND-теги <span className="text-xs text-muted-foreground">(обязательный допуск, через запятую)</span>
+              AND-теги{" "}
+              <span className="text-xs text-muted-foreground">
+                (обязательный допуск, через запятую)
+              </span>
             </Label>
             <Controller
               name="and_tags"
@@ -374,28 +423,44 @@ export const EditNoteModal = ({
                 />
               )}
             />
-            {errors.and_tags && <p className="text-xs text-destructive">{errors.and_tags.message}</p>}
+            {errors.and_tags && (
+              <p className="text-xs text-destructive">
+                {errors.and_tags.message}
+              </p>
+            )}
           </div>
 
           {initialData && (
             <p className="text-xs text-muted-foreground">
               Версия: {initialData.version}
-              {initialData.is_editing_locked && " · 🔒 Заблокировано для редактирования"}
+              {initialData.is_editing_locked &&
+                " · 🔒 Заблокировано для редактирования"}
             </p>
           )}
         </form>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+          >
             {readOnly ? "Закрыть" : "Отмена"}
           </Button>
+          {/* ✅ Кнопка Сохранить не рендерится в режиме только чтения */}
           {!readOnly && (
             <Button
               type="submit"
               form="note-form"
-              disabled={isSubmitting || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                isSubmitting ||
+                createMutation.isPending ||
+                updateMutation.isPending
+              }
             >
-              {(isSubmitting || createMutation.isPending || updateMutation.isPending) && (
+              {(isSubmitting ||
+                createMutation.isPending ||
+                updateMutation.isPending) && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               {initialData ? "Сохранить" : "Создать"}

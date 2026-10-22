@@ -1,10 +1,12 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Protocol, runtime_checkable
+from collections.abc import Sequence
 
 from sqlalchemy import ColumnElement, select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, selectinload
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 
 from app.core.access.schemas import (
     AccessResult,
@@ -21,6 +23,23 @@ from app.core.roles.models import RoleModel
 from app.core.permissions.models import PermissionModel
 # from app.core.users.models import UserProtocol
 from app.core.sections.models import SectionModel # type: ignore
+
+from sqlalchemy import (
+    ColumnElement,
+    String,
+    and_,
+    cast as sql_cast,   # ✅ Алиас, чтобы не конфликтовать с typing.cast
+    false,
+    literal,
+    not_,
+    or_,
+    select,
+    true,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
+
+from app.core.sections.models import SectionModel, SectionType
+
 
 # ✅ Protocol описывает контракт полей документа (миксины DocumentAccessMixin + DocumentLifecycleMixin)
 # Это позволяет типизировать параметр без наследования и intersection types
@@ -52,6 +71,8 @@ class DocumentProtocol(Protocol):
 # Описывает дескрипторы SQLAlchemy (Mapped-колонки) на уровне класса,
 # которые используются для построения SQL-выражений (WHERE clause).
 class DocumentClassProtocol(Protocol):
+    """Контракт КЛАССА модели документа для построения SQL-фильтра."""
+
     __tablename__: str
     id: Mapped[uuid.UUID]
     tenant_id: Mapped[uuid.UUID]
@@ -69,167 +90,110 @@ class AccessService:
     
     def __init__(self, db: AsyncSession):
         self.db = db
-    
+
+# == new 22.10.2026 ========    
     async def resolve_access(
         self,
         user: UserProtocol,
-        document: DocumentProtocol,  # ✅ Protocol вместо Base
+        document: DocumentProtocol,
         now: datetime | None = None,
     ) -> AccessResult:
-        """
-        Вычисляет доступ пользователя к документу (ТЗ §8.2).
-        
-        Args:
-            user: Пользователь, запрашивающий доступ
-            document: Документ, соответствующий DocumentProtocol
-            now: Текущее время (UTC). Если None, используется datetime.now(timezone.utc)
-        """
-        if now is None:
-            now = datetime.now(timezone.utc)
-        
-        # ШАГ 1. ТЕНАНТ (ТЗ §3.1)
-        if document.tenant_id != user.tenant_id and not user.is_superadmin:
-            return AccessResult(
-                visible=False,
-                level=ACCESS_LEVEL_NONE,
-                can_delete=False,
-                source=AccessSource.NONE,
-            )
-        
-        # ШАГ 2. ДЕЙСТВУЮЩИЕ НАЗНАЧЕНИЯ РОЛЕЙ (ТЗ §10)
-        role_ids = user.role_ids or []
-        
-        if not role_ids:
-            return AccessResult(
-                visible=False,
-                level=ACCESS_LEVEL_NONE,
-                can_delete=False,
-                source=AccessSource.NONE,
-            )
-        
-        # Загружаем роли с permissions
-        roles_query = (
-            select(RoleModel)
-            .where(RoleModel.id.in_(role_ids))
-            .options(selectinload(RoleModel.permissions))
-        )
-        roles_result = await self.db.execute(roles_query)
-        roles = roles_result.scalars().all()
-        
-        # ШАГ 3. КАНДИДАТЫ-РОЛИ
-        candidates: list[tuple[RoleModel, PermissionModel]] = []
-        doctype = self._get_doctype(document)
-        
-        for role in roles:
-            if not role.section_ids:
-                continue
-            if document.section_id not in role.section_ids:
-                continue
-            
-            permission: PermissionModel | None = None
-            for perm in role.permissions:
-                if perm.doctype == doctype and perm.tenant_id == user.tenant_id:
-                    permission = perm
-                    break
-            
-            if permission is None:
-                continue
-            
-            candidates.append((role, permission))
-        
-        if not candidates:
-            return AccessResult(
-                visible=False,
-                level=ACCESS_LEVEL_NONE,
-                can_delete=False,
-                source=AccessSource.NONE,
-            )
-        
-        # ШАГ 4. МАКСИМАЛЬНЫЙ УРОВЕНЬ
-        max_level = ACCESS_LEVEL_NONE
-        can_delete = False
-        
-        for role, permission in candidates:
-            level = ACCESS_LEVEL_NONE
-            
-            if permission.full_access:
-                level = ACCESS_LEVEL_FULL
-            elif permission.author and document.author_id == user.id:
-                level = ACCESS_LEVEL_AUTHOR
-            elif permission.editor:
-                level = ACCESS_LEVEL_EDITOR
-            elif permission.reader:
-                level = ACCESS_LEVEL_READER
-            
-            max_level = max(max_level, level)
-            can_delete = can_delete or permission.can_delete
-        
-        # ШАГ 5. ПЕРЕКЛЮЧАТЕЛИ ТИПА ДОКУМЕНТА
-        doctype_model = await self._get_doctype_model(doctype)
-        
-        if doctype_model is None:
-            return AccessResult(
-                visible=False,
-                level=ACCESS_LEVEL_NONE,
-                can_delete=False,
-                source=AccessSource.NONE,
-            )
-        
-        or_enforced = doctype_model.apply_or_tags
-        and_enforced = doctype_model.apply_and_tags
-        
-        # ШАГ 6. ПРАВИЛО "НЕТ ТЕГОВ"
-        doc_or_tags = document.or_tags or []
-        doc_and_tags = document.and_tags or []
-        
-        untagged = (
-            (or_enforced and len(doc_or_tags) == 0) or
-            (and_enforced and len(doc_and_tags) == 0)
-        )
-        
-        if untagged:
-            if max_level == ACCESS_LEVEL_FULL:
-                return AccessResult(
-                    visible=True,
-                    level=ACCESS_LEVEL_FULL,
-                    can_delete=can_delete,
-                    source=AccessSource.ROLE,
-                )
-            else:
-                return AccessResult(
-                    visible=False,
-                    level=ACCESS_LEVEL_NONE,
-                    can_delete=False,
-                    source=AccessSource.NONE,
-                )
-        
-        # ШАГ 7. ТЕГ-ПРОВЕРКА
-        max_level_via_roles = False
-        
-        if max_level >= ACCESS_LEVEL_READER:
-            user_tags = user.tags or []
-            if self._check_tags(user_tags, doc_or_tags, doc_and_tags, or_enforced, and_enforced):
-                max_level_via_roles = True
-        
-        # ШАГ 8. ДЕЛЕГИРОВАНИЕ (TODO)
-        # Пока пропускаем
-        
-        # ШАГ 9. ФИНАЛ
-        if max_level_via_roles:
-            return AccessResult(
-                visible=True,
-                level=max_level,
-                can_delete=can_delete,
-                source=AccessSource.ROLE,
-            )
-        
-        return AccessResult(
+        """Вычисление доступа по ТЗ §8.2 с учётом Варианта D."""
+
+        denied = AccessResult(
             visible=False,
             level=ACCESS_LEVEL_NONE,
             can_delete=False,
             source=AccessSource.NONE,
         )
-    
+
+        # --- Раздел документа -------------------------------------------------
+        section: SectionModel | None = await self._get_section(document.section_id)
+        if section is None:
+            return denied
+
+        is_platform: bool = section.section_type == SectionType.PLATFORM
+
+        # --- ШАГ 1. ТЕНАНТ (§3.1) + исключение platform (Вариант D) -------------
+        if (
+            document.tenant_id != user.tenant_id
+            and not user.is_superadmin
+            and not is_platform
+        ):
+            return denied
+
+        # --- ШАГ 2–3. РОЛИ / РАЗДЕЛЫ / PERMISSION ------------------------------
+        doctype: str = self._get_doctype(document)
+        candidates: list[tuple[RoleModel, PermissionModel]] = (
+            await self._load_candidates(user, doctype)
+        )
+        if not candidates:
+            return denied
+
+        # --- ШАГ 4. МАКСИМАЛЬНЫЙ УРОВЕНЬ ---------------------------------------
+        max_level: int = ACCESS_LEVEL_NONE
+        can_delete: bool = False
+
+        for role, permission in candidates:
+            if document.section_id not in (role.section_ids or []):
+                continue  # §3.2.5
+
+            level: int = self._role_level(
+                permission, is_author=(document.author_id == user.id)
+            )
+            max_level = max(max_level, level)
+            can_delete = can_delete or permission.can_delete  # §5.2.3
+
+        # Нет уровня чтения — записи для пользователя не существует (§2.3)
+        if max_level < ACCESS_LEVEL_READER:
+            return denied
+
+        # --- ШАГ 5. ПЕРЕКЛЮЧАТЕЛИ ТИПА ДОКУМЕНТА (§7) ---------------------------
+        doctype_model: DoctypeModel | None = await self._get_doctype_model(doctype)
+        if doctype_model is None:
+            return denied
+
+        or_enforced: bool = doctype_model.apply_or_tags
+        and_enforced: bool = doctype_model.apply_and_tags
+
+        # --- ШАГ 6. ПРАВИЛО «НЕТ ТЕГОВ» (§6.6) ----------------------------------
+        doc_or_tags: list[str] = list(document.or_tags or [])
+        doc_and_tags: list[str] = list(document.and_tags or [])
+
+        untagged: bool = (or_enforced and not doc_or_tags) or (
+            and_enforced and not doc_and_tags
+        )
+
+        if untagged and max_level < ACCESS_LEVEL_FULL:
+            return denied
+
+        # --- ШАГ 7. ГЛОБАЛЬНАЯ ТЕГ-ПРОВЕРКА (§6.7) ------------------------------
+        if not untagged:
+            user_tags: list[str] = list(user.tags or [])
+            if not self._check_tags(
+                user_tags, doc_or_tags, doc_and_tags, or_enforced, and_enforced
+            ):
+                return denied
+
+        # --- ШАГ 8. ДЕЛЕГИРОВАНИЕ (§11) — пока не реализовано -------------------
+
+        # --- ШАГ 9. ФИНАЛ: видимось пройдена, вычисляем возможности -------------
+        if is_platform and not user.is_superadmin:
+            # Потолок чтения: автор/редактор/полный в «Общем» не дают записи
+            max_level = ACCESS_LEVEL_READER
+            can_delete = False
+        else:
+            # Автоматическое право удаления при уровне >= 2 (§5.2, расширение ТЗ)
+            can_delete = can_delete or (max_level >= ACCESS_LEVEL_EDITOR)
+
+        return AccessResult(
+            visible=True,
+            level=max_level,
+            can_delete=can_delete,
+            source=AccessSource.ROLE,
+        )
+# ==========================
+#         
     def _check_tags(
         self,
         user_tags: list[str],
@@ -259,7 +223,7 @@ class AccessService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    
+# == new 22.10.2026 ===================    
     async def build_access_filter(
         self,
         user: UserProtocol,
@@ -267,161 +231,242 @@ class AccessService:
         now: datetime | None = None,
     ) -> ColumnElement[bool] | None:
         """
-        Строит SQL-условие для фильтрации списка документов по доступу.
-        
-        Используется в list_for_user для эффективной фильтрации на уровне БД
-        без итерирования в Python.
-        
-        Args:
-            user: Пользователь, запрашивающий доступ
-            document_model: Класс модели документа (например, NotesModel)
-            now: Текущее время (UTC)
-        
-        Returns:
-            SQL-условие WHERE или None (если доступа нет вообще)
+        SQL-условие видимости для списка документов.
+
+        Возвращает None только если доступа нет вообще.
+        Для Суперадмина НЕ возвращает None: он проходит те же слои,
+        кроме проверки тенанта (§2.5, §3.1.3).
         """
-        if now is None:
-            now = datetime.now(timezone.utc)
-        
-        # ШАГ 1: ТЕНАНТ
-        tenant_conditions: list[ColumnElement[bool]] = []
-        
-        if not user.is_superadmin:
-            tenant_conditions.append(document_model.tenant_id == user.tenant_id)
-        else:
-            # Суперадмин видит все тенанты — условие не добавляется
-            return None  # Нет ограничений по тенанту
-        
-        # ШАГ 2: ДЕЙСТВУЮЩИЕ НАЗНАЧЕНИЯ РОЛЕЙ
-        role_ids = user.role_ids or []
-        
-        if not role_ids:
-            # Нет ролей — доступа нет
+        doctype: str = document_model.__tablename__
+
+        candidates: list[tuple[RoleModel, PermissionModel]] = (
+            await self._load_candidates(user, doctype)
+        )
+        if not candidates:
             return None
-        
-        # Загружаем роли с permissions
-        roles_query = (
+
+        # --- Агрегация конфигурации ролей (НЕ документов) ----------------------
+        section_levels: dict[uuid.UUID, int] = {}
+        author_sections: set[uuid.UUID] = set()
+
+        for role, permission in candidates:
+            # Без привязки к конкретному документу уровень автора не присваиваем
+            base_level: int = self._role_level(permission, is_author=False)
+
+            for section_id in role.section_ids or []:
+                section_levels[section_id] = max(
+                    section_levels.get(section_id, ACCESS_LEVEL_NONE), base_level
+                )
+                if permission.author:
+                    author_sections.add(section_id)
+
+        readable_sections: list[uuid.UUID] = [
+            sid
+            for sid, level in section_levels.items()
+            if level >= ACCESS_LEVEL_READER
+        ]
+        full_sections: list[uuid.UUID] = [
+            sid
+            for sid, level in section_levels.items()
+            if level >= ACCESS_LEVEL_FULL
+        ]
+
+        if not readable_sections and not author_sections:
+            return None
+
+        # --- Видимость по Разделам + уровню чтения -----------------------------
+        visibility_parts: list[ColumnElement[bool]] = []
+
+        if readable_sections:
+            visibility_parts.append(document_model.section_id.in_(readable_sections))
+
+        if author_sections:
+            # Уровень «Автор» даёт видимость ТОЛЬКО своих документов
+            visibility_parts.append(
+                and_(
+                    document_model.section_id.in_(sorted(author_sections)),
+                    document_model.author_id == user.id,
+                )
+            )
+
+        visibility: ColumnElement[bool] = or_(*visibility_parts)
+
+        # --- ТЕНАНТ с исключением platform -----------------------------------
+        tenant_condition: ColumnElement[bool] = true()
+
+        if not user.is_superadmin:
+            platform_sections = select(SectionModel.id).where(
+                SectionModel.section_type == SectionType.PLATFORM
+            )
+            tenant_condition = or_(
+                document_model.tenant_id == user.tenant_id,
+                document_model.section_id.in_(platform_sections),
+            )
+
+        # --- ПЕРЕКЛЮЧАТЕЛИ ТИПА ДОКУМЕНТА --------------------------------------
+        doctype_model: DoctypeModel | None = await self._get_doctype_model(doctype)
+        if doctype_model is None:
+            return None
+
+        or_enforced: bool = doctype_model.apply_or_tags
+        and_enforced: bool = doctype_model.apply_and_tags
+
+        if not or_enforced and not and_enforced:
+            return and_(tenant_condition, visibility)
+
+        # --- ТЕГИ на уровне SQL ------------------------------------------------
+        or_empty: ColumnElement[bool] = self._is_empty_tags(document_model.or_tags)
+        and_empty: ColumnElement[bool] = self._is_empty_tags(document_model.and_tags)
+
+        untagged_parts: list[ColumnElement[bool]] = []
+        if or_enforced:
+            untagged_parts.append(or_empty)
+        if and_enforced:
+            untagged_parts.append(and_empty)
+
+        untagged: ColumnElement[bool] = (
+            or_(*untagged_parts) if untagged_parts else false()
+        )
+
+        user_tags: list[str] = list(user.tags or [])
+        tags_pass_parts: list[ColumnElement[bool]] = []
+
+        if user_tags:
+            # ✅ Аннотация изменена на ColumnElement[Sequence[str]].
+            # literal() возвращает BindParameter[Sequence[str]], потому что
+            # в тайп-стабах SQLAlchemy тип ARRAY имеет параметр Sequence.
+            # ColumnElement инвариантен — типы должны совпадать точно.
+            user_tags_sql: ColumnElement[Sequence[str]] = literal(
+                user_tags, type_=ARRAY(String)
+            )
+
+            if or_enforced:
+                # document.or_tags ∩ user.tags ≠ ∅
+                tags_pass_parts.append(
+                    or_(or_empty, document_model.or_tags.op("&&")(user_tags_sql))
+                )
+            if and_enforced:
+                # document.and_tags ⊆ user.tags
+                tags_pass_parts.append(
+                    or_(and_empty, document_model.and_tags.op("<@")(user_tags_sql))
+                )
+        else:
+            # Тегов у пользователя нет → прошли только документы без соответствующих тегов
+            if or_enforced:
+                tags_pass_parts.append(or_empty)
+            if and_enforced:
+                tags_pass_parts.append(and_empty)
+
+        tags_pass: ColumnElement[bool] = (
+            and_(*tags_pass_parts) if tags_pass_parts else true()
+        )
+
+        full_condition: ColumnElement[bool] = (
+            document_model.section_id.in_(full_sections)
+            if full_sections
+            else false()
+        )
+
+        # --- СБОРКА -------------------------------------------------------------
+        # Безтеговый документ виден только при ролевом уровне 4 (§6.6).
+        # Заполненный — только при пройденной тег-проверке (§6.7).
+        return and_(
+            tenant_condition,
+            visibility,
+            or_(
+                and_(untagged, full_condition),
+                and_(not_(untagged), tags_pass),
+            ),
+        )
+
+    async def _get_section(self, section_id: uuid.UUID) -> SectionModel | None:
+        """Загружает раздел документа (нужен его section_type)."""
+        stmt = select(SectionModel).where(SectionModel.id == section_id)
+        return (await self.db.execute(stmt)).scalar_one_or_none()
+
+    async def _load_candidates(
+        self,
+        user: UserProtocol,
+        doctype: str,
+    ) -> list[tuple[RoleModel, PermissionModel]]:
+        """
+        ШАГ 2–3: активные роли с явными Разделами и Permission для типа.
+
+        Permission всегда принадлежит Организации РОЛИ (§43),
+        поэтому сравниваем perm.tenant_id с user.tenant_id,
+        а НЕ с tenant_id документа. Это позволяет роли Организации Б
+        давать чтение документов Организации А в разделе «Общий».
+        """
+        role_ids: list[uuid.UUID] = list(user.role_ids or [])
+        if not role_ids:
+            return []
+
+        stmt = (
             select(RoleModel)
             .where(RoleModel.id.in_(role_ids))
             .options(selectinload(RoleModel.permissions))
         )
-        roles_result = await self.db.execute(roles_query)
-        roles = roles_result.scalars().all()
-        
-        # ШАГ 3: КАНДИДАТЫ-РОЛИ
-        valid_section_ids: list[uuid.UUID] = []
-        valid_doctypes: list[str] = []
-        
-        doctype = document_model.__tablename__
-        
+        roles = (await self.db.execute(stmt)).scalars().all()
+
+        candidates: list[tuple[RoleModel, PermissionModel]] = []
+
         for role in roles:
             if not role.section_ids:
-                continue
-            
-            # Проверяем наличие Permission для данного doctype
-            has_permission = False
-            for perm in role.permissions:
-                if perm.doctype == doctype and perm.tenant_id == user.tenant_id:
-                    has_permission = True
-                    break
-            
-            if not has_permission:
-                continue
-            
-            # Роль валидна — добавляем её section_ids
-            valid_section_ids.extend(role.section_ids)
-            valid_doctypes.append(doctype)
-        
-        if not valid_section_ids:
-            # Нет валидных ролей — доступа нет
-            return None
-        
-        # Удаляем дубликаты
-        valid_section_ids = list(set(valid_section_ids))
-        
-        # ШАГ 4: Построение SQL-условия
-        # Документ доступен, если:
-        # 1. tenant_id совпадает (уже добавлено в tenant_conditions)
-        # 2. section_id в списке доступных разделов
-        section_condition = document_model.section_id.in_(valid_section_ids)
-        
-        # ШАГ 5: ПЕРЕКЛЮЧАТЕЛИ ТИПА ДОКУМЕНТА и ТЕГИ
-        doctype_model = await self._get_doctype_model(doctype)
-        
-        if doctype_model is None:
-            return None
-        
-        or_enforced = doctype_model.apply_or_tags
-        and_enforced = doctype_model.apply_and_tags
-        
-        # Если теги не применяются — простая фильтрация
-        if not or_enforced and not and_enforced:
-            return and_(*tenant_conditions, section_condition)
-        
-        # Если теги применяются — добавляем условия для тегов
-        # Правило 6.6: документ без тегов виден только уровню 4
-        # Правило 6.7: проверка тегов для заполненных значений
-        
-        user_tags = user.tags or []
-        
-        # Условие для документов с заполненными тегами
-        tags_conditions: list[ColumnElement[bool]] = []
-        
-        # AND-теги: пользователь должен иметь ВСЕ теги
-        if and_enforced:
-            # document.and_tags ⊆ user_tags
-            # SQL: array_length(document.and_tags - user_tags, 1) IS NULL
-            # или: document.and_tags <@ user_tags (оператор containment)
-            if user_tags:
-                # Пользователь имеет теги — проверяем containment
-                from sqlalchemy.dialects.postgresql import array
-                user_tags_array = array(user_tags)
-                and_tags_condition = document_model.and_tags.op("<@")(user_tags_array)
-                tags_conditions.append(
-                    or_(
-                        document_model.and_tags.is_(None),
-                        document_model.and_tags == [],
-                        and_tags_condition,
-                    )
-                )
-            else:
-                # Пользователь без тегов — видит только документы без and_tags
-                tags_conditions.append(
-                    or_(
-                        document_model.and_tags.is_(None),
-                        document_model.and_tags == [],
-                    )
-                )
-        
-        # OR-теги: пользователь должен иметь ХОТЯ БЫ ОДИН тег
-        if or_enforced:
-            # document.or_tags ∩ user_tags ≠ ∅
-            # SQL: document.or_tags && user_tags (оператор overlap)
-            if user_tags:
-                from sqlalchemy.dialects.postgresql import array
-                user_tags_array = array(user_tags)
-                or_tags_condition = document_model.or_tags.op("&&")(user_tags_array)
-                tags_conditions.append(
-                    or_(
-                        document_model.or_tags.is_(None),
-                        document_model.or_tags == [],
-                        or_tags_condition,
-                    )
-                )
-            else:
-                # Пользователь без тегов — видит только документы без or_tags
-                tags_conditions.append(
-                    or_(
-                        document_model.or_tags.is_(None),
-                        document_model.or_tags == [],
-                    )
-                )
-        
-        # Комбинируем все условия
-        all_conditions = tenant_conditions + [section_condition] + tags_conditions
-        
-        return and_(*all_conditions)
+                continue  # §4.2.1: роль без Разделов недействующая
 
+            permissions: list[PermissionModel] = list(role.permissions)
+            permission: PermissionModel | None = None
+
+            for perm in permissions:
+                if perm.doctype == doctype and perm.tenant_id == user.tenant_id:
+                    permission = perm
+                    break
+
+            if permission is None:
+                continue  # §3.4.2
+
+            candidates.append((role, permission))
+
+        return candidates
+
+    @staticmethod
+    def _role_level(permission: PermissionModel, is_author: bool) -> int:
+        """
+        Уровень роли. Автор (3) учитывается только для собственных документов.
+        """
+        if permission.full_access:
+            return ACCESS_LEVEL_FULL
+        if is_author and permission.author:
+            return ACCESS_LEVEL_AUTHOR
+        if permission.editor:
+            return ACCESS_LEVEL_EDITOR
+        if permission.reader:
+            return ACCESS_LEVEL_READER
+        return ACCESS_LEVEL_NONE
+
+    @staticmethod
+    def _is_empty_tags(
+        column: InstrumentedAttribute[list[str] | None],
+    ) -> ColumnElement[bool]:
+        """
+        NULL и пустой массив трактуются одинаково: тегов нет.
+
+        Используется в SQL-фильтре для проверки правила «нет тегов» (§6.6).
+        """
+        empty_tags: list[str] = []
+        # ✅ Аннотация изменена на ColumnElement[Sequence[str]]
+        # sql_cast возвращает Cast[Sequence[str]], потому что в тайп-стабах
+        # SQLAlchemy тип ARRAY имеет параметр Sequence, а не list.
+        # ColumnElement инвариантен, поэтому типы должны совпадать точно.
+        empty_array: ColumnElement[Sequence[str]] = sql_cast(
+            empty_tags,
+            ARRAY(String),
+        )
+        return or_(
+            column.is_(None),            # массив равен NULL
+            column.op("=")(empty_array), # массив равен []
+        )
+# ====================================
 
 
 def get_access_service(db: AsyncSession) -> AccessService:

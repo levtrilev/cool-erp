@@ -23,6 +23,13 @@ PROTECTED_SECTION_TYPES: frozenset[str] = frozenset({
     SectionType.TENANT_DEFAULT,
 })
 
+def tenant_default_section_name(tenant_name: str) -> str:
+    """
+    Единый формат имени раздела «Общий для организации» (ТЗ §4.1).
+
+    Формат: Общий-<Название организации>
+    """
+    return f"Общий-{tenant_name}"
 
 class SectionModel(Base):
     """

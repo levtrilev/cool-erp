@@ -19,6 +19,7 @@ from app.core.roles.schemas import (
     RoleUpdateSchema,
 )
 from app.core.users.models import UserModel
+from app.core.sections.models import SectionModel
 
 # ✅ Правило №36: корректное имя логгера
 logger = logging.getLogger(__name__)
@@ -44,6 +45,78 @@ class RoleService:
             data.user_ids,
             len(data.permissions) if data.permissions else 0,
         )
+
+        logger.info(
+            "[save_role] START: role_id=%s, user_ids=%s, permissions_count=%s",
+            role_id,
+            data.user_ids,
+            len(data.permissions) if data.permissions else 0,
+        )
+
+        # ============================================================
+        # 0. ВАЛИДАЦИЯ: разделы должны принадлежать организации роли
+        # ============================================================
+        if data.section_ids:
+            # Определяем целевую организацию роли
+            if role_id:
+                # При обновлении — организация существующей роли
+                role_for_check = await crud_role.get(
+                    db,
+                    item_id=role_id,
+                    current_tenant_id=current_tenant_id,
+                    is_superadmin=is_superadmin,
+                )
+                if not role_for_check:
+                    raise HTTPException(status_code=404, detail="Роль не найдена")
+                target_role_tenant_id: uuid.UUID = role_for_check.tenant_id
+            else:
+                # При создании — организация из данных или текущая
+                target_role_tenant_id = data.tenant_id or current_tenant_id
+
+            # Загружаем все разделы по переданным ID одним запросом
+            sections_stmt = select(SectionModel).where(
+                SectionModel.id.in_(data.section_ids)
+            )
+            sections_result = await db.execute(sections_stmt)
+            found_sections: list[SectionModel] = list(sections_result.scalars().all())
+            found_section_ids: set[uuid.UUID] = {s.id for s in found_sections}
+
+            # Проверка 1: все переданные ID существуют
+            missing_ids: set[uuid.UUID] = set(data.section_ids) - found_section_ids
+            if missing_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Разделы не найдены: "
+                        + ", ".join(str(mid) for mid in missing_ids)
+                    ),
+                )
+
+            # Проверка 2: каждый раздел принадлежит организации роли
+            # или является платформенным (tenant_id IS NULL)
+            invalid_section_names: list[str] = []
+            for section in found_sections:
+                # Платформенный раздел доступен любой организации (ТЗ §4.3)
+                if section.tenant_id is None:
+                    continue
+                # Раздел чужой организации — запрещено
+                if section.tenant_id != target_role_tenant_id:
+                    invalid_section_names.append(section.name)
+
+            if invalid_section_names:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Попытка добавить для Роли Раздел из другой Организации: "
+                        + ", ".join(invalid_section_names)
+                    ),
+                )
+
+            logger.info(
+                "[save_role] Sections validated: %d sections OK for tenant %s",
+                len(found_sections),
+                target_role_tenant_id,
+            )
 
         # ============================================================
         # 1. Создаем или обновляем саму роль

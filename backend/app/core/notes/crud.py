@@ -22,8 +22,7 @@ from app.core.notes.exceptions import (
 )
 from app.core.notes.models import NotesModel
 from app.core.notes.schemas import NoteCreateSchema, NoteUpdateSchema
-from app.core.sections.models import SectionModel
-
+from app.core.sections.models import SectionModel, SectionType
 
 class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
     """
@@ -52,6 +51,12 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
 
         if section is None:
             raise SectionNotInTenantError("Раздел не найден")
+
+        # ✅ Вариант D: создание в «Общем» — только Суперадмин
+        if section.section_type == SectionType.PLATFORM and not user.is_superadmin:
+            raise NoteAccessDeniedError(
+                "Создание документов в разделе «Общий» доступно только Суперадмину"
+            )
 
         # Раздел должен быть либо платформенный, либо принадлежать организации пользователя
         if (
@@ -237,6 +242,15 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             ):
                 raise SectionNotInTenantError(
                     "Раздел недоступен в этой организации"
+                )
+            # ✅ Вариант D: перемещение в «Общий» — только Суперадмин.
+            # Иначе Редактор мог бы «экSPORTировать» свой документ в общее пространство.
+            if (
+                section.section_type == SectionType.PLATFORM
+                and not user.is_superadmin
+            ):
+                raise NoteAccessDeniedError(
+                    "Перемещение документа в раздел «Общий» доступно только Суперадмину"
                 )
 
         # ШАГ 5: Атомарный UPDATE с оптимистической блокировкой

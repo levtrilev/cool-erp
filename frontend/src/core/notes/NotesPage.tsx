@@ -59,11 +59,13 @@ export const NotesPage = () => {
   const [editingNote, setEditingNote] = useState<NoteResponseSchema | null>(
     null,
   );
-  const [readOnly, setReadOnly] = useState(false);
   const [deleteNoteId, setDeleteNoteId] = useState<string | null>(null);
   const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(
     null,
   );
+// ✅ Состояние для режима только чтения и причины
+const [readOnly, setReadOnly] = useState(false);
+const [readOnlyReason, setReadOnlyReason] = useState<string>("");
 
   const { widths, handleMouseDown, resetWidths } = useResizableColumns(
     COLUMNS,
@@ -146,19 +148,17 @@ export const NotesPage = () => {
   };
 
   // ✅ Открытие модалки с попыткой захвата блокировки
+  // ✅ Открытие модалки с попыткой захвата блокировки
   const openEdit = async (item: NoteResponseSchema) => {
     setEditingNote(item);
 
     // ✅ Если документ уже заблокирован — сразу открываем в readOnly
     if (item.is_editing_locked) {
       setReadOnly(true);
+      setReadOnlyReason(
+        "Документ редактируется другим пользователем. Вы можете только просматривать данные."
+      );
       setIsModalOpen(true);
-      toast({
-        variant: "destructive",
-        title: "Документ занят",
-        description:
-          "Документ редактируется другим пользователем. Открыт в режиме только для чтения.",
-      });
       return;
     }
 
@@ -166,32 +166,44 @@ export const NotesPage = () => {
     try {
       await acquireLockMutation.mutateAsync({ noteId: item.id });
       setReadOnly(false);
+      setReadOnlyReason("");
       setIsModalOpen(true);
     } catch (error: unknown) {
       const err = error as {
         response?: { status?: number; data?: { detail?: string } };
       };
+      const status = err?.response?.status;
 
-      if (err?.response?.status === 423) {
+      if (status === 403) {
+        // ✅ Нет прав на изменение (уровень < 2 или раздел «Общий» для не-Суперадмина)
+        setReadOnly(true);
+        setReadOnlyReason(
+          "У вас нет прав на изменение этого документа. Доступен только просмотр."
+        );
+        setIsModalOpen(true);
+      } else if (status === 423) {
         // ✅ Блокировка захвачена между проверкой и вызовом — открываем в readOnly
         setReadOnly(true);
+        setReadOnlyReason(
+          "Документ редактируется другим пользователем. Открыт в режиме только для чтения."
+        );
         setIsModalOpen(true);
         toast({
           variant: "destructive",
           title: "Документ занят",
-          description:
-            "Документ редактируется другим пользователем. Открыт в режиме только для чтения.",
+          description: "Документ редактируется другим пользователем.",
         });
       } else {
+        // ✅ Иные ошибки — показываем ошибку, модалку не открываем
         toast({
           variant: "destructive",
           title: "Ошибка блокировки",
-          description:
-            err?.response?.data?.detail || "Не удалось заблокировать документ",
+          description: err?.response?.data?.detail || "Не удалось открыть документ",
         });
       }
     }
   };
+
 
   // ✅ Освобождение блокировки при закрытии модалки
   const handleModalClose = async (open: boolean) => {
@@ -200,14 +212,14 @@ export const NotesPage = () => {
       try {
         await releaseLockMutation.mutateAsync({ noteId: editingNote.id });
       } catch {
-        // Игнорируем ошибки освобождения (таймаут всё равно освободит)
+        // Игнорируем ошибки освобождения (таймаут всё равно снимет)
       }
     }
-
     setIsModalOpen(open);
     if (!open) {
       setEditingNote(null);
       setReadOnly(false);
+      setReadOnlyReason("");
     }
   };
 
@@ -481,6 +493,7 @@ export const NotesPage = () => {
         initialData={editingNote}
         onSaved={handleSaved}
         readOnly={readOnly}
+        readOnlyReason={readOnlyReason}
       />
 
       <AlertDialog
