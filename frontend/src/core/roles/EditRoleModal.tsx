@@ -1,5 +1,10 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useForm, Controller, type FieldErrors, useWatch } from "react-hook-form";
+import {
+  useForm,
+  Controller,
+  type FieldErrors,
+  useWatch,
+} from "react-hook-form";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -36,7 +41,6 @@ import {
   type ReferenceItem,
 } from "@/lib/reusable/ReferenceSelect";
 import { ReferenceMultiSelectChips } from "@/lib/reusable/ReferenceMultiSelectChips";
-
 
 // ✅ Правило №20: Константа для сброса формы
 const CREATE_DEFAULTS: RoleFormData = {
@@ -105,7 +109,7 @@ export function EditRoleModal({
       // Открытие модалки — сбрасываем состояние для чистой инициализации
       setSessionKey((prev) => prev + 1);
       setSavedRoleOverride(null); // ✅ Сброс override при открытии новой роли
-      setUsersDraft([]);          // ✅ Сброс черновика пользователей
+      setUsersDraft([]); // ✅ Сброс черновика пользователей
       lastInitializedRoleId.current = null; // ✅ Сброс флага инициализации
     }
     if (!newOpen) {
@@ -248,9 +252,7 @@ export function EditRoleModal({
   const initialUserIds: string[] =
     !roleId || allUsers.length === 0
       ? []
-      : allUsers
-          .filter((u) => u.role_ids?.includes(roleId))
-          .map((u) => u.id);
+      : allUsers.filter((u) => u.role_ids?.includes(roleId)).map((u) => u.id);
 
   // ✅ Вычисляем исходный черновик пользователей
   const initialUsersDraft: UserDraft[] = useMemo(() => {
@@ -278,7 +280,14 @@ export function EditRoleModal({
         lastInitializedRoleId.current = roleId;
       }
     }
-  }, [open, roleId, initialUsersDraft, isUsersLoading, usersData, usersResyncKey]);
+  }, [
+    open,
+    roleId,
+    initialUsersDraft,
+    isUsersLoading,
+    usersData,
+    usersResyncKey,
+  ]);
 
   // ✅ selectedUserIds вычисляется из usersDraft (фильтрует помеченных на удаление)
   const selectedUserIds = useMemo(() => {
@@ -345,11 +354,26 @@ export function EditRoleModal({
     defaultValue: [],
   });
 
-  // ✅ НОВОЕ: ID разделов, добавленных в текущей сессии (для пометки "новый")
-  const newSectionIds = useMemo<string[]>(() => {
-    const initial = effectiveRole?.section_ids || [];
-    return (sectionIds || []).filter((id) => !initial.includes(id));
-  }, [sectionIds, effectiveRole?.section_ids]);
+  const initialSectionIds = useMemo<string[]>(
+    () => effectiveRole?.section_ids || [],
+    [effectiveRole],
+  );
+
+  const newSectionIds = useMemo<string[]>(
+    () => (sectionIds || []).filter((id) => !initialSectionIds.includes(id)),
+    [sectionIds, initialSectionIds],
+  );
+
+  const deletedSectionIds = useMemo<string[]>(
+    () => initialSectionIds.filter((id) => !(sectionIds || []).includes(id)),
+    [sectionIds, initialSectionIds],
+  );
+
+  // // ✅ ID разделов, добавленных в текущей сессии (для пометки "новый")
+  // const newSectionIds = useMemo<string[]>(() => {
+  //   const initial = effectiveRole?.section_ids || [];
+  //   return (sectionIds || []).filter((id) => !initial.includes(id));
+  // }, [sectionIds, effectiveRole?.section_ids]);
 
   const hasSectionChanges = useMemo(() => {
     const initial = (effectiveRole?.section_ids || []).slice().sort();
@@ -753,6 +777,7 @@ export function EditRoleModal({
                         name: s.name,
                       }))}
                       newItemIds={newSectionIds}
+                      deletedItemIds={deletedSectionIds}
                       placeholder="Добавить разделы..."
                       limit={100}
                       heading="Доступные разделы"

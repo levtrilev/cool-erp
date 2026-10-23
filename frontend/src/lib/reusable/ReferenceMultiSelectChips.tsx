@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsRight,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,7 @@ interface ReferenceMultiSelectChipsProps<T extends ReferenceMultiItem> {
   /** Все доступные элементы — для отображения названий в чипсах */
   allItems: Array<{ id: string; name: string }>;
   newItemIds?: string[];
+  deletedItemIds?: string[];
   placeholder?: string;
   disabled?: boolean;
   limit?: number;
@@ -76,6 +78,7 @@ export function ReferenceMultiSelectChips<T extends ReferenceMultiItem>({
   onValueChange,
   allItems,
   newItemIds,
+  deletedItemIds,
   placeholder = "Добавить...",
   disabled = false,
   limit = 50,
@@ -145,6 +148,17 @@ export function ReferenceMultiSelectChips<T extends ReferenceMultiItem>({
     [allItems, value],
   );
 
+  // ✅ Элементы, помеченные на удаление (для красных чипсов)
+  const deletedItems = useMemo(
+    () =>
+      (deletedItemIds || [])
+        .map((id) => allItems.find((item) => item.id === id))
+        .filter(
+          (item): item is { id: string; name: string } => item !== undefined,
+        ),
+    [allItems, deletedItemIds],
+  );
+
   // ==========================================
   // ОБРАБОТЧИКИ
   // ==========================================
@@ -152,6 +166,11 @@ export function ReferenceMultiSelectChips<T extends ReferenceMultiItem>({
   /** Удаление чипса */
   const handleRemove = (itemId: string) => {
     onValueChange(value.filter((id) => id !== itemId));
+  };
+
+  // ✅ НОВОЕ: Восстановление помеченного на удаление
+  const handleRestore = (itemId: string) => {
+    onValueChange([...value, itemId]);
   };
 
   /** Открытие окна мультивыбора */
@@ -322,6 +341,26 @@ export function ReferenceMultiSelectChips<T extends ReferenceMultiItem>({
     <div className="space-y-2">
       {/* Чипсы выбранных элементов + кнопка "+" */}
       <div className="flex flex-wrap gap-2 items-center">
+        {/* ✅ Помеченные на удаление (красные, зачёркнутые) */}
+        {deletedItems.map((item) => (
+          <Badge
+            key={`deleted-${item.id}`}
+            variant="secondary"
+            className="flex items-center gap-1 pr-1 bg-red-100 dark:bg-red-900/30 text-red-900 dark:text-red-100 line-through"
+          >
+            <span className="max-w-[150px] truncate">{item.name}</span>
+            <button
+              type="button"
+              className="rounded-full outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-1"
+              onClick={() => handleRestore(item.id)}
+              disabled={disabled}
+              title={`Восстановить ${item.name}`}
+            >
+              <RotateCcw className="h-3 w-3 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200" />
+            </button>
+          </Badge>
+        ))}
+        {/* Активные чипсы */}
         {selectedItems.map((item) => (
           <Badge
             key={item.id}
