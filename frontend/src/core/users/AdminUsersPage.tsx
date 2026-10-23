@@ -44,14 +44,7 @@ import { EditUserModal } from "@/core/users/EditUserModal";
 import { CreateUserModal } from "@/core/users/CreateUserModal";
 // ✅ НОВОЕ: общий тип UserResponseSchema
 import type { UserResponseSchema } from "@/api/generated/fastAPI.schemas";
-
-// import {
-//   useReadUsersAuthGet,
-//   useDeleteUserAuthUserIdDelete,
-//   readUsersAuthGet,
-// } from "@/api/generated/authentication/authentication";
-// import { z } from "zod";
-// import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
+import { useQueryClient } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
 
 // type UserResponseSchema = z.infer<
@@ -60,7 +53,7 @@ import { Label } from "@/components/ui/label";
 
 export const AdminUsersPage = () => {
   const { toast } = useToast();
-
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
 
@@ -198,7 +191,11 @@ export const AdminUsersPage = () => {
   };
 
   const handleUserCreated = async (newId: string) => {
-    // console.log("🔍 handleUserCreated вызван с ID:", newId);
+    // ✅ Инвалидируем кэш списка пользователей — это заставит его перезапроситься
+    await queryClient.invalidateQueries({ queryKey: ["users"] });
+    
+    // ✅ Также перезапрашиваем текущую страницу списка
+    await refetch();
 
     // ✅ Используем readUsersUsersGet с tenant_id
     const allUsersData = await readUsersUsersGet({
@@ -206,8 +203,6 @@ export const AdminUsersPage = () => {
       limit: 1000,
       skip: 0,
     });
-
-    // console.log("🔍 Результат запроса всех пользователей:", allUsersData);
 
     if (!allUsersData?.items) {
       console.log("❌ Нет items в allUsersData.data");
@@ -222,12 +217,7 @@ export const AdminUsersPage = () => {
       (u: UserResponseSchema) => u.id === newId,
     );
 
-    console.log("🔍 Найденный индекс в полном списке:", itemIndex);
-    console.log("🔍 Текущая страница:", page);
-    console.log("🔍 Лимит:", limit);
-
     if (itemIndex === -1) {
-      console.log("❌ Пользователь не найден в полном списке");
       toast({
         title: "Создано",
         description: "Запись успешно добавлена в систему",
@@ -239,11 +229,10 @@ export const AdminUsersPage = () => {
     console.log("🔍 Целевая страница:", targetPage);
 
     if (targetPage === page) {
-      console.log("✅ Пользователь на текущей странице, подсвечиваем");
       setHighlightedUserId(newId);
 
       toast({
-        title: "Создано",
+        title: "Пользователь создан",
         description: "Запись добавлена и выделена в списке",
       });
 
@@ -254,9 +243,6 @@ export const AdminUsersPage = () => {
       return;
     }
 
-    console.log(
-      "✅ Пользователь на другой странице, показываем toast с кнопкой",
-    );
     toast({
       title: "Создано",
       description: `Запись переместилась на страницу ${targetPage}`,

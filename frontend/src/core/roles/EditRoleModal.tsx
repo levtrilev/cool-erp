@@ -1,5 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from "react";
-import { useForm, Controller, type FieldErrors } from "react-hook-form";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useForm, Controller, type FieldErrors, useWatch } from "react-hook-form";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,21 +31,24 @@ import {
 import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
 import { PermissionsTab, type PermissionDraft } from "./PermissionsTab";
 import { UsersTab, type UserDraft } from "./UsersTab";
-import { MultiSelectChips } from "@/lib/reusable/MultiSelectChips";
 import {
   ReferenceSelect,
   type ReferenceItem,
 } from "@/lib/reusable/ReferenceSelect";
+import { ReferenceMultiSelectChips } from "@/lib/reusable/ReferenceMultiSelectChips";
+
 
 // ✅ Правило №20: Константа для сброса формы
 const CREATE_DEFAULTS: RoleFormData = {
   name: "",
   description: "",
+  section_ids: [],
 };
 
 const roleSchema = z.object({
   name: z.string().min(1, "Название обязательно"),
   description: z.string().optional(),
+  section_ids: z.array(z.string()).optional(),
 });
 
 type RoleFormData = z.infer<typeof roleSchema>;
@@ -95,12 +99,21 @@ export function EditRoleModal({
   // ✅ НОВОЕ: Триггер принудительной пересинхронизации черновика пользователей
   const [usersResyncKey, setUsersResyncKey] = useState(0);
 
+  // ✅ СТАЛО: синхронизация состояния в обработчике событий, а не в эффекте
   const handleOpenChange = (newOpen: boolean) => {
     if (newOpen && !open) {
+      // Открытие модалки — сбрасываем состояние для чистой инициализации
       setSessionKey((prev) => prev + 1);
+      setSavedRoleOverride(null); // ✅ Сброс override при открытии новой роли
+      setUsersDraft([]);          // ✅ Сброс черновика пользователей
+      lastInitializedRoleId.current = null; // ✅ Сброс флага инициализации
     }
     if (!newOpen) {
-      reset(CREATE_DEFAULTS); // ✅ Правило №20
+      // Закрытие модалки — сброс формы (Правило №20)
+      reset(CREATE_DEFAULTS);
+      setSavedRoleOverride(null);
+      setUsersDraft([]);
+      lastInitializedRoleId.current = null;
     }
     onOpenChange(newOpen);
   };
@@ -231,13 +244,13 @@ export function EditRoleModal({
   const roleId = role?.id;
 
   // ✅ Инициализация initialUserIds из role_ids пользователей
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
-  const initialUserIds = useMemo(() => {
-    if (!roleId || allUsers.length === 0) return [];
-    return allUsers
-      .filter((u) => u.role_ids?.includes(roleId))
-      .map((u) => u.id);
-  }, [roleId, allUsers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initialUserIds: string[] =
+    !roleId || allUsers.length === 0
+      ? []
+      : allUsers
+          .filter((u) => u.role_ids?.includes(roleId))
+          .map((u) => u.id);
 
   // ✅ Вычисляем исходный черновик пользователей
   const initialUsersDraft: UserDraft[] = useMemo(() => {
@@ -256,34 +269,16 @@ export function EditRoleModal({
   const lastInitializedRoleId = useRef<string | null>(null);
 
   // ✅ Синхронизация черновика ТОЛЬКО когда данные гарантированно загружены
+  // ✅ СТАЛО: useEffect только для инициализации при загрузке данных
+  // Сброс состояния выполняется в handleOpenChange (обработчик событий)
   useEffect(() => {
-    if (open) {
-      if (roleId) {
-        if (!isUsersLoading && usersData) {
-          if (lastInitializedRoleId.current !== roleId) {
-            setUsersDraft(initialUsersDraft);
-            lastInitializedRoleId.current = roleId;
-          }
-        }
-      } else {
-        // Режим создания новой роли
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setUsersDraft([]);
-        lastInitializedRoleId.current = null;
+    if (open && roleId && !isUsersLoading && usersData) {
+      if (lastInitializedRoleId.current !== roleId) {
+        setUsersDraft(initialUsersDraft);
+        lastInitializedRoleId.current = roleId;
       }
-    } else {
-      // Закрытие модалки
-      setUsersDraft([]);
-      lastInitializedRoleId.current = null;
     }
-  }, [
-    open,
-    roleId,
-    initialUsersDraft,
-    isUsersLoading,
-    usersData,
-    usersResyncKey,
-  ]);
+  }, [open, roleId, initialUsersDraft, isUsersLoading, usersData, usersResyncKey]);
 
   // ✅ selectedUserIds вычисляется из usersDraft (фильтрует помеченных на удаление)
   const selectedUserIds = useMemo(() => {
@@ -291,12 +286,8 @@ export function EditRoleModal({
   }, [usersDraft]);
 
   // ==========================================
-  // ДАННЫЕ РАЗДЕЛОВ (НЕ ТРОНУТО)
+  // ДАННЫЕ РАЗДЕЛОВ
   // ==========================================
-  // ✅ Правило №37: Инициализация напрямую из пропсов
-  const [selectedSectionIds, setSelectedSectionIds] = useState<string[]>(
-    role?.section_ids || [],
-  );
 
   const { data: sectionsData } = useGetSectionsSectionsGet({
     target_tenant_id: effectiveTenantId,
@@ -310,7 +301,7 @@ export function EditRoleModal({
   );
 
   // ==========================================
-  // ДАННЫЕ ПОЛНОМОЧИЙ (НЕ ТРОНУТО)
+  // ДАННЫЕ ПОЛНОМОЧИЙ
   // ==========================================
   const initialPerms: PermissionDraft[] = role?.permissions
     ? role.permissions.map((p) => ({
@@ -346,17 +337,25 @@ export function EditRoleModal({
     [permissions],
   );
 
-  // ✅ Обёртываем в useMemo для стабильной ссылки (exhaustive-deps)
-  const initialSectionIds = useMemo(
-    () => effectiveRole?.section_ids || [],
-    [effectiveRole?.section_ids],
-  );
+  // ✅ Мемоизированное вычисление sectionIds.
+
+  const sectionIds = useWatch({
+    control,
+    name: "section_ids",
+    defaultValue: [],
+  });
+
+  // ✅ НОВОЕ: ID разделов, добавленных в текущей сессии (для пометки "новый")
+  const newSectionIds = useMemo<string[]>(() => {
+    const initial = effectiveRole?.section_ids || [];
+    return (sectionIds || []).filter((id) => !initial.includes(id));
+  }, [sectionIds, effectiveRole?.section_ids]);
 
   const hasSectionChanges = useMemo(() => {
-    const initial = initialSectionIds.slice().sort();
-    const current = selectedSectionIds.slice().sort();
+    const initial = (effectiveRole?.section_ids || []).slice().sort();
+    const current = (sectionIds || []).slice().sort();
     return JSON.stringify(initial) !== JSON.stringify(current);
-  }, [initialSectionIds, selectedSectionIds]);
+  }, [effectiveRole?.section_ids, sectionIds]);
 
   const hasUserChanges = useMemo(() => {
     const initial = initialUserIds.slice().sort();
@@ -364,11 +363,18 @@ export function EditRoleModal({
     return JSON.stringify(initial) !== JSON.stringify(current);
   }, [initialUserIds, selectedUserIds]);
 
+  const hasAnyChanges: boolean =
+    hasTenantChanges ||
+    hasSectionChanges ||
+    hasPermissionChanges ||
+    hasUserChanges;
+
   // ==========================================
-  // ОБРАБОТЧИКИ (ОБНОВЛЕН ТОЛЬКО PAYLOAD)
+  // ОБРАБОТЧИКИ
   // ==========================================
   const saveMutation = useSaveRoleRolesSavePost();
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const onSubmit = async (data: RoleFormData) => {
     if (!effectiveTenantId) {
       toast({
@@ -383,9 +389,9 @@ export function EditRoleModal({
       name: data.name,
       description: data.description || "",
       tenant_id: effectiveTenantId,
-      section_ids: selectedSectionIds,
+      section_ids: sectionIds,
       section_names: sections
-        .filter((s) => selectedSectionIds.includes(s.id))
+        .filter((s) => (sectionIds || []).includes(s.id))
         .map((s) => s.name),
       permissions: permissions
         .filter((p) => !p.markedForDeletion)
@@ -489,6 +495,7 @@ export function EditRoleModal({
   };
 
   // ✅ Правило №36: Строгая типизация onInvalid
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const onInvalid = (formErrors: FieldErrors<RoleFormData>) => {
     console.warn("Ошибки валидации формы:", formErrors);
     toast({
@@ -500,18 +507,33 @@ export function EditRoleModal({
   };
 
   // ✅ Правило №37: useEffect ТОЛЬКО для reset формы
+  // ✅ СТАЛО: useEffect только для reset формы (без setState)
   useEffect(() => {
-    if (open) {
-      if (role) {
-        reset({
-          name: role.name || "",
-          description: role.description || "",
-        });
-      } else {
-        reset(CREATE_DEFAULTS);
-      }
+    if (open && effectiveRole) {
+      reset({
+        name: effectiveRole.name || "",
+        description: effectiveRole.description || "",
+        section_ids: effectiveRole.section_ids || [],
+      });
+    } else if (open && !effectiveRole) {
+      reset(CREATE_DEFAULTS);
     }
-  }, [open, role, reset]);
+  }, [open, effectiveRole, reset]);
+
+  // ✅ Мемоизированный обработчик формы для предотвращения
+  // чтения useRef во время рендера (ошибка React Compiler)
+  // const handleFormSubmit: React.FormEventHandler<HTMLFormElement> = useCallback(
+  //   (e) => {
+  //     handleSubmit(onSubmit, onInvalid)(e);
+  //   },
+  //   [handleSubmit, onSubmit, onInvalid],
+  // );
+  const handleFormSubmit: React.FormEventHandler<HTMLFormElement> = useCallback(
+    (e) => {
+      handleSubmit(onSubmit, onInvalid)(e);
+    },
+    [handleSubmit, onSubmit, onInvalid],
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -542,8 +564,7 @@ export function EditRoleModal({
         {/* ✅ Правило №37: key на форме гарантирует перемонт при смене role */}
         <form
           key={role?.id || "new"}
-          // eslint-disable-next-line react-hooks/refs
-          onSubmit={handleSubmit(onSubmit, onInvalid)}
+          onSubmit={handleFormSubmit}
           className="space-y-4"
         >
           <Tabs defaultValue="main" className="w-full">
@@ -559,7 +580,7 @@ export function EditRoleModal({
 
               {/* ✅ Счётчик разделов */}
               <TabsTrigger value="sections" className="relative">
-                Разделы({selectedSectionIds.length})
+                Разделы({(sectionIds || []).length})
                 {hasSectionChanges && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
@@ -696,42 +717,49 @@ export function EditRoleModal({
             >
               <div className="space-y-2">
                 <label className="text-sm font-medium">Разделы доступа</label>
-                <MultiSelectChips
-                  fetchFn={async (params) => {
-                    const response = await getSectionsSectionsGet({
-                      skip: params.skip,
-                      limit: params.limit,
-                      search: params.search,
-                      target_tenant_id: effectiveTenantId,
-                    });
-                    const items = (response?.data?.items ?? []).map(
-                      (item: unknown) => {
-                        const typedItem = item as {
-                          id: string;
-                          name: string;
-                          description?: string | null;
-                        };
-                        return {
-                          id: typedItem.id,
-                          name: typedItem.name,
-                          description: typedItem.description,
-                        };
-                      },
-                    );
-                    return { items, total: response?.data?.total ?? 0 };
-                  }}
-                  queryKey={["sections", effectiveTenantId]}
-                  value={selectedSectionIds}
-                  onValueChange={setSelectedSectionIds}
-                  allItems={sections.map((s) => ({ id: s.id, name: s.name }))}
-                  placeholder="Добавить разделы..."
-                  limit={100}
-                  heading="Доступные разделы"
-                  columns={[{ column: "description", label: "Описание" }]}
+                <Controller
+                  name="section_ids"
+                  control={control}
+                  render={({ field }) => (
+                    <ReferenceMultiSelectChips
+                      fetchFn={async (params) => {
+                        const response = await getSectionsSectionsGet({
+                          skip: params.skip,
+                          limit: params.limit,
+                          search: params.search,
+                          target_tenant_id: effectiveTenantId,
+                        });
+                        const items = (response?.data?.items ?? []).map(
+                          (item: unknown) => {
+                            const typedItem = item as {
+                              id: string;
+                              name: string;
+                              description?: string | null;
+                            };
+                            return {
+                              id: typedItem.id,
+                              name: typedItem.name,
+                              description: typedItem.description,
+                            };
+                          },
+                        );
+                        return { items, total: response?.data?.total ?? 0 };
+                      }}
+                      queryKey={["sections", effectiveTenantId]}
+                      value={field.value ?? []}
+                      onValueChange={field.onChange}
+                      allItems={sections.map((s) => ({
+                        id: s.id,
+                        name: s.name,
+                      }))}
+                      newItemIds={newSectionIds}
+                      placeholder="Добавить разделы..."
+                      limit={100}
+                      heading="Доступные разделы"
+                      columns={[{ column: "description", label: "Описание" }]}
+                    />
+                  )}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Выбрано разделов: {selectedSectionIds.length}
-                </p>
               </div>
             </TabsContent>
 
@@ -771,11 +799,13 @@ export function EditRoleModal({
             <Button
               type="button"
               variant="outline"
+              className="min-w-24"
               onClick={() => handleOpenChange(false)}
             >
-              Отмена
+              {hasAnyChanges ? "Отмена" : "Закрыть"}
             </Button>
-            <Button type="submit" disabled={saveMutation.isPending}>
+            {/* <Button type="submit" disabled={saveMutation.isPending}> */}
+            <Button type="submit" disabled={!hasAnyChanges}>
               {saveMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
