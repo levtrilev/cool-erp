@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Copy,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,11 @@ export function AdminRolesPage() {
   const [highlightedRoleId, setHighlightedRoleId] = useState<string | null>(
     null,
   );
+  // ✅ НОВОЕ: Состояния для копирования роли
+  const [copyingRole, setCopyingRole] = useState<RoleResponseSchema | null>(
+    null,
+  );
+  const [isCopyOpen, setIsCopyOpen] = useState(false);
 
   // --- Orval хуки ---
   const { data, isLoading, isError, refetch } = useGetRolesRolesGet({
@@ -101,6 +107,18 @@ export function AdminRolesPage() {
   const handleCreate = () => {
     setEditingRole(null);
     setIsCreateOpen(true);
+  };
+
+  const handleCopy = (role: RoleResponseSchema) => {
+    setCopyingRole(role);
+    setIsCopyOpen(true);
+  };
+
+  const handleCopyModalOpenChange = (open: boolean) => {
+    setIsCopyOpen(open);
+    if (!open) {
+      setCopyingRole(null);
+    }
   };
 
   const handleModalOpenChange = (open: boolean) => {
@@ -182,11 +200,11 @@ export function AdminRolesPage() {
 
   // Определяем колонки
   const columns = [
-    { id: "name", initialWidth: 150, minWidth: 100 },
+    { id: "name", initialWidth: 100, minWidth: 70 },
     { id: "description", initialWidth: 200, minWidth: 100 },
-    { id: "sections", initialWidth: 350, minWidth: 250 },
-    { id: "users", initialWidth: 200, minWidth: 150 },
-    { id: "actions", initialWidth: 30, minWidth: 30 },
+    { id: "sections", initialWidth: 300, minWidth: 250 },
+    { id: "users", initialWidth: 300, minWidth: 250 },
+    { id: "actions", initialWidth: 70, minWidth: 30 },
   ];
 
   const { widths, handleMouseDown, resetWidths } = useResizableColumns(
@@ -408,6 +426,15 @@ export function AdminRolesPage() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="h-8 w-8"
+                      onClick={() => handleCopy(role)}
+                      title="Копировать роль"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={() => setDeleteRoleId(role.id)}
                     >
@@ -500,7 +527,16 @@ export function AdminRolesPage() {
           onRoleSaved={handleRoleSaved}
         />
       )}
-
+      {isCopyOpen && copyingRole && (
+        <EditRoleModal
+          key={`copy-${copyingRole.id}`}
+          open={isCopyOpen}
+          onOpenChange={handleCopyModalOpenChange}
+          role={null}  // Режим создания (не редактирования)
+          copyFromRole={copyingRole}  // Данные для копирования
+          onRoleSaved={handleRoleSaved}
+        />
+      )}
       {/* AlertDialog для удаления (Правило №16) */}
       <AlertDialog
         open={!!deleteRoleId}

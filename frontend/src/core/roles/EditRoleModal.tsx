@@ -62,6 +62,7 @@ interface EditRoleModalProps {
   onOpenChange: (open: boolean) => void;
   role?: RoleResponseSchema | null;
   onRoleSaved: (id: string, name: string) => void;
+  copyFromRole?: RoleResponseSchema | null;
 }
 
 // ✅ Правило №36: Кастомный тип для пользователя с role_ids
@@ -77,6 +78,7 @@ export function EditRoleModal({
   onOpenChange,
   role,
   onRoleSaved,
+  copyFromRole,
 }: EditRoleModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -84,6 +86,13 @@ export function EditRoleModal({
   const currentTenantId = userData?.data?.tenant_id;
   const isSuperadmin = userData?.data?.is_superadmin === true;
   const isEdit = !!role;
+
+  // ✅ НОВОЕ: Режим копирования — создаём новую роль с данными из copyFromRole
+  const isCopy = !!copyFromRole && !isEdit;
+
+  // ✅ НОВОЕ: Эффективная роль для инициализации формы
+  // При копировании используем copyFromRole, при редактировании — role
+  const sourceRole = copyFromRole ?? role ?? null;
 
   const { control, handleSubmit, reset } = useForm<RoleFormData>({
     resolver: zodResolver(roleSchema),
@@ -97,30 +106,13 @@ export function EditRoleModal({
   // Проп role из родителя не обновляется автоматически, поэтому используем ответ мутации.
   const [savedRoleOverride, setSavedRoleOverride] =
     useState<RoleResponseSchema | null>(null);
+  // ✅ НОВОЕ: effectiveRole учитывает режим копирования
   const effectiveRole: RoleResponseSchema | null =
-    savedRoleOverride ?? role ?? null;
+    savedRoleOverride ?? sourceRole ?? null;
 
   // ✅ НОВОЕ: Триггер принудительной пересинхронизации черновика пользователей
-  const [usersResyncKey, setUsersResyncKey] = useState(0);
+  const [, setUsersResyncKey] = useState(0);
 
-  // ✅ СТАЛО: синхронизация состояния в обработчике событий, а не в эффекте
-  const handleOpenChange = (newOpen: boolean) => {
-    if (newOpen && !open) {
-      // Открытие модалки — сбрасываем состояние для чистой инициализации
-      setSessionKey((prev) => prev + 1);
-      setSavedRoleOverride(null); // ✅ Сброс override при открытии новой роли
-      setUsersDraft([]); // ✅ Сброс черновика пользователей
-      lastInitializedRoleId.current = null; // ✅ Сброс флага инициализации
-    }
-    if (!newOpen) {
-      // Закрытие модалки — сброс формы (Правило №20)
-      reset(CREATE_DEFAULTS);
-      setSavedRoleOverride(null);
-      setUsersDraft([]);
-      lastInitializedRoleId.current = null;
-    }
-    onOpenChange(newOpen);
-  };
 
   // ==========================================
   // ✅ ПОЛЕ ОРГАНИЗАЦИЯ - СОСТОЯНИЕ : единый источник названий
@@ -139,8 +131,9 @@ export function EditRoleModal({
   }, [tenantsData]);
 
   // Пустая строка = "использовать организацию текущего пользователя".
+  // ✅ НОВОЕ: При копировании используем организацию исходной роли
   const [selectedTenantId, setSelectedTenantId] = useState<string>(
-    role?.tenant_id ?? "",
+    sourceRole?.tenant_id ?? "",
   );
   // ✅ Ключ для принудительного перемонта ReferenceSelect при отклонении смены
   const [tenantSelectKey, setTenantSelectKey] = useState(0);
@@ -181,8 +174,8 @@ export function EditRoleModal({
     if (!canChangeTenant || newTenantId === effectiveTenantId) return;
 
     // Проверяем только СОХРАНЁННЫЕ связи (Правило из ТЗ).
-    const hasSections = (role?.section_ids?.length ?? 0) > 0;
-    const hasPermissions = (role?.permissions?.length ?? 0) > 0;
+    const hasSections = (sourceRole?.section_ids?.length ?? 0) > 0;
+    const hasPermissions = (sourceRole?.permissions?.length ?? 0) > 0;
     const hasUsers = initialUserIds.length > 0;
 
     if (hasSections || hasPermissions || hasUsers) {
@@ -245,14 +238,23 @@ export function EditRoleModal({
   }, [usersData]);
 
   // ✅ Выносим roleId в примитивную переменную (Правило №37 + exhaustive-deps)
-  const roleId = role?.id;
+  // const roleId = role?.id;
 
   // ✅ Инициализация initialUserIds из role_ids пользователей
+  // const initialUserIds: string[] =
+  //   !roleId || allUsers.length === 0
+  //     ? []
+  //     : allUsers.filter((u) => u.role_ids?.includes(roleId)).map((u) => u.id);
+
+  // ✅ НОВОЕ: При копировании используем roleId исходной роли
+  const sourceRoleId = sourceRole?.id;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const initialUserIds: string[] =
-    !roleId || allUsers.length === 0
+    !sourceRoleId || allUsers.length === 0
       ? []
-      : allUsers.filter((u) => u.role_ids?.includes(roleId)).map((u) => u.id);
+      : allUsers
+          .filter((u) => u.role_ids?.includes(sourceRoleId))
+          .map((u) => u.id);
 
   // ✅ Вычисляем исходный черновик пользователей
   const initialUsersDraft: UserDraft[] = useMemo(() => {
@@ -265,28 +267,82 @@ export function EditRoleModal({
         markedForDeletion: false,
       }));
   }, [allUsers, initialUserIds]);
-
+  
   // ✅ ИСПРАВЛЕНИЕ F5: Состояние черновика начинается пустым
   const [usersDraft, setUsersDraft] = useState<UserDraft[]>([]);
   const lastInitializedRoleId = useRef<string | null>(null);
 
-  // ✅ Синхронизация черновика ТОЛЬКО когда данные гарантированно загружены
-  // ✅ СТАЛО: useEffect только для инициализации при загрузке данных
-  // Сброс состояния выполняется в handleOpenChange (обработчик событий)
-  useEffect(() => {
-    if (open && roleId && !isUsersLoading && usersData) {
-      if (lastInitializedRoleId.current !== roleId) {
-        setUsersDraft(initialUsersDraft);
-        lastInitializedRoleId.current = roleId;
+  // ✅ синхронизация состояния в обработчике событий, а не в эффекте
+  const handleOpenChange = useCallback(
+    (newOpen: boolean) => {
+      if (newOpen && !open) {
+        // Открытие модалки — сбрасываем состояние для чистой инициализации
+        setSessionKey((prev) => prev + 1);
+        setSavedRoleOverride(null); // ✅ Сброс override при открытии новой роли
+        setUsersDraft([]); // ✅ Сброс черновика пользователей
+        lastInitializedRoleId.current = null; // ✅ Сброс флага инициализации
       }
+      if (!newOpen) {
+        // Закрытие модалки — сброс формы (Правило №20)
+        reset(CREATE_DEFAULTS);
+        setSavedRoleOverride(null);
+        setUsersDraft([]);
+        lastInitializedRoleId.current = null;
+      }
+      onOpenChange(newOpen);
+    },
+    [open, onOpenChange, reset],
+  );
+  // ✅ Синхронизация черновика ТОЛЬКО когда данные гарантированно загружены
+  // ✅ useEffect только для инициализации при загрузке данных
+  // Сброс состояния выполняется в handleOpenChange (обработчик событий)
+  // useEffect(() => {
+  //   if (open && roleId && !isUsersLoading && usersData) {
+  //     if (lastInitializedRoleId.current !== roleId) {
+  //       setUsersDraft(initialUsersDraft);
+  //       lastInitializedRoleId.current = roleId;
+  //     }
+  //   }
+  // }, [
+  //   open,
+  //   roleId,
+  //   initialUsersDraft,
+  //   isUsersLoading,
+  //   usersData,
+  //   usersResyncKey,
+  // ]);
+  // ✅ Инициализация черновика пользователей при открытии модалки
+  // Используем sessionKey для гарантированного сброса при каждом открытии
+  useEffect(() => {
+    if (!open) {
+      // При закрытии модалки сбрасываем состояние
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUsersDraft([]);
+      lastInitializedRoleId.current = null;
+      return;
+    }
+
+    // При копировании или создании новой роли — инициализируем из данных источника
+    if (sourceRoleId && !isUsersLoading && usersData) {
+      // ✅ Сбрасываем флаг при каждом открытии модалки (через сравнение с текущим)
+      // Это гарантирует повторную инициализацию при копировании
+      const currentKey = `${sourceRoleId}-${sessionKey}`;
+      if (lastInitializedRoleId.current !== currentKey) {
+        setUsersDraft(initialUsersDraft);
+        lastInitializedRoleId.current = currentKey;
+      }
+    } else if (!sourceRoleId) {
+      // Режим создания новой роли (не копирование)
+      setUsersDraft([]);
+      lastInitializedRoleId.current = null;
     }
   }, [
     open,
-    roleId,
+    sourceRoleId,
     initialUsersDraft,
     isUsersLoading,
     usersData,
-    usersResyncKey,
+    sessionKey, // ✅ Добавлена зависимость от sessionKey для гарантированного сброса
   ]);
 
   // ✅ selectedUserIds вычисляется из usersDraft (фильтрует помеченных на удаление)
@@ -312,9 +368,24 @@ export function EditRoleModal({
   // ==========================================
   // ДАННЫЕ ПОЛНОМОЧИЙ
   // ==========================================
+  // const initialPerms: PermissionDraft[] = role?.permissions
+  //   ? role.permissions.map((p) => ({
+  //       id: p.id,
+  //       doctype: p.doctype,
+  //       doctype_name: p.doctype_name ?? undefined,
+  //       role_name: p.role_name ?? undefined,
+  //       tenant_name: p.tenant_name ?? undefined,
+  //       full_access: p.full_access ?? false,
+  //       author: p.author ?? false,
+  //       reader: p.reader ?? false,
+  //       editor: p.editor ?? false,
+  //       can_delete: p.can_delete ?? false,
+  //       access_by_tags: p.access_by_tags ?? false,
+  //     }))
+  //   : [];
   const initialPerms: PermissionDraft[] = role?.permissions
     ? role.permissions.map((p) => ({
-        id: p.id,
+        id: isCopy ? undefined : p.id,
         doctype: p.doctype,
         doctype_name: p.doctype_name ?? undefined,
         role_name: p.role_name ?? undefined,
@@ -532,26 +603,56 @@ export function EditRoleModal({
 
   // ✅ Правило №37: useEffect ТОЛЬКО для reset формы
   // ✅ СТАЛО: useEffect только для reset формы (без setState)
+  // useEffect(() => {
+  //   if (open && effectiveRole) {
+  //     reset({
+  //       name: effectiveRole.name || "",
+  //       description: effectiveRole.description || "",
+  //       section_ids: effectiveRole.section_ids || [],
+  //     });
+  //   } else if (open && !effectiveRole) {
+  //     reset(CREATE_DEFAULTS);
+  //   }
+  // }, [open, effectiveRole, reset]);
   useEffect(() => {
-    if (open && effectiveRole) {
+    if (open && sourceRole) {
       reset({
-        name: effectiveRole.name || "",
-        description: effectiveRole.description || "",
-        section_ids: effectiveRole.section_ids || [],
+        name: isCopy ? `${sourceRole.name} (копия)` : sourceRole.name || "",
+        description: sourceRole.description || "",
+        section_ids: sourceRole.section_ids || [],
       });
-    } else if (open && !effectiveRole) {
+    } else if (open && !sourceRole) {
       reset(CREATE_DEFAULTS);
     }
-  }, [open, effectiveRole, reset]);
+  }, [open, isCopy, sourceRole, reset]);
 
-  // ✅ Мемоизированный обработчик формы для предотвращения
-  // чтения useRef во время рендера (ошибка React Compiler)
-  // const handleFormSubmit: React.FormEventHandler<HTMLFormElement> = useCallback(
-  //   (e) => {
-  //     handleSubmit(onSubmit, onInvalid)(e);
-  //   },
-  //   [handleSubmit, onSubmit, onInvalid],
-  // );
+  // ✅ Правило №37: Синхронизация полномочий при открытии модалки
+  // useState(initialPerms) инициализируется только при первом маунте.
+  // При открытии для копирования или другой роли нужно синхронизировать вручную.
+  useEffect(() => {
+    if (!open) return;
+
+    const sourcePerms = sourceRole?.permissions ?? [];
+    const perms: PermissionDraft[] = sourcePerms.map((p) => ({
+      // ✅ При копировании НЕ копируем id — это будут новые записи
+      id: isCopy ? undefined : p.id,
+      doctype: p.doctype,
+      doctype_name: p.doctype_name ?? undefined,
+      role_name: p.role_name ?? undefined,
+      tenant_name: p.tenant_name ?? undefined,
+      full_access: p.full_access ?? false,
+      author: p.author ?? false,
+      reader: p.reader ?? false,
+      editor: p.editor ?? false,
+      can_delete: p.can_delete ?? false,
+      access_by_tags: p.access_by_tags ?? false,
+    }));
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPermissions(perms);
+    setInitialPermissionsSnapshot(JSON.stringify(perms));
+  }, [open, sourceRole, isCopy]);
+
   const handleFormSubmit: React.FormEventHandler<HTMLFormElement> = useCallback(
     (e) => {
       handleSubmit(onSubmit, onInvalid)(e);
@@ -566,7 +667,9 @@ export function EditRoleModal({
           open
             ? isEdit
               ? `edit-${role?.id}-${sessionKey}`
-              : `create-${sessionKey}`
+              : isCopy
+                ? `copy-${copyFromRole?.id}-${sessionKey}`
+                : `create-${sessionKey}`
             : "closed"
         }
         className="max-h-[90vh] items-start pt-8"
@@ -581,13 +684,15 @@ export function EditRoleModal({
           <DialogTitle>
             {isEdit
               ? `Редактирование роли: ${effectiveRole?.name}`
-              : "Создание новой роли"}
+              : isCopy
+                ? `Копирование роли: ${copyFromRole?.name}`
+                : "Создание новой роли"}
           </DialogTitle>
         </DialogHeader>
 
         {/* ✅ Правило №37: key на форме гарантирует перемонт при смене role */}
         <form
-          key={role?.id || "new"}
+          key={sourceRole?.id || "new"}
           onSubmit={handleFormSubmit}
           className="space-y-4"
         >

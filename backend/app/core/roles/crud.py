@@ -114,5 +114,32 @@ class CRUDRole:
         await db.flush()
         return db_obj
 
+    async def check_name_exists(
+        self,
+        db: AsyncSession,
+        *,
+        name: str,
+        tenant_id: uuid.UUID,
+        exclude_role_id: uuid.UUID | None = None,
+    ) -> bool:
+        """
+        Проверяет, существует ли роль с таким названием в организации.
+        
+        Параметры:
+            name: название роли для проверки
+            tenant_id: ID организации
+            exclude_role_id: ID роли для исключения (при обновлении)
+        
+        Возвращает:
+            True, если роль с таким названием уже существует
+        """
+        stmt = select(RoleModel).where(
+            RoleModel.name == name,
+            RoleModel.tenant_id == tenant_id,
+        )
+        if exclude_role_id is not None:
+            stmt = stmt.where(RoleModel.id != exclude_role_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
 crud_role = CRUDRole()

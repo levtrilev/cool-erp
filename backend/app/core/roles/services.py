@@ -46,15 +46,32 @@ class RoleService:
             len(data.permissions) if data.permissions else 0,
         )
 
-        logger.info(
-            "[save_role] START: role_id=%s, user_ids=%s, permissions_count=%s",
-            role_id,
-            data.user_ids,
-            len(data.permissions) if data.permissions else 0,
+        # ============================================================
+        # 0. ЦЕЛЕВАЯ ОРГАНИЗАЦИЯ РОЛИ — безусловное присваивание
+        # ============================================================
+        # ✅ Сначала всегда присваиваем значение по умолчанию.
+        # Это гарантирует, что имя связано с объектом на любой ветке.
+        target_role_tenant_id: uuid.UUID = (
+            data.tenant_id if data.tenant_id is not None else current_tenant_id # type: ignore
         )
 
+        if role_id is not None:
+            # При обновлении авторитетным источником является БД,
+            # а не значение, присланное клиентом.
+            existing_role = await crud_role.get(
+                db,
+                item_id=role_id,
+                current_tenant_id=current_tenant_id,
+                is_superadmin=is_superadmin,
+            )
+            if existing_role is None:
+                raise HTTPException(status_code=404, detail="Роль не найдена")
+
+            # ✅ Перезаписываем только для существующей роли
+            target_role_tenant_id = existing_role.tenant_id
+
         # ============================================================
-        # 0. ВАЛИДАЦИЯ: разделы должны принадлежать организации роли
+        # 0.1. ВАЛИДАЦИЯ: разделы должны принадлежать организации роли
         # ============================================================
         if data.section_ids:
             # Определяем целевую организацию роли
@@ -68,7 +85,7 @@ class RoleService:
                 )
                 if not role_for_check:
                     raise HTTPException(status_code=404, detail="Роль не найдена")
-                target_role_tenant_id: uuid.UUID = role_for_check.tenant_id
+                target_role_tenant_id = role_for_check.tenant_id
             else:
                 # При создании — организация из данных или текущая
                 target_role_tenant_id = data.tenant_id or current_tenant_id
@@ -116,6 +133,20 @@ class RoleService:
                 "[save_role] Sections validated: %d sections OK for tenant %s",
                 len(found_sections),
                 target_role_tenant_id,
+            )
+
+        # ============================================================
+        # 0.2. Проверка уникальности названия роли
+        # ============================================================
+        if await crud_role.check_name_exists(
+            db,
+            name=data.name,
+            tenant_id=target_role_tenant_id,
+            exclude_role_id=role_id,  # При обновлении исключаем саму роль
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Роль с названием '{data.name}' уже существует в этой организации",
             )
 
         # ============================================================
