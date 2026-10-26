@@ -87,10 +87,10 @@ export function EditRoleModal({
   const isSuperadmin = userData?.data?.is_superadmin === true;
   const isEdit = !!role;
 
-  // ✅ НОВОЕ: Режим копирования — создаём новую роль с данными из copyFromRole
+  // ✅ Режим копирования — создаём новую роль с данными из copyFromRole
   const isCopy = !!copyFromRole && !isEdit;
 
-  // ✅ НОВОЕ: Эффективная роль для инициализации формы
+  // ✅ Эффективная роль для инициализации формы
   // При копировании используем copyFromRole, при редактировании — role
   const sourceRole = copyFromRole ?? role ?? null;
 
@@ -101,18 +101,15 @@ export function EditRoleModal({
 
   // ✅ Правило №37: Паттерн с sessionKey для гарантированного перемонта при открытии
   const [sessionKey, setSessionKey] = useState(0);
-
-  // ✅ НОВОЕ: Сохранённая версия роли — источник истины после успешного сохранения.
+  // ✅ Сохранённая версия роли — источник истины после успешного сохранения.
   // Проп role из родителя не обновляется автоматически, поэтому используем ответ мутации.
   const [savedRoleOverride, setSavedRoleOverride] =
     useState<RoleResponseSchema | null>(null);
-  // ✅ НОВОЕ: effectiveRole учитывает режим копирования
+  // ✅ effectiveRole учитывает режим копирования
   const effectiveRole: RoleResponseSchema | null =
     savedRoleOverride ?? sourceRole ?? null;
-
-  // ✅ НОВОЕ: Триггер принудительной пересинхронизации черновика пользователей
+  // ✅ Триггер принудительной пересинхронизации черновика пользователей
   const [, setUsersResyncKey] = useState(0);
-
 
   // ==========================================
   // ✅ ПОЛЕ ОРГАНИЗАЦИЯ - СОСТОЯНИЕ : единый источник названий
@@ -267,7 +264,7 @@ export function EditRoleModal({
         markedForDeletion: false,
       }));
   }, [allUsers, initialUserIds]);
-  
+
   // ✅ ИСПРАВЛЕНИЕ F5: Состояние черновика начинается пустым
   const [usersDraft, setUsersDraft] = useState<UserDraft[]>([]);
   const lastInitializedRoleId = useRef<string | null>(null);
@@ -418,11 +415,21 @@ export function EditRoleModal({
   );
 
   // ✅ Мемоизированное вычисление sectionIds.
-
   const sectionIds = useWatch({
     control,
     name: "section_ids",
     defaultValue: [],
+  });
+  // ✅ Реактивное отслеживание названия и описания
+  const watchedName = useWatch({
+    control,
+    name: "name",
+    defaultValue: "",
+  });
+  const watchedDescription = useWatch({
+    control,
+    name: "description",
+    defaultValue: "",
   });
 
   const initialSectionIds = useMemo<string[]>(
@@ -457,8 +464,20 @@ export function EditRoleModal({
     const current = selectedUserIds.slice().sort();
     return JSON.stringify(initial) !== JSON.stringify(current);
   }, [initialUserIds, selectedUserIds]);
+  // ✅ Изменения в основных полях (название, описание)
+  // Сравниваем с effectiveRole, который обновляется через
+  // setSavedRoleOverride(savedRole) после сохранения.
+  // Поэтому после сохранения это значение автоматически станет false.
+  const hasBasicsChanges = useMemo(() => {
+    const initialName = effectiveRole?.name || "";
+    const initialDescription = effectiveRole?.description || "";
+    const currentName = watchedName || "";
+    const currentDescription = watchedDescription || "";
+    return currentName !== initialName || currentDescription !== initialDescription;
+  }, [watchedName, watchedDescription, effectiveRole?.name, effectiveRole?.description]);
 
   const hasAnyChanges: boolean =
+    hasBasicsChanges ||
     hasTenantChanges ||
     hasSectionChanges ||
     hasPermissionChanges ||
@@ -571,9 +590,12 @@ export function EditRoleModal({
           lastInitializedRoleId.current = null;
           setUsersResyncKey((prev) => prev + 1);
 
-          // ✅ 4. Модалку НЕ закрываем. Обновляем список родителя.
+          // ✅ 4. Модальное окно НЕ закрываем. Обновляем список родителя.
           await onRoleSaved(savedRole.id, savedRole.name);
-
+          // ✅ При копировании закрываем модальное окно после сохранения.
+          if (isCopy) {
+            onOpenChange(false);
+          }
           toast({ title: "Роль сохранена" });
         }
       },
@@ -700,7 +722,7 @@ export function EditRoleModal({
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="main" className="relative">
                 Основное
-                {hasTenantChanges && (
+                {(hasTenantChanges || hasBasicsChanges) && (
                   <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
                     *
                   </span>
@@ -932,10 +954,10 @@ export function EditRoleModal({
               className="min-w-24"
               onClick={() => handleOpenChange(false)}
             >
-              {hasAnyChanges ? "Отмена" : "Закрыть"}
+              {hasAnyChanges || isCopy ? "Отмена" : "Закрыть"}
             </Button>
             {/* <Button type="submit" disabled={saveMutation.isPending}> */}
-            <Button type="submit" disabled={!hasAnyChanges}>
+            <Button type="submit" disabled={!hasAnyChanges && !isCopy}>
               {saveMutation.isPending && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
