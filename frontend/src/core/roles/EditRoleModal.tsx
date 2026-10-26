@@ -128,7 +128,7 @@ export function EditRoleModal({
   }, [tenantsData]);
 
   // Пустая строка = "использовать организацию текущего пользователя".
-  // ✅ НОВОЕ: При копировании используем организацию исходной роли
+  // ✅ При копировании используем организацию исходной роли
   const [selectedTenantId, setSelectedTenantId] = useState<string>(
     sourceRole?.tenant_id ?? "",
   );
@@ -165,8 +165,6 @@ export function EditRoleModal({
   const canChangeTenant = isSuperadmin;
 
   // ✅ Проверка наличия связей перед сменой организации
-  // ✅ Исправлено: принимает только (value: string), как требует ReferenceSelect
-
   const handleTenantChange = (newTenantId: string): void => {
     if (!canChangeTenant || newTenantId === effectiveTenantId) return;
 
@@ -243,7 +241,7 @@ export function EditRoleModal({
   //     ? []
   //     : allUsers.filter((u) => u.role_ids?.includes(roleId)).map((u) => u.id);
 
-  // ✅ НОВОЕ: При копировании используем roleId исходной роли
+  // ✅ При копировании используем roleId исходной роли
   const sourceRoleId = sourceRole?.id;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const initialUserIds: string[] =
@@ -265,7 +263,7 @@ export function EditRoleModal({
       }));
   }, [allUsers, initialUserIds]);
 
-  // ✅ ИСПРАВЛЕНИЕ F5: Состояние черновика начинается пустым
+  // ✅ F5: Состояние черновика начинается пустым
   const [usersDraft, setUsersDraft] = useState<UserDraft[]>([]);
   const lastInitializedRoleId = useRef<string | null>(null);
 
@@ -290,25 +288,8 @@ export function EditRoleModal({
     },
     [open, onOpenChange, reset],
   );
-  // ✅ Синхронизация черновика ТОЛЬКО когда данные гарантированно загружены
-  // ✅ useEffect только для инициализации при загрузке данных
-  // Сброс состояния выполняется в handleOpenChange (обработчик событий)
-  // useEffect(() => {
-  //   if (open && roleId && !isUsersLoading && usersData) {
-  //     if (lastInitializedRoleId.current !== roleId) {
-  //       setUsersDraft(initialUsersDraft);
-  //       lastInitializedRoleId.current = roleId;
-  //     }
-  //   }
-  // }, [
-  //   open,
-  //   roleId,
-  //   initialUsersDraft,
-  //   isUsersLoading,
-  //   usersData,
-  //   usersResyncKey,
-  // ]);
-  // ✅ Инициализация черновика пользователей при открытии модалки
+
+  // ✅ Инициализация черновика пользователей при открытии модального окна
   // Используем sessionKey для гарантированного сброса при каждом открытии
   useEffect(() => {
     if (!open) {
@@ -365,21 +346,6 @@ export function EditRoleModal({
   // ==========================================
   // ДАННЫЕ ПОЛНОМОЧИЙ
   // ==========================================
-  // const initialPerms: PermissionDraft[] = role?.permissions
-  //   ? role.permissions.map((p) => ({
-  //       id: p.id,
-  //       doctype: p.doctype,
-  //       doctype_name: p.doctype_name ?? undefined,
-  //       role_name: p.role_name ?? undefined,
-  //       tenant_name: p.tenant_name ?? undefined,
-  //       full_access: p.full_access ?? false,
-  //       author: p.author ?? false,
-  //       reader: p.reader ?? false,
-  //       editor: p.editor ?? false,
-  //       can_delete: p.can_delete ?? false,
-  //       access_by_tags: p.access_by_tags ?? false,
-  //     }))
-  //   : [];
   const initialPerms: PermissionDraft[] = role?.permissions
     ? role.permissions.map((p) => ({
         id: isCopy ? undefined : p.id,
@@ -408,7 +374,7 @@ export function EditRoleModal({
     return JSON.stringify(permissions) !== initialPermissionsSnapshot;
   }, [permissions, initialPermissionsSnapshot]);
 
-  // ✅ НОВОЕ: Количество активных (не помеченных на удаление) полномочий для счётчика на вкладке
+  // ✅ Количество активных (не помеченных на удаление) полномочий для счётчика на вкладке
   const activePermissionsCount = useMemo(
     () => permissions.filter((p) => !p.markedForDeletion).length,
     [permissions],
@@ -446,12 +412,6 @@ export function EditRoleModal({
     () => initialSectionIds.filter((id) => !(sectionIds || []).includes(id)),
     [sectionIds, initialSectionIds],
   );
-
-  // // ✅ ID разделов, добавленных в текущей сессии (для пометки "новый")
-  // const newSectionIds = useMemo<string[]>(() => {
-  //   const initial = effectiveRole?.section_ids || [];
-  //   return (sectionIds || []).filter((id) => !initial.includes(id));
-  // }, [sectionIds, effectiveRole?.section_ids]);
 
   const hasSectionChanges = useMemo(() => {
     const initial = (effectiveRole?.section_ids || []).slice().sort();
@@ -623,19 +583,7 @@ export function EditRoleModal({
     });
   };
 
-  // ✅ Правило №37: useEffect ТОЛЬКО для reset формы
-  // ✅ СТАЛО: useEffect только для reset формы (без setState)
-  // useEffect(() => {
-  //   if (open && effectiveRole) {
-  //     reset({
-  //       name: effectiveRole.name || "",
-  //       description: effectiveRole.description || "",
-  //       section_ids: effectiveRole.section_ids || [],
-  //     });
-  //   } else if (open && !effectiveRole) {
-  //     reset(CREATE_DEFAULTS);
-  //   }
-  // }, [open, effectiveRole, reset]);
+  // ✅ Правило №37: useEffect ТОЛЬКО для reset формы (без setState)
   useEffect(() => {
     if (open && sourceRole) {
       reset({
