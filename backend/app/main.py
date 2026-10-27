@@ -7,10 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-# Импорт модулей с обработчиками для регистрации
-# import app.operations.replica.handlers  # noqa: F401
-# import app.sales.replica.handlers     # noqa: F401
-# import app.hr.replica.handlers        # noqa: F401
+# Импорт обработчиков репликации для регистрации
+import app.modules.inventory.replica.handlers  # pyright: ignore[reportUnusedImport] # noqa: F401
+import app.modules.sales.replica.handlers      # pyright: ignore[reportUnusedImport] # noqa: F401
 
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
@@ -28,6 +27,8 @@ from app.core.users.router import router as user_router
 from app.core.domains.router import router as domain_router
 from app.core.doctypes.router import router as doctype_router
 from app.core.notes.router import router as notes_router
+from app.modules.inventory.warehouses.router import router as warehouses_router
+from app.modules.sales.goods.router import router as goods_router
 
 from app.core.events.replicator import replicator
 
@@ -117,3 +118,5 @@ app.include_router(permission_router)
 app.include_router(domain_router)
 app.include_router(doctype_router)
 app.include_router(notes_router)
+app.include_router(warehouses_router)
+app.include_router(goods_router)

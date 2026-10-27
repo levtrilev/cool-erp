@@ -22,6 +22,8 @@ import { AdminRolesPage } from "@/core/roles/AdminRolesPage";
 import { DomainsPage } from "@/core/domains/DomainsPage";
 import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
 import { TagsPage } from "./core/tags/TagsPage";
+import { GoodsPage } from "./modules/sales/goods/GoodsPage";
+import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 
 const queryClient = new QueryClient();
 
@@ -32,11 +34,11 @@ function App() {
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/notes" element={<NotesPage />} />
+            <Route path="/sales/goods" element={<GoodsPage />} />
+            <Route path="/inventory/warehouses" element={<WarehousesPage />} />
             {/* Другие маршруты будут добавлены здесь */}
             <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
           </Route>
-
-
 
 
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}

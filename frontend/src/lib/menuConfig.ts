@@ -1,4 +1,4 @@
-import { FileText, Database, Settings, Users, Building2 } from "lucide-react";
+import { FileText, Database, Settings, Users, Building2, Gift, HouseIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface MenuItem {
@@ -21,6 +21,18 @@ export const MENU_CONFIG: MenuItem[] = [
         label: "Заметки",
         path: "/notes",
         icon: FileText,
+      },
+      {
+        id: "goods",
+        label: "Товары",
+        path: "/sales/goods",
+        icon: Gift,
+      },
+      {
+        id: "warehouses",
+        label: "Склады",
+        path: "/inventory/warehouses",
+        icon: HouseIcon,
       },
       // Здесь будут добавлены другие пункты НСИ:
       // { id: "organizations", label: "Организации", path: "/organizations", icon: Building2 },
