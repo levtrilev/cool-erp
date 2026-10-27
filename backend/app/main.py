@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -5,6 +6,11 @@ import bcrypt
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
+
+# Импорт модулей с обработчиками для регистрации
+# import app.operations.replica.handlers  # noqa: F401
+# import app.sales.replica.handlers     # noqa: F401
+# import app.hr.replica.handlers        # noqa: F401
 
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
@@ -22,6 +28,8 @@ from app.core.users.router import router as user_router
 from app.core.domains.router import router as domain_router
 from app.core.doctypes.router import router as doctype_router
 from app.core.notes.router import router as notes_router
+
+from app.core.events.replicator import replicator
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -58,8 +66,17 @@ async def lifespan(app: FastAPI):
                 "🚀 СуперАдминистратор по умолчанию успешно проверен/создан в PostgreSQL."
             )
 
-    yield  # В этой точке приложение запускается и начинает слушать запросы
+    replicator_task = asyncio.create_task(replicator.run())
 
+    # yield  # В этой точке приложение запускается и начинает слушать запросы
+    try:
+        yield
+    finally:
+        replicator_task.cancel()
+        try:
+            await replicator_task
+        except asyncio.CancelledError:
+            pass
     # Код выполняется строго ПРИ ОСТАНОВКЕ сервера
     print("🛑 Сервер останавливается. Очистка ресурсов...")
 
