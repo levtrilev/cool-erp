@@ -1,0 +1,332 @@
+# ════════════════════════════════════════════════════════════
+# ЗАДАНИЕ НА ФОРМУ: EditRoleModal - Редактирование роли
+# Формат: cool-erp-form v1.1
+# Все правила проекта подразумеваются и НЕ описываются здесь.
+# ════════════════════════════════════════════════════════════
+
+meta:
+  format_version: "1.1"               # Версия формата задания
+  module: core/roles                  # Папка модуля во фронтенде и бэкенде
+  component: EditRoleModal            # Имя React-компонента модалки
+  entity: role                        # Сущность бэкенда (таблица/модель)
+  entity_type: RoleResponseSchema     # Тип данных сущности (для initialData)
+  entity_kind: reference              # ← ТИП СУЩНОСТИ (обязательное поле)
+  # ┌─────────────────────────────────────────────────────────┐
+  # │ Значения:                                                │
+  # │   document  — контракт документов (§3.3) + жизненный    │
+  # │               цикл, блокировки, режим readOnly          │
+  # │   reference — справочник без контракта документов       │
+  # └─────────────────────────────────────────────────────────┘
+  save_mutation: useSaveRoleRolesSavePost   # Orval-хук сохранения
+
+# Заголовки модалки для каждого режима
+titles:
+  create: "Создание новой роли"
+  edit: "Редактирование роли: {entity.name}"
+  copy: "Копирование роли: {copy_source.name}"
+
+# Геометрия диалога
+dialog:
+  width: 800
+  min_height: 600
+
+# ════════════════════════════════════════════════════════════
+# РЕЖИМЫ РАБОТЫ ФОРМЫ
+# ════════════════════════════════════════════════════════════
+modes:
+  create: {}                          # Создание с нуля (entity = null)
+
+  edit: {}                            # Редактирование (передаётся entity)
+
+  copy:                               # Копирование
+    source_prop: copyFromRole         # Имя пропа с исходными данными
+    name_transform: "{name} (копия)"  # Трансформация имени при копировании
+    strip_ids_in: [permissions]       # Черновики, где убрать id (новые записи)
+    close_after_save: true            # Закрыть модалку после сохранения копии
+
+# ════════════════════════════════════════════════════════════
+# ИСТОЧНИКИ ДАННЫХ
+# ════════════════════════════════════════════════════════════
+data_sources:
+  current_user:
+    endpoint: GET /auth/user
+    provides:
+      - current_tenant_id
+      - current_tenant_name
+      - is_superadmin
+
+  tenants:
+    endpoint: GET /tenants
+    params: { limit: 1000, skip: 0 }
+    provides: [tenants_list]
+
+  sections:
+    endpoint: GET /sections
+    params:
+      target_tenant_id: "{effective_tenant_id}"
+      limit: 1000
+    provides: [sections_list]
+
+  users:
+    endpoint: GET /users
+    params:
+      tenant_id: "{effective_tenant_id}"
+      limit: 1000
+    provides: [users_list]
+
+# ════════════════════════════════════════════════════════════
+# КОНТЕКСТ ОРГАНИЗАЦИИ (особая логика мульти-арендности)
+# ════════════════════════════════════════════════════════════
+tenant_context:
+  effective_tenant:
+    priority:
+      - selected_tenant_id
+      - source_entity.tenant_id
+      - current_tenant_id
+
+  change_allowed_for: superadmin
+
+  change_validation:
+    reject_if_any_assigned:
+      - sections
+      - permissions
+      - users
+    rejection_message: |
+      Для роли "{entity.name}" уже назначены: {assigned_list}.
+      Сначала удалите все назначения.
+    on_reject: revert_select
+
+  change_warning: |
+    ⚠ Организация изменена. Сохраните роль для применения изменений.
+
+# ════════════════════════════════════════════════════════════
+# ВКЛАДКИ
+# ════════════════════════════════════════════════════════════
+tabs:
+
+  - id: main
+    label: Основное
+    dirty_indicators: [basics, tenant]
+
+    fields:
+      - name: organization
+        label: Организация
+        icon: building
+        type: reference_single
+        source: tenants
+        behavior_by_permission:
+          superadmin:
+            mode: editable
+          admin:
+            mode: readonly
+            hint_edit: "Изменить организацию может только суперадмин."
+            hint_create: "Роль будет создана для вашей организации."
+
+      - name: name
+        label: Название роли
+        type: text
+        placeholder: "Например: Бухгалтер"
+        required: true
+        validation:
+          rule: min_length
+          value: 1
+          message: "Название обязательно"
+
+      - name: description
+        label: Описание
+        type: textarea
+        placeholder: "Описание роли..."
+        rows: 3
+        required: false
+
+  - id: sections
+    label: Разделы
+    counter: "{sections.count}"
+    dirty_indicators: [sections]
+
+    fields:
+      - name: section_ids
+        label: Разделы доступа
+        type: reference_multi_chips
+        source: sections
+        placeholder: "Добавить разделы..."
+        dialog_heading: "Доступные разделы"
+        limit: 100
+        columns:
+          - { field: description, label: Описание }
+        draft_marks:
+          mark_new: true
+          mark_deleted: true
+
+  - id: permissions
+    label: Полномочия
+    counter: "{permissions.active_count}"
+    dirty_indicators: [permissions]
+
+    parts:
+      - type: draft_table
+        component: PermissionsTab
+        draft_entity: permissions
+        draft_flags:
+          deletion_flag: markedForDeletion
+          new_marker: "id == null"
+        pass_props:
+          - { name: permissions, value: "{permissions_draft}" }
+          - { name: tenantId, value: "{effective_tenant_id}" }
+          - { name: roleName, value: "{entity.name}" }
+
+  - id: users
+    label: Пользователи
+    counter: "{users.selected_count}"
+    dirty_indicators: [users]
+
+    parts:
+      - type: draft_table
+        component: UsersTab
+        draft_entity: users
+        draft_flags:
+          deletion_flag: markedForDeletion
+          new_marker: "id not in initial_user_ids"
+        initial_relation:
+          source: users_list
+          condition: "user.role_ids contains entity.id"
+        pass_props:
+          - { name: users, value: "{users_draft}" }
+          - { name: allUsers, value: "{users_list}" }
+          - { name: initialUserIds, value: "{initial_user_ids}" }
+        loading_state: show_spinner
+
+# ════════════════════════════════════════════════════════════
+# КНОПКИ-ДЕЙСТВИЯ
+# ════════════════════════════════════════════════════════════
+actions:
+  - id: save
+    label: Сохранить
+    type: submit
+    icon: check
+    disabled_when: "not has_any_changes and mode != 'copy'"
+    loading_icon: spinner
+
+  - id: cancel
+    type: close
+    icon: none
+    label_rules:
+      when: "has_any_changes or mode == 'copy'"
+      then: "Отмена"
+      else: "Закрыть"
+    min_width: 96px
+
+# ════════════════════════════════════════════════════════════
+# ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+# ════════════════════════════════════════════════════════════
+change_indicators:
+  basics:
+    watch: [name, description]
+    compare_with:
+      name: source_entity.name
+      description: source_entity.description
+    mode: field_by_field
+
+  tenant:
+    watch: [effective_tenant_id]
+    compare_with: source_entity.tenant_id
+    fallback_compare: current_tenant_id
+    only_when: tenant_context.change_allowed_for
+
+  sections:
+    watch: [section_ids]
+    compare_with: source_entity.section_ids
+    mode: sorted_json
+
+  permissions:
+    watch: [permissions_draft]
+    compare_with: permissions_snapshot
+    mode: json_snapshot
+
+  users:
+    watch: [selected_user_ids]
+    compare_with: initial_user_ids
+    mode: sorted_json
+
+has_any_changes:
+  formula: "basics or tenant or sections or permissions or users"
+
+# ════════════════════════════════════════════════════════════
+# СОБЫТИЯ ЖИЗНЕННОГО ЦИКЛА ФОРМЫ
+# ════════════════════════════════════════════════════════════
+events:
+  on_open:
+    - reset_all_state
+    - increment_session_key
+    - init_form_from_source
+    - init_permissions_draft
+    - init_users_draft_when_loaded
+
+  on_save_before:
+    - check: effective_tenant_id != null
+      on_fail:
+        toast_error: "Не выбрана организация для роли"
+        abort: true
+
+  on_save_success:
+    - invalidate_cache: ["roles"]
+    - invalidate_cache_detail:
+        when: mode == 'edit'
+        keys:
+          - ["role", "{entity.id}"]
+          - ["permissions", "{entity.id}"]
+    - refetch_queries:
+        match: "query_key contains 'user'"
+    - update_source_of_truth
+    - sync_permissions_draft_from_response
+    - resync_users_draft
+    - call_parent: on_role_saved
+    - if: mode == 'copy'
+      then: close_modal
+    - toast: "Роль сохранена"
+
+  on_save_error:
+    - toast_error: "{error.detail || 'Не удалось сохранить роль'}"
+
+  on_close:
+    - reset_form_to_defaults
+    - clear_source_of_truth
+    - clear_all_drafts
+
+# ════════════════════════════════════════════════════════════
+# СТРУКТУРА ПОЛЕЗНОЙ НАГРУЗКИ ПРИ СОХРАНЕНИИ
+# ════════════════════════════════════════════════════════════
+payload:
+  name: "{form.name}"
+  description: "{form.description || ''}"
+  tenant_id: "{effective_tenant_id}"
+  section_ids: "{section_ids}"
+  section_names: "{sections_list | filter_by(section_ids) | map(name)}"
+
+  permissions:
+    source: permissions_draft
+    filter: "!markedForDeletion"
+    map:
+      doctype: "{item.doctype}"
+      doctype_name: "{item.doctype_name || item.doctype}"
+      role_name: "{item.role_name || form.name}"
+      tenant_name: "{tenant_name}"
+      tenant_id: "{effective_tenant_id}"
+      full_access: "{item.full_access}"
+      author: "{item.author}"
+      reader: "{item.reader}"
+      editor: "{item.editor}"
+      can_delete: "{item.can_delete}"
+      access_by_tags: "{item.access_by_tags}"
+      id: "{item.id if exists else omit}"
+
+  user_ids: "{selected_user_ids}"
+
+mutation_params:
+  edit:
+    data: "{payload}"
+    params: { role_id: "{entity.id}" }
+  create:
+    data: "{payload}"
+  copy:
+    data: "{payload}"
