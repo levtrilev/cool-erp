@@ -24,6 +24,7 @@ import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
 import { TagsPage } from "./core/tags/TagsPage";
 import { GoodsPage } from "./modules/sales/goods/GoodsPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
+import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ function App() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/sales/goods" element={<GoodsPage />} />
             <Route path="/inventory/warehouses" element={<WarehousesPage />} />
+            <Route path="/business-partners/companies" element={<CompaniesPage />} />
             {/* Другие маршруты будут добавлены здесь */}
             <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
           </Route>

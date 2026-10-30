@@ -29,6 +29,7 @@ from app.core.doctypes.router import router as doctype_router
 from app.core.notes.router import router as notes_router
 from app.modules.inventory.warehouses.router import router as warehouses_router
 from app.modules.sales.goods.router import router as goods_router
+from app.modules.business_partners.companies.router import router as companies_router
 
 from app.core.events.replicator import replicator
 
@@ -120,3 +121,4 @@ app.include_router(doctype_router)
 app.include_router(notes_router)
 app.include_router(warehouses_router)
 app.include_router(goods_router)
+app.include_router(companies_router)

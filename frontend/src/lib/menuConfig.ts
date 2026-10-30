@@ -1,4 +1,13 @@
-import { FileText, Database, Settings, Users, Building2, Gift, HouseIcon } from "lucide-react";
+import {
+  FileText,
+  Database,
+  Settings,
+  Users,
+  Building2,
+  Gift,
+  HouseIcon,
+  GlobeIcon,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface MenuItem {
@@ -33,6 +42,13 @@ export const MENU_CONFIG: MenuItem[] = [
         label: "Склады",
         path: "/inventory/warehouses",
         icon: HouseIcon,
+      },
+
+      {
+        id: "companies",
+        label: "Компании",
+        path: "/business-partners/companies",
+        icon: GlobeIcon,
       },
       // Здесь будут добавлены другие пункты НСИ:
       // { id: "organizations", label: "Организации", path: "/organizations", icon: Building2 },
@@ -87,7 +103,6 @@ export const MENU_CONFIG: MenuItem[] = [
         path: "/admin/tags",
         icon: Building2,
       },
-
     ],
   },
 ];
@@ -95,7 +110,7 @@ export const MENU_CONFIG: MenuItem[] = [
 // Функция для получения плоского списка всех путей (для активной навигации)
 export const getAllPaths = (items: MenuItem[] = MENU_CONFIG): string[] => {
   const paths: string[] = [];
-  
+
   const traverse = (item: MenuItem) => {
     if (item.path) {
       paths.push(item.path);
@@ -104,7 +119,7 @@ export const getAllPaths = (items: MenuItem[] = MENU_CONFIG): string[] => {
       item.children.forEach(traverse);
     }
   };
-  
+
   items.forEach(traverse);
   return paths;
 };
