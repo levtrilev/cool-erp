@@ -25,6 +25,7 @@ import { TagsPage } from "./core/tags/TagsPage";
 import { GoodsPage } from "./modules/sales/goods/GoodsPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
+import { RegionsPage } from "./modules/sales/regions/RegionsPage";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ function App() {
             <Route path="/sales/goods" element={<GoodsPage />} />
             <Route path="/inventory/warehouses" element={<WarehousesPage />} />
             <Route path="/business-partners/companies" element={<CompaniesPage />} />
+            <Route path="/sales/regions" element={<RegionsPage />} />
             {/* Другие маршруты будут добавлены здесь */}
             <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
           </Route>

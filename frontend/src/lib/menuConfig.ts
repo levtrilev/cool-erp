@@ -7,6 +7,7 @@ import {
   Gift,
   HouseIcon,
   GlobeIcon,
+  GlobeCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -43,12 +44,17 @@ export const MENU_CONFIG: MenuItem[] = [
         path: "/inventory/warehouses",
         icon: HouseIcon,
       },
-
       {
         id: "companies",
         label: "Компании",
         path: "/business-partners/companies",
         icon: GlobeIcon,
+      },
+      {
+        id: "regions",
+        label: "Регионы",
+        path: "/sales/regions",
+        icon: GlobeCheck,
       },
       // Здесь будут добавлены другие пункты НСИ:
       // { id: "organizations", label: "Организации", path: "/organizations", icon: Building2 },
