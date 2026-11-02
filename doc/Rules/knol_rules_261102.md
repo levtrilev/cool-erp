@@ -360,6 +360,7 @@ interface ReferenceSelectProps<T extends ReferenceItem> {
 | 21 | `Cannot find name 'CREATE_DEFAULTS'` | Ошибка TypeScript | Объявить константу `CREATE_DEFAULTS` вне компонента или в его начале |
 | 22 | `Property 'items' does not exist on type '{}'` | Ошибка TypeScript при работе с кэшем | Явно типизировать `queryClient.getQueryData()` через `as { items?: ...; total?: number }` |
 | 23| `Таблица пустая после F5 (async gap)`|При перезагрузке страницы вкладка с таблицей показывает пустой список, хотя в БД данные есть. Помогает только открытие/закрытие другой записи|
+| 24 | Модель несовместима с `DocumentProtocol` | Pyright: `"Mapped[UUID]" is not assignable to "UUID"`, `"tenant_id" is invariant because it is mutable` | `typing_cast("DocumentProtocol", model)` в точке вызова `resolve_access` (Правило №47). Не создавать альтернативные протоколы |
 
 ---
 

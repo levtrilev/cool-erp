@@ -40,6 +40,7 @@ import {
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
 import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { BpCompanyResponseSchema } from "@/api/generated/fastAPI.schemas";
+import { listRegionsReplicaBusinessPartnersRegionsReplicaGet } from "@/api/generated/business-partners-regions-replica/business-partners-regions-replica";
 import {
   ReferenceSelect,
   type ReferenceItem,
@@ -49,7 +50,7 @@ import {
 // Если эндпоинт GET /regions ещё не реализован — установите false,
 // и поле «Регион» не будет рендериться (fallback_if_absent из спецификации).
 // НЕ заменяйте поле текстовым вводом.
-const REGIONS_AVAILABLE: boolean = false;
+const REGIONS_AVAILABLE: boolean = true;
 
 // ✅ Правило №41: Zod-схема валидации
 const companyFormSchema = z.object({
@@ -535,7 +536,7 @@ export function EditCompanyModal({
                 </div>
               </div>
 
-              {/* Регион (справочник, опционально) */}
+              {/* Регион (справочник из РЕПЛИКИ с фильтрацией через AccessService) */}
               {REGIONS_AVAILABLE && (
                 <div className="space-y-2">
                   <Label>Регион</Label>
@@ -544,25 +545,51 @@ export function EditCompanyModal({
                     control={control}
                     render={({ field }) => (
                       <ReferenceSelect
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
                         fetchFn={async (params) => {
-                          // Адаптер под фактический эндпоинт модуля регионов
-                          // после его реализации
-                          return { items: [] as ReferenceItem[], total: 0 };
+                          // ✅ Обращаемся к РЕПЛИКЕ в домене business_partners
+                          // Список фильтруется через AccessService.build_replica_access_filter
+                          const response =
+                            await listRegionsReplicaBusinessPartnersRegionsReplicaGet(
+                              {
+                                skip: params.skip,
+                                limit: params.limit,
+                                search: params.search,
+                              },
+                            );
+
+                          // ✅ Адаптер: region_id → id для ReferenceSelect
+                          type ReplicaItem = {
+                            region_id: string;
+                            name: string;
+                            capital?: string | null;
+                            area?: string | null;
+                          };
+                          const items: ReferenceItem[] = (
+                            response?.data?.items ?? []
+                          ).map((item: ReplicaItem) => ({
+                            id: item.region_id,
+                            name: item.name,
+                            description: item.area ?? item.capital ?? undefined,
+                          }));
+
+                          return {
+                            items,
+                            total: response?.data?.total ?? 0,
+                          };
                         }}
-                        queryKey={["regions", currentTenantId || ""]}
+                        queryKey={["business-partners", "regions-replica"]}
                         value={field.value || ""}
                         onValueChange={field.onChange}
                         placeholder="Выберите регион..."
+                        // ✅ Правило №27 + №42: мгновенное отображение через денормализацию
                         selectedLabel={
-                          (
-                            sourceData as BpCompanyResponseSchema & {
-                              region_name?: string;
-                            }
-                          )?.region_name ?? "Выберите регион..."
+                          initialData?.region_name ?? "Выберите регион..."
                         }
                         heading="Регионы"
                         limit={50}
+                        columns={[
+                          { column: "description", label: "Область / округ" },
+                        ]}
                         disabled={readOnly}
                       />
                     )}

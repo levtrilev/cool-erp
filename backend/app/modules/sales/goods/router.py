@@ -1,16 +1,18 @@
-"""FastAPI роутер для товаров с блокировками (Правило №40, часть 7)."""
-from typing import cast
+"""FastAPI роутер для товаров с блокировками (Правило №40, часть 7)
+и контролем доступа."""
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, HTTPException
 
-from app.core.auth.dependencies import DBSession, CurrentUser
+from app.core.access.schemas import UserProtocol
+from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.modules.sales.goods.crud import (
-    crud_goods,
     GoodsEditingLockedError,
     GoodsNotFoundError,
     GoodsVersionConflictError,
+    crud_goods,
 )
 from app.modules.sales.goods.schemas import (
     SalesGoodsCreateSchema,
@@ -18,7 +20,6 @@ from app.modules.sales.goods.schemas import (
     SalesGoodsUpdateSchema,
 )
 from app.modules.sales.goods.service import goods_service
-from app.core.access.schemas import UserProtocol
 
 router = APIRouter(prefix="/sales/goods", tags=["Sales: goods"])
 
@@ -34,15 +35,17 @@ async def list_goods(
     limit: int = 100,
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[SalesGoodsResponseSchema]]:
-    """Список товаров."""
+    """Список товаров с контролем доступа."""
     items, total = await crud_goods.get_multi(
         db,
+        user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
         is_superadmin=session.is_superadmin,
         skip=skip,
         limit=limit,
         search=search,
     )
+
     return ApiResponse(
         success=True,
         message="Товары получены",
@@ -64,11 +67,12 @@ async def create_goods(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesGoodsResponseSchema]:
-    """Создание товара."""
+    """Создание товара с проверкой права создания."""
     try:
         goods = await goods_service.create(
             db,
             obj_in=data,
+            user=cast(UserProtocol, session),
             user_id=cast(UserProtocol, session).id,
             current_tenant_id=session.tenant_id,
             is_superadmin=session.is_superadmin,
@@ -76,9 +80,9 @@ async def create_goods(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    # ✅ Правило №40, часть 8.1: commit выполняется в роутере
     await db.commit()
     await db.refresh(goods)
+
     return ApiResponse(
         success=True,
         message="Товар создан",
@@ -95,15 +99,18 @@ async def get_goods(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesGoodsResponseSchema]:
-    """Один товар."""
+    """Один товар с контролем доступа."""
     goods = await crud_goods.get_for_user(
         db,
         goods_id=goods_id,
+        user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
         is_superadmin=session.is_superadmin,
     )
+
     if goods is None:
         raise HTTPException(status_code=404, detail="Товар не найден")
+
     return ApiResponse(
         success=True,
         message="Товар получен",
@@ -121,12 +128,13 @@ async def update_goods(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesGoodsResponseSchema]:
-    """Сохранение с проверкой версии (409) и блокировки (423)."""
+    """Сохранение с проверкой версии, блокировки и права изменения."""
     try:
         goods = await goods_service.update(
             db,
             goods_id=goods_id,
             obj_in=data,
+            user=cast(UserProtocol, session),
             user_id=cast(UserProtocol, session).id,
             current_tenant_id=session.tenant_id,
             is_superadmin=session.is_superadmin,
@@ -140,6 +148,7 @@ async def update_goods(
 
     await db.commit()
     await db.refresh(goods)
+
     return ApiResponse(
         success=True,
         message="Товар обновлён",
@@ -156,11 +165,12 @@ async def delete_goods(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesGoodsResponseSchema]:
-    """Мягкое удаление с проверкой блокировки (423)."""
+    """Мягкое удаление с проверкой блокировки и can_delete."""
     try:
         goods = await goods_service.delete(
             db,
             goods_id=goods_id,
+            user=cast(UserProtocol, session),
             user_id=cast(UserProtocol, session).id,
             current_tenant_id=session.tenant_id,
             is_superadmin=session.is_superadmin,
@@ -171,16 +181,12 @@ async def delete_goods(
         raise HTTPException(status_code=423, detail=str(exc)) from exc
 
     await db.commit()
+
     return ApiResponse(
         success=True,
         message="Товар удалён",
         data=SalesGoodsResponseSchema.model_validate(goods),
     )
-
-
-# ==================================================================
-# БЛОКИРОВКИ РЕДАКТИРОВАНИЯ (Правило №40, часть 7.1)
-# ==================================================================
 
 
 @router.post(
@@ -197,6 +203,7 @@ async def acquire_goods_lock(
         goods = await crud_goods.acquire_editing_lock(
             db,
             goods_id=goods_id,
+            user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
             user_id=cast(UserProtocol, session).id,
             is_superadmin=session.is_superadmin,
@@ -208,6 +215,7 @@ async def acquire_goods_lock(
 
     await db.commit()
     await db.refresh(goods)
+
     return ApiResponse(
         success=True,
         message="Блокировка захвачена",
@@ -229,6 +237,7 @@ async def release_goods_lock(
         goods = await crud_goods.release_editing_lock(
             db,
             goods_id=goods_id,
+            user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
             user_id=cast(UserProtocol, session).id,
             is_superadmin=session.is_superadmin,
@@ -240,6 +249,7 @@ async def release_goods_lock(
 
     await db.commit()
     await db.refresh(goods)
+
     return ApiResponse(
         success=True,
         message="Блокировка освобождена",

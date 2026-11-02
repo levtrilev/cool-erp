@@ -1,9 +1,19 @@
-"""FastAPI роутер для регионов с блокировками (Правило №40, часть 7)."""
+"""FastAPI роутер для регионов с блокировками (Правило №40, часть 7).
+
+✅ Архитектурные решения:
+- Проверка доступа делегирована в AccessService (через CRUD)
+- Список: AccessService.build_access_filter (кросс-организационная видимость)
+- Один документ: AccessService.resolve_access (полная проверка)
+- Редактирование/удаление: проверка уровня доступа и can_delete
+- Блокировки: захват/освобождение с проверкой права на редактирование
+"""
+
 from typing import cast
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
+from app.core.access.schemas import ACCESS_LEVEL_AUTHOR, UserProtocol
 from app.core.auth.dependencies import DBSession, CurrentUser
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.modules.sales.regions.crud import (
@@ -18,12 +28,16 @@ from app.modules.sales.regions.schemas import (
     SalesRegionUpdateSchema,
 )
 from app.modules.sales.regions.service import region_service
-from app.core.access.schemas import UserProtocol
 
 router = APIRouter(
     prefix="/sales/regions",
     tags=["Sales: regions"],
 )
+
+
+# ==================================================================
+# СПИСОК
+# ==================================================================
 
 
 @router.get(
@@ -37,11 +51,18 @@ async def list_regions(
     limit: int = 100,
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[SalesRegionResponseSchema]]:
-    """Список регионов."""
+    """
+    Список регионов с фильтрацией через AccessService.
+
+    ✅ AccessService.build_access_filter() обеспечивает:
+    - Кросс-организационную видимость для раздела «Общий» (ТЗ §4.3.1)
+    - Фильтрацию по ролям и permissions (ТЗ §3.2, §3.4)
+    - Тег-проверку на уровне SQL (ТЗ §6)
+    - Фильтрация выполняется на уровне SQL (ТЗ §3.1.4)
+    """
     items, total = await crud_region.get_multi(
         db,
-        tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        user=cast(UserProtocol, session),
         skip=skip,
         limit=limit,
         search=search,
@@ -58,6 +79,11 @@ async def list_regions(
     )
 
 
+# ==================================================================
+# СОЗДАНИЕ
+# ==================================================================
+
+
 @router.post(
     "/",
     response_model=ApiResponse[SalesRegionResponseSchema],
@@ -67,17 +93,23 @@ async def create_region(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesRegionResponseSchema]:
-    """Создание региона."""
+    """
+    Создание региона.
+
+    Обработка ошибок:
+    - 403: попытка создания в платформенном разделе не суперадмином (ТЗ §4.3.6)
+    - 400: раздел не найден или иные ошибки валидации
+    """
     try:
         region = await region_service.create(
             db,
             obj_in=data,
-            user_id=cast(UserProtocol, session).id,
-            current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            user=cast(UserProtocol, session),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ✅ Правило №40, часть 8.1: commit выполняется в роутере
     await db.commit()
@@ -89,6 +121,11 @@ async def create_region(
     )
 
 
+# ==================================================================
+# ОДИН ДОКУМЕНТ
+# ==================================================================
+
+
 @router.get(
     "/{region_id}",
     response_model=ApiResponse[SalesRegionResponseSchema],
@@ -98,20 +135,30 @@ async def get_region(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesRegionResponseSchema]:
-    """Один регион."""
+    """
+    Один регион с полной проверкой доступа через AccessService.
+
+    ✅ Возвращает 404, если документ не существует для пользователя
+    (ТЗ §2.3, §2.6: скрытые записи не возвращаются).
+    """
     region = await crud_region.get_for_user(
         db,
         region_id=region_id,
-        tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        user=cast(UserProtocol, session),
     )
     if region is None:
         raise HTTPException(status_code=404, detail="Регион не найден")
+
     return ApiResponse(
         success=True,
         message="Регион получен",
         data=SalesRegionResponseSchema.model_validate(region),
     )
+
+
+# ==================================================================
+# ОБНОВЛЕНИЕ
+# ==================================================================
 
 
 @router.put(
@@ -124,15 +171,37 @@ async def update_region(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesRegionResponseSchema]:
-    """Сохранение с проверкой версии (409) и блокировки (423)."""
+    """
+    Сохранение с проверкой:
+    - Уровня доступа (нужен >= 2 для редактирования)
+    - Оптимистической блокировки (409)
+    - Пессимистической блокировки (423)
+    """
+    # ✅ Проверяем право на редактирование через AccessService
+    access_result = await crud_region.check_edit_access(
+        db,
+        region_id=region_id,
+        user=cast(UserProtocol, session),
+    )
+    if access_result is None:
+        # Документ не существует для пользователя (ТЗ §2.3)
+        raise HTTPException(status_code=404, detail="Регион не найден")
+
+    if access_result.level < ACCESS_LEVEL_AUTHOR:
+        # ✅ ТЗ §5.4: право на чтение есть, но недостаточный уровень
+        # для изменения → режим «только чтение»
+        # ✅ ТЗ §4.3.3: в разделе «Общий» все кроме суперадмина — только чтение
+        raise HTTPException(
+            status_code=423,
+            detail="Недостаточно прав для редактирования региона",
+        )
+
     try:
         region = await region_service.update(
             db,
             region_id=region_id,
             obj_in=data,
-            user_id=cast(UserProtocol, session).id,
-            current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -140,6 +209,11 @@ async def update_region(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RegionEditingLockedError as exc:
         raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except PermissionError as exc:
+        # Попытка переместить в платформенный раздел не суперадмином
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(region)
@@ -148,6 +222,11 @@ async def update_region(
         message="Регион обновлён",
         data=SalesRegionResponseSchema.model_validate(region),
     )
+
+
+# ==================================================================
+# УДАЛЕНИЕ
+# ==================================================================
 
 
 @router.delete(
@@ -159,14 +238,32 @@ async def delete_region(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesRegionResponseSchema]:
-    """Мягкое удаление с проверкой блокировки (423)."""
+    """
+    Мягкое удаление с проверкой блокировки (423) и права на удаление.
+
+    ✅ ТЗ §5.2: can_delete = false → удаление запрещено
+    ✅ ТЗ §4.3.3: в разделе «Общий» can_delete всегда false для не-суперадмина
+    """
+    # Проверяем право на удаление через AccessService
+    access_result = await crud_region.check_edit_access(
+        db,
+        region_id=region_id,
+        user=cast(UserProtocol, session),
+    )
+    if access_result is None:
+        raise HTTPException(status_code=404, detail="Регион не найден")
+
+    if not access_result.can_delete:
+        raise HTTPException(
+            status_code=423,
+            detail="Нет прав на удаление региона",
+        )
+
     try:
         region = await region_service.delete(
             db,
             region_id=region_id,
-            user_id=cast(UserProtocol, session).id,
-            current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -195,14 +292,33 @@ async def acquire_region_lock(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[SalesRegionResponseSchema]:
-    """Захват пессимистической блокировки редактирования."""
+    """
+    Захват пессимистической блокировки редактирования.
+
+    ✅ Перед захватом проверяется право на редактирование.
+    Если уровень < 2 (автор) — блокировка не захватывается,
+    документ будет открыт в режиме «только чтение» (ТЗ §5.4).
+    """
+    # Проверяем право на редактирование перед захватом блокировки
+    access_result = await crud_region.check_edit_access(
+        db,
+        region_id=region_id,
+        user=cast(UserProtocol, session),
+    )
+    if access_result is None:
+        raise HTTPException(status_code=404, detail="Регион не найден")
+
+    if access_result.level < ACCESS_LEVEL_AUTHOR:
+        raise HTTPException(
+            status_code=423,
+            detail="Недостаточно прав для редактирования региона",
+        )
+
     try:
         region = await crud_region.acquire_editing_lock(
             db,
             region_id=region_id,
-            tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -232,9 +348,7 @@ async def release_region_lock(
         region = await crud_region.release_editing_lock(
             db,
             region_id=region_id,
-            tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -93,7 +93,8 @@ class BpCompanyResponseSchema(BaseModel):
     tenant_name: str | None = None
     section_name: str | None = None
     author_name: str | None = None
-
+    region_name: str | None = None
+    
     # Жизненный цикл
     doc_status: str
     doc_number: str | None = None

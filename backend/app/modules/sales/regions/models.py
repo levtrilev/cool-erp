@@ -16,7 +16,7 @@ from app.core.doctypes.document_base import (
 
 # ✅ TYPE_CHECKING для избежания циклических импортов (Правило №42)
 if TYPE_CHECKING:
-    from app.core.sections.models import SectionModel
+    from app.core.sections.models import SectionModel, SectionType # pyright: ignore[reportUnusedImport]
     from app.core.tenants.models import TenantModel
     from app.core.users.models import UserModel
 
@@ -28,6 +28,10 @@ class SalesRegionModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     Наследует:
     - DocumentAccessMixin   → контракт доступа (ТЗ §3.3)
     - DocumentLifecycleMixin → состояние, блокировки, аудит времени
+
+    Модель реализует DocumentProtocol и DocumentClassProtocol
+    из core/access/service.py, что позволяет использовать
+    AccessService.resolve_access() и AccessService.build_access_filter().
     """
 
     __tablename__ = "sales_regions"
@@ -81,6 +85,20 @@ class SalesRegionModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     def author_name(self) -> str | None:
         """Имя автора документа."""
         return self.author.name if self.author else None
+
+    # ──────────────────────────────────────────────
+    # ✅ НОВОЕ: Признак платформенного раздела
+    # Фронтенд использует это для определения режима «только чтение»
+    # в разделе «Общий» (ТЗ §4.3.3)
+    # ──────────────────────────────────────────────
+    @property
+    def is_platform_section(self) -> bool:
+        """Раздел документа является платформенным (ТЗ §4.3)."""
+        from app.core.sections.models import SectionType
+
+        if self.section is None: # pyright: ignore[reportUnnecessaryComparison]
+            return False
+        return self.section.section_type == SectionType.PLATFORM
 
     # ──────────────────────────────────────────────
     # Вычисляемое поле блокировки (Правило №40, часть 1.2)

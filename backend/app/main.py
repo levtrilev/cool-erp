@@ -8,8 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 # Импорт обработчиков репликации для регистрации
-import app.modules.inventory.replica.handlers  # pyright: ignore[reportUnusedImport] # noqa: F401
-import app.modules.sales.replica.handlers      # pyright: ignore[reportUnusedImport] # noqa: F401
+from app.modules import register_all_replication_handlers
 
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
@@ -31,12 +30,15 @@ from app.modules.inventory.warehouses.router import router as warehouses_router
 from app.modules.sales.goods.router import router as goods_router
 from app.modules.business_partners.companies.router import router as companies_router
 from app.modules.sales.regions.router import router as regions_router
-
+from app.modules.business_partners.regions_replica.router import (
+    router as bp_regions_replica_router,
+)
 from app.core.events.replicator import replicator
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
 
+register_all_replication_handlers()
 
 # ==========================================
 #  LIFESPAN (Жизненный цикл)
@@ -124,3 +126,4 @@ app.include_router(warehouses_router)
 app.include_router(goods_router)
 app.include_router(companies_router)
 app.include_router(regions_router)
+app.include_router(bp_regions_replica_router)

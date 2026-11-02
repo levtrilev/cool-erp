@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.core.sections.models import SectionModel
     from app.core.tenants.models import TenantModel
     from app.core.users.models import UserModel
-
+    from app.modules.business_partners.regions_replica.models import BpSalesRegionsReplicaModel
 
 class BpCompanyModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     """
@@ -58,7 +58,16 @@ class BpCompanyModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     region_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True
     )
-
+    # ──────────────────────────────────────────────
+    # ✅ Связь на РЕПЛИКУ регионов (не на оригинал — изоляция доменов)
+    # ──────────────────────────────────────────────
+    region: Mapped["BpSalesRegionsReplicaModel"] = relationship(
+        "BpSalesRegionsReplicaModel",
+        primaryjoin="BpCompanyModel.region_id == BpSalesRegionsReplicaModel.region_id",
+        foreign_keys="BpCompanyModel.region_id",
+        lazy="selectin",
+        viewonly=True,  # Только чтение, не для записи
+    )
     # ──────────────────────────────────────────────
     # Связи для денормализации (Правило №42)
     # ──────────────────────────────────────────────
@@ -93,6 +102,15 @@ class BpCompanyModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     def author_name(self) -> str | None:
         """Имя автора документа."""
         return self.author.name if self.author else None
+
+    @property
+    def region_name(self) -> str | None:
+        """Название региона из реплики для ReferenceSelect (Правило №42)."""
+        if self.region is None: # pyright: ignore[reportUnnecessaryComparison]
+            return None
+        if self.region.is_deleted:
+            return None
+        return self.region.name
 
     # ──────────────────────────────────────────────
     # Вычисляемое поле блокировки (Правило №40, часть 1.2)

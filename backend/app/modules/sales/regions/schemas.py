@@ -68,6 +68,10 @@ class SalesRegionResponseSchema(BaseModel):
     section_name: str | None = None
     author_name: str | None = None
 
+    # ✅ НОВОЕ: Признак платформенного раздела
+    # Фронтенд использует для определения режима «только чтение» (ТЗ §4.3.3)
+    is_platform_section: bool = False
+
     # Жизненный цикл
     doc_status: str
     doc_number: str | None = None

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.handlers import register_handler
-from app.modules.inventory.replica.models import InvSalesGoodsReplicaModel
+from app.modules.inventory.goods_replica.models import InvSalesGoodsReplicaModel
 
 
 class SalesGoodsReplicaHandler:
