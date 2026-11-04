@@ -15,7 +15,7 @@ from app.modules.inventory.warehouses.schemas import (
     InvWarehouseCreateSchema,
     InvWarehouseUpdateSchema,
 )
-from app.core.access.schemas import UserProtocol
+from app.core.access.schemas import AccessResult, UserProtocol
 
 # ✅ Избегаем циклического импорта — UserModel нужен только для типизации
 # if TYPE_CHECKING:
@@ -23,7 +23,7 @@ from app.core.access.schemas import UserProtocol
 
 
 class WarehouseNotFoundError(Exception):
-    """Склад не найден или недоступен в текущем тенанте."""
+    """Склад не найден или недоступен в текущей организации (404)."""
 
 
 class WarehouseVersionConflictError(Exception):
@@ -32,6 +32,9 @@ class WarehouseVersionConflictError(Exception):
 
 class WarehouseEditingLockedError(Exception):
     """Склад редактируется другим пользователем (423)."""
+
+class WarehousePermissionError(Exception):
+    """Недостаточно прав для редактирования этого Склада (403)."""
 
 
 class CRUDInvWarehouse(
@@ -140,17 +143,25 @@ class CRUDInvWarehouse(
         """Атомарный захват блокировки с учётом таймаута и контроля доступа."""
         model = self.model
 
-        # ✅ СНАЧАЛА проверяем доступ — если пользователь не видит склад,
+        # 1. ✅ СНАЧАЛА проверяем доступ — если пользователь не видит склад,
         # он не должен иметь возможности даже попытаться его заблокировать.
-        pre_check = await self.get_for_user(
+        warehouse = await self.get_for_user(
             db,
             warehouse_id=warehouse_id,
             user=user,
             tenant_id=tenant_id,
             is_superadmin=is_superadmin,
         )
-        if pre_check is None:
+        if warehouse is None:
             raise WarehouseNotFoundError("Склад не найден")
+
+        # 2. ✅ КРИТИЧНО: Проверяем уровень доступа для блокировки (требуется >= 2)
+        access_service = AccessService(db)
+        warehouse_doc: DocumentProtocol = typing_cast("DocumentProtocol", warehouse)
+        access: AccessResult = await access_service.resolve_access(user, warehouse_doc)
+
+        if access.level < 2:
+            raise WarehousePermissionError("Недостаточно прав для редактирования этого склада'")
 
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)

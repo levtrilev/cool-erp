@@ -12,6 +12,7 @@ from app.modules.business_partners.companies.schemas import (
     BpCompanyUpdateSchema,
 )
 from app.core.access.schemas import UserProtocol
+from app.core.access.service import AccessService, DocumentProtocol
 
 # ✅ Избегаем циклического импорта — UserModel нужен только для типизации
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ class CompanyService:
         db: AsyncSession,
         *,
         obj_in: BpCompanyCreateSchema,
-        user: "UserModel",  # ✅ НОВОЕ: для контроля доступа и установки author_id
+        user: UserProtocol,
         user_id: uuid.UUID,
         current_tenant_id: uuid.UUID,
         is_superadmin: bool = False,
@@ -56,6 +57,17 @@ class CompanyService:
         data_dict["created_by_user_id"] = user.id
 
         company = BpCompanyModel(**data_dict)
+
+        # ✅ Проверка права на создание через AccessService
+        access_service = AccessService(db)
+        # Правило №45: typing_cast в точке вызова
+        company_doc: DocumentProtocol = cast("DocumentProtocol", company)
+        access = await access_service.resolve_access(user, company_doc)
+        
+        # Для создания требуется минимум уровень 2 (Автор своей записи) или выше
+        if access.level < 2:
+            raise PermissionError("Нет права на создание компании")
+
         db.add(company)
         await db.flush()
         await db.refresh(company)

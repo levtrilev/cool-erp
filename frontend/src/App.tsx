@@ -26,8 +26,27 @@ import { GoodsPage } from "./modules/sales/goods/GoodsPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
+import { RegisterPage } from "./core/users/RegisterPage";
 
 const queryClient = new QueryClient();
+// const queryClient = new QueryClient({
+//   defaultOptions: {
+//     queries: {
+//       // ✅ Умная логика retry: если 401 — сразу отказ, без задержек
+//       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+//       retry: (failureCount, error: any) => {
+//         if (error?.response?.status === 401) {
+//           return false; // Мгновенный отказ при потере авторизации
+//         }
+//         return failureCount < 2; // Для остальных ошибок (500, сеть) делаем 2 попытки
+//       },
+//       retryDelay: 1000,
+//     },
+//     mutations: {
+//       retry: false, // Мутации (POST/PUT/DELETE) никогда не должны ретраиться автоматически
+//     },
+//   },
+// });
 
 function App() {
   return (
@@ -48,7 +67,7 @@ function App() {
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
           <Route path="/" element={<PublicHomePage />} />
           <Route path="/auth/login" element={<LoginPage />} />
-          {/* <Route path="/auth/register" element={<RegisterPage />} /> */}
+          <Route path="/auth/register" element={<RegisterPage />} />
 
           {/* === ЗАЩИЩЁННЫЕ РОУТЫ (с Layout) === */}
           <Route element={<AppLayout />}>

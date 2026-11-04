@@ -243,8 +243,8 @@ export const EditUserModal = ({
                     const response = await readTenantsTenantsGet(params);
                     // Распаковываем ApiResponse -> { items, total }
                     return {
-                      items: response?.items ?? [],
-                      total: response?.total ?? 0,
+                      items: response?.data?.items ?? [],
+                      total: response?.data?.total ?? 0,
                     };
                   }}
                   queryKey={["tenants", "active"]} // ✅ Чистый ключ кэша, без специфики пользователя

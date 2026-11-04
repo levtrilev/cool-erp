@@ -13,6 +13,7 @@ from app.core.doctypes.document_base import EDITING_LOCK_TIMEOUT_MINUTES
 from app.modules.business_partners.companies.exceptions import (
     CompanyEditingLockedError,
     CompanyNotFoundError,
+    CompanyPermissionError,
     CompanyVersionConflictError,
 )
 from app.modules.business_partners.companies.models import BpCompanyModel
@@ -20,7 +21,7 @@ from app.modules.business_partners.companies.schemas import (
     BpCompanyCreateSchema,
     BpCompanyUpdateSchema,
 )
-from app.core.access.schemas import UserProtocol
+from app.core.access.schemas import AccessResult, UserProtocol
 
 # ✅ Избегаем циклического импорта — UserModel нужен только для типизации
 # if TYPE_CHECKING:
@@ -167,18 +168,27 @@ class CRUDCompany(
         """Атомарный захват блокировки с учётом таймаута и контроля доступа."""
         model = self.model
 
-        # ✅ СНАЧАЛА проверяем доступ — если пользователь не видит компанию,
+        # 1.✅ СНАЧАЛА проверяем доступ — если пользователь не видит компанию,
         # он не должен иметь возможности даже попытаться её заблокировать.
         # Это также предотвращает раскрытие факта существования компании.
-        pre_check = await self.get_for_user(
+        company = await self.get_for_user(
             db,
             company_id=company_id,
             user=user,
             tenant_id=tenant_id,
             is_superadmin=is_superadmin,
         )
-        if pre_check is None:
+        if company is None:
             raise CompanyNotFoundError("Компания не найдена")
+
+        # 2. ✅ КРИТИЧНО: Проверяем уровень доступа для блокировки (требуется >= 2)
+        access_service = AccessService(db)
+        company_doc: DocumentProtocol = typing_cast("DocumentProtocol", company)
+        access: AccessResult = await access_service.resolve_access(user, company_doc)
+
+        if access.level < 2:
+            # raise PermissionError("Недостаточно прав для редактирования Компании")
+            raise CompanyPermissionError("Недостаточно прав для редактирования Компании")
 
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)

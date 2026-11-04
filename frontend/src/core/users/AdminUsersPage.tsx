@@ -83,7 +83,7 @@ export const AdminUsersPage = () => {
   useEffect(() => {
     if (isSuperadmin) {
       readTenantsTenantsGet({ limit: 1000, skip: 0 }).then((response) => {
-        const items: ReferenceItem[] = (response?.items ?? []).map((t) => ({
+        const items: ReferenceItem[] = (response?.data?.items ?? []).map((t) => ({
           id: t.id,
           name: t.name,
         }));
@@ -129,7 +129,7 @@ export const AdminUsersPage = () => {
 
   const handleUserUpdated = async (userId: string, userName: string) => {
     const result = await refetch();
-    const updatedItems = result.data?.items || [];
+    const updatedItems = result.data?.data?.items || [];
 
     const userExists = updatedItems.some((u) => u.id === userId);
 
@@ -146,8 +146,8 @@ export const AdminUsersPage = () => {
         skip: 0,
       });
 
-      if (allUsersData?.items) {
-        const userIndex = allUsersData.items.findIndex(
+      if (allUsersData?.data?.items) {
+        const userIndex = allUsersData.data?.items.findIndex(
           (u: UserResponseSchema) => u.id === userId,
         );
 
@@ -204,7 +204,7 @@ export const AdminUsersPage = () => {
       skip: 0,
     });
 
-    if (!allUsersData?.items) {
+    if (!allUsersData?.data?.items) {
       console.log("❌ Нет items в allUsersData.data");
       toast({
         title: "Создано",
@@ -213,7 +213,7 @@ export const AdminUsersPage = () => {
       return;
     }
 
-    const itemIndex = allUsersData.items.findIndex(
+    const itemIndex = allUsersData.data?.items.findIndex(
       (u: UserResponseSchema) => u.id === newId,
     );
 
@@ -317,8 +317,8 @@ export const AdminUsersPage = () => {
     );
   }
 
-  const users = data.items || [];
-  const total = data.total || 0;
+  const users = data.data?.items || [];
+  const total = data.data?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
   return (
@@ -372,11 +372,11 @@ export const AdminUsersPage = () => {
                   limit: params.limit,
                   search: params.search,
                 });
-                const items: ReferenceItem[] = (response?.items ?? []).map((t) => ({
+                const items: ReferenceItem[] = (response?.data?.items ?? []).map((t) => ({
                   id: t.id,
                   name: t.name,
                 }));
-                return { items, total: response?.total ?? 0 };
+                return { items, total: response?.data?.total ?? 0 };
               }}
               queryKey={["tenants-for-user-filter"]}
               value={selectedTenantId}

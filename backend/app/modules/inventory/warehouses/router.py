@@ -2,17 +2,18 @@
 и контролем доступа (ТЗ RBAC/ABAC §8)."""
 from typing import cast
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import DBSession, CurrentUser
 from app.core.schemas import ApiResponse, PaginatedResponse
-from app.core.users.models import UserModel
+# from app.core.users.models import UserModel
 from app.modules.inventory.warehouses.crud import (
     crud_warehouse,
     WarehouseNotFoundError,
     WarehouseVersionConflictError,
     WarehouseEditingLockedError,
+    WarehousePermissionError,
 )
 from app.modules.inventory.warehouses.schemas import (
     InvWarehouseCreateSchema,
@@ -67,14 +68,17 @@ async def create_warehouse(
     session: CurrentUser,
 ) -> ApiResponse[InvWarehouseResponseSchema]:
     """Создание склада."""
-    warehouse = await warehouse_service.create(
-        db,
-        obj_in=data,
-        user=cast(UserModel, session),  # ✅ НОВОЕ: для установки author_id
-        user_id=cast(UserProtocol, session).id,
-        current_tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
-    )
+    try:
+        warehouse = await warehouse_service.create(
+            db,
+            obj_in=data,
+            user=cast(UserProtocol, session),  # ✅ НОВОЕ: для установки author_id
+            user_id=cast(UserProtocol, session).id,
+            current_tenant_id=session.tenant_id,
+            is_superadmin=session.is_superadmin,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
     return ApiResponse(
@@ -202,9 +206,11 @@ async def acquire_warehouse_lock(
             is_superadmin=session.is_superadmin,
         )
     except WarehouseNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
+    except WarehousePermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
     return ApiResponse(

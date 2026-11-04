@@ -2,7 +2,7 @@
 и контролем доступа (ТЗ RBAC/ABAC §8)."""
 from typing import cast
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import DBSession, CurrentUser
@@ -12,6 +12,7 @@ from app.modules.business_partners.companies.exceptions import (
     CompanyEditingLockedError,
     CompanyNotFoundError,
     CompanyVersionConflictError,
+    CompanyPermissionError,
 )
 from app.modules.business_partners.companies.schemas import (
     BpCompanyCreateSchema,
@@ -110,7 +111,7 @@ async def create_company(
         company = await company_service.create(
             db,
             obj_in=data,
-            user=cast(UserModel, session),
+            user=cast(UserProtocol, session),
             user_id=cast(UserProtocol, session).id,
             current_tenant_id=session.tenant_id,
             is_superadmin=session.is_superadmin,
@@ -149,11 +150,13 @@ async def update_company(
             is_superadmin=session.is_superadmin,
         )
     except CompanyNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CompanyPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except CompanyVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except CompanyEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(company)
     return ApiResponse(
@@ -219,9 +222,11 @@ async def acquire_company_lock(
             is_superadmin=session.is_superadmin,
         )
     except CompanyNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CompanyPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except CompanyEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(company)
     return ApiResponse(

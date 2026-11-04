@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AxiosError } from "axios";
 
-// ⚠️ ЗАМЕНИТЕ ЭТИ ИМЕНА НА ТЕ, ЧТО СГЕНЕРИРОВАЛ ORVAL
 import { loginAuthLoginPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
 import { useLoginAuthLoginPost } from "@/api/generated/authentication/authentication";
 

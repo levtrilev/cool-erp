@@ -87,7 +87,7 @@ export function AdminTenantsPage() {
   const handleTenantUpdated = async (tenantId: string, tenantName: string) => {
     // Сначала обновляем данные
     const result = await refetch();
-    const updatedItems = result.data?.items || [];
+    const updatedItems = result.data?.data?.items || [];
 
     // Проверяем, есть ли запись на текущей странице
     const tenantExists = updatedItems.some((t) => t.id === tenantId);
@@ -109,8 +109,8 @@ export function AdminTenantsPage() {
         skip: 0,
       });
 
-      if (allTenantsData?.items) {
-        const tenantIndex = allTenantsData.items.findIndex(
+      if (allTenantsData?.data?.items) {
+        const tenantIndex = allTenantsData.data.items.findIndex(
           (t: TenantResponseSchema) => t.id === tenantId,
         );
 
@@ -214,7 +214,7 @@ export function AdminTenantsPage() {
   const handleTenantCreated = async (newId: string) => {
     // Сначала обновляем данные текущей страницы
     const result = await refetch();
-    const currentItems = result.data?.items || [];
+    const currentItems = result.data?.data?.items || [];
 
     // Проверяем, есть ли новая запись на текущей странице
     const tenantExists = currentItems.some((t) => t.id === newId);
@@ -236,8 +236,8 @@ export function AdminTenantsPage() {
         skip: 0,
       });
 
-      if (allTenantsData?.items) {
-        const itemIndex = allTenantsData.items.findIndex(
+      if (allTenantsData?.data?.items) {
+        const itemIndex = allTenantsData.data.items.findIndex(
           (t: TenantResponseSchema) => t.id === newId,
         );
 
@@ -394,8 +394,8 @@ export function AdminTenantsPage() {
     );
   }
 
-  const tenants = tenantsData.items || [];
-  const total = tenantsData.total || 0;
+  const tenants = tenantsData.data?.items || [];
+  const total = tenantsData.data?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
   return (

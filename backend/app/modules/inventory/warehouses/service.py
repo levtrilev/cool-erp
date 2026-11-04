@@ -1,7 +1,8 @@
 """Сервис складов с публикацией событий репликации и контролем доступа."""
+
 import uuid
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast as typing_cast # pyright: ignore[reportUnusedImport]
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events.outbox import outbox
@@ -11,11 +12,12 @@ from app.modules.inventory.warehouses.schemas import (
     InvWarehouseCreateSchema,
     InvWarehouseUpdateSchema,
 )
-from app.core.access.schemas import UserProtocol
+from app.core.access.schemas import AccessResult, UserProtocol
+from app.core.access.service import AccessService, DocumentProtocol
 
 # ✅ Избегаем циклического импорта — UserModel нужен только для типизации
-if TYPE_CHECKING:
-    from app.core.users.models import UserModel
+# if TYPE_CHECKING:
+#     from app.core.users.models import UserModel
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ class WarehouseService:
         db: AsyncSession,
         *,
         obj_in: InvWarehouseCreateSchema,
-        user: "UserModel",  # ✅ НОВОЕ: для установки author_id
+        user: UserProtocol,
         user_id: uuid.UUID,
         current_tenant_id: uuid.UUID,
         is_superadmin: bool = False,
@@ -43,6 +45,16 @@ class WarehouseService:
         data_dict["created_by_user_id"] = user.id
 
         warehouse = InvWarehouseModel(**data_dict)
+
+        # ✅ КРИТИЧНО: Проверка права на создание через AccessService
+
+        access_service = AccessService(db)
+        wh_doc: DocumentProtocol = typing_cast("DocumentProtocol", warehouse)
+        access: AccessResult = await access_service.resolve_access(user, wh_doc)
+
+        if not access.visible or access.level < 2:
+            raise PermissionError("Нет права на создание склада")
+
         db.add(warehouse)
         await db.flush()
         await db.refresh(warehouse)

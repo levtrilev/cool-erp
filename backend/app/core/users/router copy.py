@@ -1,341 +1,398 @@
-# from typing import Optional
+# import logging
+# from typing import Any, Mapping
+# import uuid
 
-# from datetime import datetime, timedelta, timezone
-import uuid
+# from fastapi import APIRouter, Depends, HTTPException, status  # , Request, Response
+# from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import APIRouter, Depends, HTTPException, status  # , Request, Response
-from sqlalchemy.ext.asyncio import AsyncSession
+# # from sqlalchemy import delete
 
-# from sqlalchemy import delete
+# from app.core.database import get_db
+# from app.core.users.schemas import (
+#     PublicRegisterSchema,
+#     UserRegisterSchema,
+#     UserUpdateSchema,
+#     UserResponseSchema,
+# )
+# from app.core.users.crud import crud_user
 
-from app.core.database import get_db
-from app.core.users.schemas import (
-    PublicRegisterSchema,
-    UserRegisterSchema,
-    UserUpdateSchema,
-    UserResponseSchema,
-)
-from app.core.users.crud import crud_user
+# from app.core.schemas import ApiResponse, PaginatedResponse  # , ApiResponse
+# # from app.core.tenants.crud import crud_tenant
 
-# from app.core.auth.dependencies import require_admin
+# # from app.core.admin.models import TenantModel
+# from app.core.users.schemas import PublicRegisterResponseSchema
+# from app.core.auth.models import UserSession
 # from app.core.auth.security import get_current_session
-# from app.core.user.models import UserModel  as User
-from app.core.schemas import PaginatedResponse  # , ApiResponse
-from app.core.tenants.crud import crud_tenant
+# from sqlalchemy import text as sql_text
 
-# from app.core.admin.models import TenantModel
-from app.core.users.schemas import PublicRegisterResponseSchema
-from app.core.auth.models import UserSession
-from app.core.auth.security import get_current_session
+# from app.core.auth.dependencies import CurrentUser, DBSession
+# from app.core.auth.dependencies import DBSession
+# from app.core.users.registration_service import registration_service
 
-# Создаем роутер для авторизации
-router = APIRouter(prefix="/users", tags=["Users"])
+# logger = logging.getLogger(__name__)
 
-SESSION_LIFETIME_DAYS = 7
+# # Создаем роутер для авторизации
+# router = APIRouter(prefix="/users", tags=["Users"])
 
-
-# ==========================================
-# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика)
-# ==========================================
-@router.post(
-    "/public/register",
-    status_code=status.HTTP_201_CREATED,
-    response_model=PublicRegisterResponseSchema,
-)
-async def public_register(
-    user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)
-):
-    """
-    Публичная регистрация гостя.
-    - Если организация с таким именем существует → регистрирует как рядового пользователя.
-    - Если не существует → создает новую организацию и регистрирует как администратора.
-    """
-    # 1. Проверяем, нет ли уже пользователя с таким email
-    existing_user = await crud_user.get_by_email(db, email=user_in.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=[
-                {
-                    "loc": ["body", "email"],
-                    "msg": "Пользователь с таким email уже существует",
-                    "type": "value_error",
-                }
-            ],
-        )
-
-    # 2. Ищем организацию по имени
-    existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
-
-    is_new_tenant = False
-    tenant_id = None
-    is_admin = False
-
-    if existing_tenant:
-        # ✅ Организация существует → рядовой пользователь
-        tenant_id = existing_tenant.id
-        is_admin = False
-    else:
-        # ✅ Организация не существует → создаем новую, пользователь будет админом
-        try:
-            new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
-            tenant_id = new_tenant.id
-            is_admin = True
-            is_new_tenant = True
-        except Exception as e:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Ошибка при создании организации: {str(e)}",
-            )
-
-    # 3. Создаем пользователя
-    print(f"📝 Создаём пользователя с is_admin={is_admin}")
-    try:
-        user_register_data = UserRegisterSchema(
-            name=user_in.name,
-            email=user_in.email,
-            password=user_in.password,
-            tenant_id=tenant_id,
-            is_admin=is_admin,
-            is_superadmin=False,
-        )
-        new_user = await crud_user.register_new_user(db, user_in=user_register_data)
-        print(
-            f"📝 Данные для CRUD: tenant_id={user_register_data.tenant_id}, is_admin={user_register_data.is_admin}"
-        )
-
-        await db.commit()
-        await db.refresh(new_user)
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при создании пользователя: {str(e)}",
-        )
-
-    # 4. Формируем ответ с дополнительной информацией
-    return PublicRegisterResponseSchema(
-        id=new_user.id,
-        name=new_user.name,
-        email=new_user.email,
-        tenant_id=new_user.tenant_id,
-        is_admin=new_user.is_admin,
-        is_superadmin=new_user.is_superadmin or False,
-        is_new_tenant=is_new_tenant,
-        tenant_name=user_in.tenant_name,
-    )
+# SESSION_LIFETIME_DAYS = 7
 
 
-# ==========================================
-# РЕГИСТРАЦИЯ
-# ==========================================
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
-    """Регистрация нового пользователя"""
-    existing_user = await crud_user.get_by_email(db, email=user_in.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=[
-                {
-                    "loc": ["body", "email"],
-                    "msg": "Пользователь с таким email уже существует",
-                    "type": "value_error",
-                }
-            ],
-        )
+# # ==========================================
+# # ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика)
+# # ==========================================
+# # @router.post(
+# #     "/public/register",
+# #     status_code=status.HTTP_201_CREATED,
+# #     response_model=PublicRegisterResponseSchema,
+# # )
+# # async def public_register(
+# #     user_in: PublicRegisterSchema, db: AsyncSession = Depends(get_db)
+# # ):
+# #     """
+# #     Публичная регистрация гостя.
+# #     - Если организация с таким именем существует → регистрирует как рядового пользователя.
+# #     - Если не существует → создает новую организацию и регистрирует как администратора.
+# #     """
+# #     # 1. Проверяем, нет ли уже пользователя с таким email
+# #     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+# #     if existing_user:
+# #         raise HTTPException(
+# #             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+# #             detail=[
+# #                 {
+# #                     "loc": ["body", "email"],
+# #                     "msg": "Пользователь с таким email уже существует",
+# #                     "type": "value_error",
+# #                 }
+# #             ],
+# #         )
 
-    try:
-        new_user = await crud_user.register_new_user(db, user_in=user_in)
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
-        )
+# #     # 2. Ищем организацию по имени
+# #     existing_tenant = await crud_tenant.get_by_name(db, name=user_in.tenant_name)
 
-    # return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
-    return new_user
+# #     is_new_tenant = False
+# #     tenant_id = None
+# #     is_admin = False
 
+# #     if existing_tenant:
+# #         # ✅ Организация существует → рядовой пользователь
+# #         tenant_id = existing_tenant.id
+# #         is_admin = False
+# #     else:
+# #         # ✅ Организация не существует → создаем новую, пользователь будет админом
+# #         try:
+# #             new_tenant = await crud_tenant.create(db, name=user_in.tenant_name)
+# #             tenant_id = new_tenant.id
+# #             is_admin = True
+# #             is_new_tenant = True
+# #         except Exception as e:
+# #             await db.rollback()
+# #             raise HTTPException(
+# #                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+# #                 detail=f"Ошибка при создании организации: {str(e)}",
+# #             )
 
-# ==========================================
-# АУТЕНТИФИКАЦИЯ
-# ==========================================
-# @router.post("/login", status_code=status.HTTP_200_OK)
-# async def login(
-#     request: Request,
-#     user_in: UserLoginSchema,
-#     response: Response,
-#     db: AsyncSession = Depends(get_db),
+# #     # 3. Создаем пользователя
+# #     print(f"📝 Создаём пользователя с is_admin={is_admin}")
+# #     try:
+# #         user_register_data = UserRegisterSchema(
+# #             name=user_in.name,
+# #             email=user_in.email,
+# #             password=user_in.password,
+# #             tenant_id=tenant_id,
+# #             is_admin=is_admin,
+# #             is_superadmin=False,
+# #         )
+# #         new_user = await crud_user.register_new_user(db, user_in=user_register_data)
+# #         print(
+# #             f"📝 Данные для CRUD: tenant_id={user_register_data.tenant_id}, is_admin={user_register_data.is_admin}"
+# #         )
+
+# #         await db.commit()
+# #         await db.refresh(new_user)
+# #     except Exception as e:
+# #         await db.rollback()
+# #         raise HTTPException(
+# #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+# #             detail=f"Ошибка при создании пользователя: {str(e)}",
+# #         )
+
+# #     # 4. Формируем ответ с дополнительной информацией
+# #     return PublicRegisterResponseSchema(
+# #         id=new_user.id,
+# #         name=new_user.name,
+# #         email=new_user.email,
+# #         tenant_id=new_user.tenant_id,
+# #         is_admin=new_user.is_admin,
+# #         is_superadmin=new_user.is_superadmin or False,
+# #         is_new_tenant=is_new_tenant,
+# #         tenant_name=user_in.tenant_name,
+# #     )
+
+# # ==================================================================
+# # ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика + полная структура доступа)
+# # ==================================================================
+# @router.post(
+#     "/public/register",
+#     status_code=status.HTTP_201_CREATED,
+#     response_model=PublicRegisterResponseSchema,
+# )
+# async def public_register(
+#     user_in: PublicRegisterSchema,
+#     db: DBSession,  # ✅ Правило №32: аннотированный тип вместо Depends
 # ):
-#     """Авторизация пользователя с созданием сессии в БД"""
-#     db_user = await crud_user.get_by_email(db, email=user_in.email)
-
-#     if not db_user or not crud_user.authenticate(db_user, user_in.password):
+#     """
+#     Публичная регистрация гостя.
+#     - Если организация существует → рядовой пользователь.
+#     - Если не существует → новая организация + полная структура доступа:
+#       тенант, раздел «Общий-<Организация>», роль администратора,
+#       Permissions для всех активных doctype, пользователь с is_admin=True.
+#     """
+#     # 1. Проверяем, нет ли уже пользователя с таким email
+#     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+#     if existing_user:
 #         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Неверный email или пароль",
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=[
+#                 {
+#                     "loc": ["body", "email"],
+#                     "msg": "Пользователь с таким email уже существует",
+#                     "type": "value_error",
+#                 }
+#             ],
 #         )
 
-#     session_token = uuid.uuid4().hex
-#     expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_LIFETIME_DAYS)
+#     # 2. Регистрация через сервис (полная структура доступа)
+#     try:
+#         new_user, is_new_tenant = await registration_service.register(
+#             db, user_in=user_in
+#         )
+#     except Exception as e:
+#         await db.rollback()
+#         logger.error("Ошибка при регистрации: %s", str(e))
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Ошибка при регистрации: {str(e)}",
+#         )
 
-#     new_session = UserSession(
-#         session_token=session_token,
-#         user_id=db_user.id,
-#         expires_at=expires_at,
-#         ip_address=request.client.host if request.client else None,
-#         user_agent=request.headers.get("user-agent", "")[:512],
-#     )
-#     db.add(new_session)
+#     # 3. Commit в роутере (Правило №40, часть 8.1)
 #     await db.commit()
+#     await db.refresh(new_user)
 
-#     response.set_cookie(
-#         key="session_token",
-#         value=session_token,
-#         httponly=True,
-#         samesite="lax",
-#         secure=False,
-#         max_age=SESSION_LIFETIME_DAYS * 24 * 60 * 60,
-#         path="/",
+#     # 4. Формируем ответ
+#     return PublicRegisterResponseSchema(
+#         id=new_user.id,
+#         name=new_user.name,
+#         email=new_user.email,
+#         tenant_id=new_user.tenant_id,
+#         is_admin=new_user.is_admin,
+#         is_superadmin=new_user.is_superadmin or False,
+#         is_new_tenant=is_new_tenant,
+#         tenant_name=user_in.tenant_name,
 #     )
 
-#     return {"message": "Успешная авторизация"}
+# # ==========================================
+# # РЕГИСТРАЦИЯ
+# # ==========================================
+# @router.post("/register", status_code=status.HTTP_201_CREATED)
+# async def register(user_in: UserRegisterSchema, db: AsyncSession = Depends(get_db)):
+#     """Регистрация нового пользователя"""
+#     existing_user = await crud_user.get_by_email(db, email=user_in.email)
+#     if existing_user:
+#         raise HTTPException(
+#             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+#             detail=[
+#                 {
+#                     "loc": ["body", "email"],
+#                     "msg": "Пользователь с таким email уже существует",
+#                     "type": "value_error",
+#                 }
+#             ],
+#         )
+
+#     try:
+#         new_user = await crud_user.register_new_user(db, user_in=user_in)
+#     except Exception:
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Ошибка создания. Возможно tenant_id не существует в вашей БД.",
+#         )
+
+#     # return {"message": f"Пользователь {new_user.name} успешно зарегистрирован"}
+#     # return new_user
+#     return UserResponseSchema.model_validate(new_user)
+
+# # ==========================================
+# # CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
+# # ==========================================
+
+# @router.get("/", response_model=PaginatedResponse[UserResponseSchema])
+# async def read_users(
+#     tenant_id: uuid.UUID | None = None,
+#     skip: int = 0,
+#     limit: int = 100,
+#     search: str | None = None,
+#     db: AsyncSession = Depends(get_db),
+#     session: UserSession = Depends(get_current_session),
+# ):
+#     """Получение списка пользователей с пагинацией.
+    
+#     - Обычный пользователь: всегда видит только свою организацию.
+#     - Суперадмин без tenant_id: видит пользователей всех организаций.
+#     - Суперадмин с tenant_id: видит пользователей указанной организации.
+#     """
+        
+#     is_superadmin = session.is_superadmin if session else False
+
+#     # ✅ Правило №26: Обычный админ не может запрашивать чужой тенант
+#     if tenant_id and not is_superadmin:
+#         tenant_id = session.tenant_id
+#     # Для суперадмина: если tenant_id не передан (None) — показываем все организации
+
+#     """Получение списка пользователей с пагинацией"""
+#     items, total = await crud_user.get_multi_paginated(
+#         db,
+#         tenant_id=session.tenant_id,  # ✅ (None) — показываем все организации
+#         skip=skip,
+#         limit=limit,
+#         search=search,
+#         user_is_superadmin=is_superadmin,
+#         target_tenant_id=tenant_id,  # ✅ Передаём в CRUD
+#     )
+
+#     # Явно создаем экземпляр дженерика
+#     return PaginatedResponse[UserResponseSchema](
+#         items=[UserResponseSchema.model_validate(item) for item in items],
+#         total=total,
+#         page=(skip // limit) + 1,
+#         size=limit,
+#     )
+
+# from typing import Any, Mapping
+# from sqlalchemy import text as sql_text
+
+# from app.core.users.schemas import (
+#     TagUserResponseSchema,
+#     TagWithUsersResponseSchema,
+# )
 
 
-# @router.post("/logout")
-# async def logout(
-#     request: Request,
-#     response: Response,
+# @router.get("/tags", response_model=ApiResponse[list[TagWithUsersResponseSchema]])
+# async def get_tags_with_users(
+#     db: DBSession,
+#     session: CurrentUser,
+# ) -> ApiResponse[list[TagWithUsersResponseSchema]]:
+#     """
+#     Список тегов доступа и пользователей, которым они присвоены.
+
+#     ТЗ RBAC_ABAC v2.0 §6.3.5:
+#     - Администратор видит только пользователей своей Организации
+#     - Суперадмин видит пользователей всех Организаций
+
+#     Фильтрация выполняется на уровне SQL (Правило №26).
+#     """
+#     is_superadmin: bool = bool(getattr(session, "is_superadmin", False))
+
+#     where_clause: str
+#     params: Mapping[str, Any]
+
+#     if is_superadmin:
+#         where_clause = ""
+#         params = {}
+#     else:
+#         where_clause = "WHERE u.tenant_id = :tenant_id"
+#         params = {"tenant_id": session.tenant_id}
+
+#     query = sql_text(f"""
+#         SELECT
+#             distinct_tags.tag AS tag,
+#             json_agg(
+#                 json_build_object(
+#                     'id', u.id,
+#                     'name', u.name,
+#                     'email', u.email,
+#                     'tenant_id', u.tenant_id,
+#                     'tenant_name', t.name,
+#                     'tags', COALESCE(u.tags, ARRAY[]::varchar[])
+#                 ) ORDER BY u.name
+#             ) AS users
+#         FROM (
+#             SELECT DISTINCT unnest(u0.tags) AS tag
+#             FROM public.users AS u0
+#             WHERE u0.tags IS NOT NULL
+#               AND array_length(u0.tags, 1) > 0
+#         ) AS distinct_tags
+#         JOIN public.users AS u
+#             ON u.tags @> ARRAY[distinct_tags.tag]::varchar[]
+#         LEFT JOIN public.tenants AS t
+#             ON t.id = u.tenant_id
+#         {where_clause}
+#         GROUP BY distinct_tags.tag
+#         ORDER BY distinct_tags.tag
+#     """)
+
+#     result = await db.execute(query, params)
+#     rows = result.all()
+
+#     items: list[TagWithUsersResponseSchema] = []
+#     for row in rows:
+#         raw_users: list[dict[str, Any]] = list(row.users or [])
+#         users = [TagUserResponseSchema.model_validate(u) for u in raw_users]
+#         items.append(TagWithUsersResponseSchema(tag=row.tag, users=users))
+
+#     return ApiResponse(
+#         success=True,
+#         message="Теги получены",
+#         data=items,
+#     )
+
+
+# @router.get("/{user_id}", response_model=UserResponseSchema)
+# async def read_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+#     """Получение одного пользователя по UUID"""
+#     db_user = await crud_user.get(db, id=user_id)
+#     if db_user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
+#     # ✅ Явная конвертация ORM → Pydantic
+#     return UserResponseSchema.model_validate(db_user)
+
+
+# @router.put("/{user_id}", response_model=UserResponseSchema)
+# async def update_user(
+#     user_id: uuid.UUID,
+#     user_changes: UserUpdateSchema,
 #     db: AsyncSession = Depends(get_db),
 # ):
-#     """Выход из системы: удаляет сессию из БД и очищает куку"""
-#     session_token = request.cookies.get("session_token")
+#     """Обновление пользователя"""
+#     db_user = await crud_user.get(db, id=user_id)
+#     if db_user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
 
-#     if session_token:
-#         await db.execute(
-#             delete(UserSession).where(UserSession.session_token == session_token)  # type: ignore
+#     try:
+#         updated_user = await crud_user.update_user(
+#             db, db_user=db_user, user_changes=user_changes
 #         )
-#         await db.commit()
+#     except Exception as e:
+#         logging.error(f"Ошибка обновления пользователя {user_id}: {str(e)}")
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="Ошибка обновления. Возможно ошибка БД.",
+#         )
 
-#     response.delete_cookie(
-#         key="session_token",
-#         path="/",
-#         samesite="lax",
-#     )
-
-#     return {"message": "Успешный выход"}
-
-
-# ==========================================
-# ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ
-# ==========================================
-# @router.get("/user", response_model=UserResponseSchema)
-# async def get_user(current_user: User = Depends(get_current_session)):
-#     """Получение профиля текущего пользователя"""
-#     # ✅ Явная конвертация ORM → Pydantic (критично для Orval!)
-#     return UserResponseSchema.model_validate(current_user)
-# @router.get("/user", response_model=ApiResponse[UserResponseSchema])
-# async def get_user(current_user: User = Depends(get_current_session)):
-#     """Получение профиля текущего пользователя во вложенной обертке"""
-
-#     # 1. Конвертируем ORM в Pydantic
-#     user_data = UserResponseSchema.model_validate(current_user)
-
-#     # 2. Явно создаем экземпляр обертки (Orval это обожает)
-#     return ApiResponse[UserResponseSchema](
-#         success=True,
-#         message="Пользователь успешно получен",
-#         data=user_data
-#     )
+#     # ✅ Явная конвертация ORM → Pydantic
+#     return UserResponseSchema.model_validate(updated_user)
 
 
-# ==========================================
-# CRUD ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ
-# ==========================================
+# @router.delete("/{user_id}", status_code=status.HTTP_200_OK)
+# async def delete_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+#     """Удаление пользователя из базы данных"""
+#     deleted_user = await crud_user.remove(db, id=user_id)
 
-@router.get("/", response_model=PaginatedResponse[UserResponseSchema])
-async def read_users(
-    tenant_id: uuid.UUID,
-    skip: int = 0,
-    limit: int = 100,
-    search: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    is_superadmin = session.is_superadmin if session else False
+#     if deleted_user is None:
+#         raise HTTPException(status_code=404, detail="User not found")
 
-    # ✅ Правило №26: Обычный админ не может запрашивать чужой тенант
-    if tenant_id and not is_superadmin:
-        tenant_id = session.tenant_id
+#     return {
+#         "status": "success",
+#         "message": f"User {deleted_user.name} successfully deleted",
+#     }
 
-    """Получение списка пользователей с пагинацией"""
-    items, total = await crud_user.get_multi_paginated(
-        db,
-        tenant_id=tenant_id,  # ✅ Передать в CRUD
-        skip=skip,
-        limit=limit,
-        search=search,
-        user_is_superadmin=is_superadmin,
-        target_tenant_id=tenant_id,  # ✅ Передаём в CRUD
-    )
-
-    # Явно создаем экземпляр дженерика
-    return PaginatedResponse[UserResponseSchema](
-        items=[UserResponseSchema.model_validate(item) for item in items],
-        total=total,
-        page=(skip // limit) + 1,
-        size=limit,
-    )
-
-
-@router.get("/{user_id}", response_model=UserResponseSchema)
-async def read_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Получение одного пользователя по UUID"""
-    db_user = await crud_user.get(db, id=user_id)
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    # ✅ Явная конвертация ORM → Pydantic
-    return UserResponseSchema.model_validate(db_user)
-
-
-@router.put("/{user_id}", response_model=UserResponseSchema)
-async def update_user(
-    user_id: uuid.UUID,
-    user_changes: UserUpdateSchema,
-    db: AsyncSession = Depends(get_db),
-):
-    """Обновление пользователя"""
-    db_user = await crud_user.get(db, id=user_id)
-    if db_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    try:
-        updated_user = await crud_user.update_user(
-            db, db_user=db_user, user_changes=user_changes
-        )
-    except Exception as e:
-        import logging
-
-        logging.error(f"Ошибка обновления пользователя {user_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ошибка обновления. Возможно ошибка БД.",
-        )
-
-    # ✅ Явная конвертация ORM → Pydantic
-    return UserResponseSchema.model_validate(updated_user)
-
-
-@router.delete("/{user_id}", status_code=status.HTTP_200_OK)
-async def delete_user(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """Удаление пользователя из базы данных"""
-    deleted_user = await crud_user.remove(db, id=user_id)
-
-    if deleted_user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return {
-        "status": "success",
-        "message": f"User {deleted_user.name} successfully deleted",
-    }
