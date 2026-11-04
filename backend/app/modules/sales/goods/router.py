@@ -3,7 +3,7 @@
 import uuid
 from typing import cast
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import CurrentUser, DBSession
@@ -78,7 +78,7 @@ async def create_goods(
             is_superadmin=session.is_superadmin,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)
@@ -109,7 +109,7 @@ async def get_goods(
     )
 
     if goods is None:
-        raise HTTPException(status_code=404, detail="Товар не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
 
     return ApiResponse(
         success=True,
@@ -140,11 +140,11 @@ async def update_goods(
             is_superadmin=session.is_superadmin,
         )
     except GoodsNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except GoodsVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)
@@ -176,9 +176,9 @@ async def delete_goods(
             is_superadmin=session.is_superadmin,
         )
     except GoodsNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
 
@@ -209,9 +209,9 @@ async def acquire_goods_lock(
             is_superadmin=session.is_superadmin,
         )
     except GoodsNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)
@@ -243,9 +243,9 @@ async def release_goods_lock(
             is_superadmin=session.is_superadmin,
         )
     except GoodsNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)

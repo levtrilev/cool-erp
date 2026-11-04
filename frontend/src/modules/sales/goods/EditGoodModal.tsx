@@ -22,7 +22,7 @@ import {
   useUpdateGoodsSalesGoodsGoodsIdPut,
 } from "@/api/generated/sales-goods/sales-goods";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { SalesGoodsResponseSchema } from "@/api/generated/fastAPI.schemas";
 import {
   ReferenceSelect,
@@ -67,7 +67,7 @@ export function EditGoodModal({
 }: EditGoodModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
 
   const isEdit = !!initialData;

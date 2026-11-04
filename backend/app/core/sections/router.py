@@ -1,3 +1,4 @@
+from typing import cast as typing_cast
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +18,7 @@ from app.core.sections.schemas import (
     SectionResponseSchema,
     SectionUpdateSchema,
 )
+from app.core.access.schemas import UserProtocol
 
 router = APIRouter(prefix="/sections", tags=["Sections"])
 
@@ -63,8 +65,8 @@ async def create_section(
             db,
             obj_in=obj_in,
             tenant_id=current_session.tenant_id,
-            user_id=current_session.user.id,
-            is_admin=current_session.user.is_admin,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_admin=current_session.is_admin,
             is_superadmin=current_session.is_superadmin,
         )
     except SectionNotAdminError as exc:
@@ -118,8 +120,8 @@ async def update_section(
             section_id=section_id,
             obj_in=obj_in,
             tenant_id=current_session.tenant_id,
-            user_id=current_session.user.id,
-            is_admin=current_session.user.is_admin,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_admin=current_session.is_admin,
             is_superadmin=current_session.is_superadmin,
         )
     except SectionNotFoundError as exc:
@@ -151,8 +153,8 @@ async def delete_section(
             db,
             section_id=section_id,
             tenant_id=current_session.tenant_id,
-            user_id=current_session.user.id,
-            is_admin=current_session.user.is_admin,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_admin=current_session.is_admin,
             is_superadmin=current_session.is_superadmin,
         )
     except SectionNotFoundError as exc:

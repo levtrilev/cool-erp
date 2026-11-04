@@ -38,7 +38,7 @@ import {
   useUpdateCompanyBusinessPartnersCompaniesCompanyIdPut,
 } from "@/api/generated/business-partners-companies/business-partners-companies";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { BpCompanyResponseSchema } from "@/api/generated/fastAPI.schemas";
 import { listRegionsReplicaBusinessPartnersRegionsReplicaGet } from "@/api/generated/business-partners-regions-replica/business-partners-regions-replica";
 import {
@@ -131,7 +131,7 @@ export function EditCompanyModal({
 }: EditCompanyModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
   const currentTenantName = userData?.data?.tenant_name;
 

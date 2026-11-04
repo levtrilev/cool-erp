@@ -78,7 +78,7 @@ async def create_warehouse(
             is_superadmin=session.is_superadmin,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
     return ApiResponse(
@@ -97,7 +97,7 @@ async def get_warehouse(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[InvWarehouseResponseSchema]:
-    """Один склад с контролем доступа (ТЗ §2.3 — нет права ⇒ 404)."""
+    """Один склад с контролем доступа (ТЗ §2.3 — нет права ⇒ 404,403)."""
     warehouse = await crud_warehouse.get_for_user(
         db,
         warehouse_id=warehouse_id,
@@ -106,7 +106,7 @@ async def get_warehouse(
         is_superadmin=session.is_superadmin,
     )
     if warehouse is None:
-        raise HTTPException(status_code=404, detail="Склад не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
     return ApiResponse(
         success=True,
         message="Склад получен",
@@ -136,11 +136,11 @@ async def update_warehouse(
             is_superadmin=session.is_superadmin,
         )
     except WarehouseNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
     return ApiResponse(
@@ -170,9 +170,11 @@ async def delete_warehouse(
             is_superadmin=session.is_superadmin,
         )
     except WarehouseNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
+    except WarehousePermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     return ApiResponse(
         success=True,
@@ -240,9 +242,9 @@ async def release_warehouse_lock(
             is_superadmin=session.is_superadmin,
         )
     except WarehouseNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
     return ApiResponse(

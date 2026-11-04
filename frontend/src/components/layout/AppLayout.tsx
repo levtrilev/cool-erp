@@ -14,10 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { UserCircle, LogOut, Loader2 } from "lucide-react";
 import {
-  useGetUserAuthUserGet,
+  useGetCurrentUserAuthUserGet,
   useLogoutAuthLogoutPost,
 } from "@/api/generated/authentication/authentication";
 import { useQueryClient } from "@tanstack/react-query";
+// import { AUTH_USER_QUERY_OPTIONS } from "@/core/auth/authQueryOptions";
 
 type LayoutPosition = "left" | "top";
 
@@ -83,7 +84,7 @@ const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
  * Вынесен отдельно для переиспользования в разных макетах.
  */
 const UserOnLayout = () => {
-  const { data: user, isLoading } = useGetUserAuthUserGet();
+  const { data: user, isLoading } = useGetCurrentUserAuthUserGet();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const logoutMutation = useLogoutAuthLogoutPost();
@@ -112,15 +113,17 @@ const UserOnLayout = () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
         // ✅ Редирект сразу на логин, а не на "/"
         navigate("/auth/login", { replace: true });
+        // navigate("/", { replace: true });
       },
       onError: async () => {
         queryClient.clear();
         await new Promise((resolve) => setTimeout(resolve, 50));
         navigate("/auth/login", { replace: true });
+        // navigate("/", { replace: true });
       },
     });
   };
-  
+
   // ✅ Показываем загрузку, пока получаем данные пользователя
   if (isLoading) {
     return (
@@ -187,12 +190,13 @@ export const AppLayout = () => {
   // ✅ Auth Guard: проверка сессии пользователя
   // const { data: user, isError: isAuthError, isLoading: isAuthLoading } =
   const { isError: isAuthError, isLoading: isAuthLoading } =
-    useGetUserAuthUserGet();
+    useGetCurrentUserAuthUserGet();
 
-  // ✅ Редирект на логин при ошибке авторизации (401)
+  // ✅ Редирект на homePage (логин) при ошибке авторизации (401)
   useEffect(() => {
     if (isAuthError) {
-      navigate("/auth/login", { replace: true });
+      navigate("/", { replace: true });
+      // navigate("/auth/login", { replace: true });
     }
   }, [isAuthError, navigate]);
 

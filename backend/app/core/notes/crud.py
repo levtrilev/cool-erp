@@ -1,22 +1,20 @@
+"""CRUD для заметок с блокировками (Правило №40) и контролем доступа (ТЗ RBAC/ABAC §8)."""
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast as typing_cast
-
-from sqlalchemy import ColumnElement, func, or_, select, update
+from typing import TYPE_CHECKING, Any # pyright: ignore[reportUnusedImport]
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
+from typing import cast as typing_cast
 
-from app.core.access import get_access_service
-from app.core.access.schemas import (
-    ACCESS_LEVEL_EDITOR,
-    UserProtocol,
-)
-from app.core.access.service import DocumentProtocol
+from app.core.access.service import AccessService, DocumentProtocol
+from app.core.access.schemas import AccessResult, UserProtocol
 from app.core.crud.base import CRUDBase
 from app.core.doctypes.document_base import EDITING_LOCK_TIMEOUT_MINUTES
 from app.core.notes.exceptions import (
-    NoteAccessDeniedError,
     NoteEditingLockedError,
     NoteNotFoundError,
+    NotePermissionError,
     NoteVersionConflictError,
     SectionNotInTenantError,
 )
@@ -24,45 +22,154 @@ from app.core.notes.models import NotesModel
 from app.core.notes.schemas import NoteCreateSchema, NoteUpdateSchema
 from app.core.sections.models import SectionModel, SectionType
 
+# if TYPE_CHECKING:
+#     from app.core.users.models import UserModel
+
+
 class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
-    """
-    CRUD заметок с интеграцией AccessService (ТЗ §8).
+    """CRUD для заметок с блокировками и контролем доступа."""
 
-    Все методы принимают `user: UserProtocol` вместо разрозненных
-    `tenant_id` / `user_id` / `is_superadmin`. Это обеспечивает
-    единообразие проверок доступа через единый алгоритм resolve_access.
-    """
+    # ==================================================================
+    # ВСПОМОГАТЕЛЬНЫЙ МЕТОД: проверка доступа к одиночной записи
+    # ==================================================================
+    async def _ensure_visible_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        note: NotesModel,
+        user: UserProtocol,
+    ) -> None:
+        """
+        Проверка видимости заметки для пользователя через AccessService.
+        Если запись не видна — поднимает NoteNotFoundError (ТЗ §2.3, §2.6:
+        'запись не существует для пользователя').
+        """
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access = await access_service.resolve_access(user, note_doc)
+        if not access.visible:
+            raise NoteNotFoundError("Заметка не найдена")
 
+    # ==================================================================
+    # СПИСОК (ТЗ §2.6 — RLS-семантика: скрытые записи не возвращаются)
+    # ==================================================================
+    async def get_multi(
+        self,
+        db: AsyncSession,
+        *,
+        user: UserProtocol,
+        tenant_id: uuid.UUID,
+        is_superadmin: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+        search: str | None = None,
+    ) -> tuple[list[NotesModel], int]:
+        """
+        Список заметок с контролем доступа через AccessService.
+        Фильтр включает ВСЕ 5 слоёв ТЗ RBAC/ABAC §3:
+          Слой 1 (тенант) + Слой 2 (разделы роли) + Слой 3 (doctype/permission)
+          + Слой 4 (теги) + Слой 5 (уровень ≥ 1 для видимости).
+        """
+        model = self.model
+        base_where = model.deleted_at.is_(None)
+
+        # ✅ КРИТИЧНО: SQL-фильтр видимости через AccessService
+        access_service = AccessService(db)
+        access_filter = await access_service.build_access_filter(user, model)
+        if access_filter is None:
+            return [], 0
+
+        stmt = select(model).where(base_where, access_filter)
+        count_stmt = (
+            select(func.count())
+            .select_from(model)
+            .where(base_where, access_filter)
+        )
+
+        # Поиск по тексту (применяется поверх фильтра доступа)
+        if search:
+            pattern: str = f"%{search}%"
+            search_cond = or_(
+                model.title.ilike(pattern),
+                model.content.ilike(pattern),
+            )
+            stmt = stmt.where(search_cond)
+            count_stmt = count_stmt.where(search_cond)
+
+        total: int = (await db.execute(count_stmt)).scalar_one() or 0
+        stmt = stmt.order_by(model.created_at.desc(), model.id.desc()).offset(skip).limit(limit)
+        items: list[NotesModel] = list((await db.execute(stmt)).scalars().all())
+        return items, total
+
+    # ==================================================================
+    # ОДНОЧНАЯ ЗАПИСЬ (ТЗ §2.3 — нет права на чтение ⇒ 404)
+    # ==================================================================
+    async def get_for_user(
+        self,
+        db: AsyncSession,
+        *,
+        note_id: uuid.UUID,
+        user: UserProtocol,
+        tenant_id: uuid.UUID,
+        is_superadmin: bool = False,
+    ) -> NotesModel | None:
+        """
+        Получение заметки с контролем доступа.
+        Возвращает None, если запись не видна пользователю (ТЗ §2.3).
+        """
+        model = self.model
+        stmt = select(model).where(
+            model.id == note_id,
+            model.deleted_at.is_(None),
+        )
+        # Базовая тенантная фильтрация остаётся как дополнительная защита
+        if not is_superadmin:
+            stmt = stmt.where(model.tenant_id == tenant_id)
+
+        note = (await db.execute(stmt)).scalar_one_or_none()
+        if note is None:
+            return None
+
+        # ✅ Проверка доступа через AccessService (все 5 слоёв)
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access = await access_service.resolve_access(user, note_doc)
+        if not access.visible:
+            return None
+        return note
+
+    # ==================================================================
+    # СОЗДАНИЕ (ТЗ §5 — создание требует уровень ≥ 2)
+    # ==================================================================
     async def create_for_user(
         self,
         db: AsyncSession,
         *,
         obj_in: NoteCreateSchema,
         user: UserProtocol,
+        tenant_id: uuid.UUID,
+        is_superadmin: bool = False,
     ) -> NotesModel:
         """Создание заметки с заполнением контракта из сессии."""
         model = self.model
 
-        # Проверка доступности раздела (через AccessService — для будущей логики)
-        section_stmt = select(SectionModel).where(
-            SectionModel.id == obj_in.section_id
-        )
+        # Проверка доступности раздела
+        section_stmt = select(SectionModel).where(SectionModel.id == obj_in.section_id)
         section = (await db.execute(section_stmt)).scalar_one_or_none()
-
         if section is None:
             raise SectionNotInTenantError("Раздел не найден")
 
         # ✅ Вариант D: создание в «Общем» — только Суперадмин
-        if section.section_type == SectionType.PLATFORM and not user.is_superadmin:
-            raise NoteAccessDeniedError(
+        if section.section_type == SectionType.PLATFORM and not is_superadmin:
+            raise NotePermissionError(
                 "Создание документов в разделе «Общий» доступно только Суперадмину"
             )
 
         # Раздел должен быть либо платформенный, либо принадлежать организации пользователя
         if (
             section.tenant_id is not None
-            and section.tenant_id != user.tenant_id
-            and not user.is_superadmin
+            and section.tenant_id != tenant_id
+            and not is_superadmin
         ):
             raise SectionNotInTenantError("Раздел недоступен в этой организации")
 
@@ -75,341 +182,102 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             doc_date=obj_in.doc_date,
             or_tags=obj_in.or_tags,
             and_tags=obj_in.and_tags,
-            tenant_id=user.tenant_id,
+            tenant_id=tenant_id,
             author_id=user.id,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
+
+        # ✅ Проверка права на создание через AccessService
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access: AccessResult = await access_service.resolve_access(user, note_doc)
+        if access.level < 2:
+            raise NotePermissionError("Нет права на создание заметки")
 
         db.add(note)
         await db.flush()
         await db.refresh(note)
         return note
 
-    async def list_for_user(
-        self,
-        db: AsyncSession,
-        *,
-        user: UserProtocol,
-        skip: int = 0,
-        limit: int = 10,
-        search: str | None = None,
-    ) -> tuple[list[NotesModel], int]:
-        """
-        Список активных заметок с SQL-фильтрацией через AccessService.
-
-        Использует build_access_filter для эффективной фильтрации на уровне БД.
-        """
-        model = self.model
-
-        conditions: list[ColumnElement[bool]] = [model.deleted_at.is_(None)]
-
-        # ✅ Получаем SQL-фильтр доступа от AccessService
-        access_service = get_access_service(db)
-        access_filter = await access_service.build_access_filter(user, model)
-
-        if access_filter is None:
-            # Доступа нет вообще (нет ролей, нет валидных section_ids)
-            return [], 0
-
-        conditions.append(access_filter)
-
-        if search:
-            pattern = f"%{search}%"
-            conditions.append(
-                or_(
-                    model.title.ilike(pattern),
-                    model.content.ilike(pattern),
-                )
-            )
-
-        count_stmt = select(func.count()).select_from(model).where(*conditions)
-        total = (await db.execute(count_stmt)).scalar_one()
-
-        stmt = (
-            select(model)
-            .where(*conditions)
-            .order_by(model.created_at.desc(), model.id.desc())
-            .offset(skip)
-            .limit(limit)
-        )
-
-        items = list((await db.execute(stmt)).scalars().all())
-        return items, total
-
-    async def get_for_user(
-        self,
-        db: AsyncSession,
-        *,
-        note_id: uuid.UUID,
-        user: UserProtocol,
-    ) -> NotesModel | None:
-        """
-        Одна активная заметка с проверкой доступа через AccessService.
-        """
-        model = self.model
-
-        # ✅ Загружаем документ без tenant-фильтрации (AccessService проверит доступ)
-        stmt = select(model).where(
-            model.id == note_id,
-            model.deleted_at.is_(None),
-        )
-        note = (await db.execute(stmt)).scalar_one_or_none()
-
-        if note is None:
-            return None
-
-        # ✅ Проверка доступа через AccessService (ТЗ §8)
-        access_service = get_access_service(db)
-        # result = await access_service.resolve_access(user, note)
-        result = await access_service.resolve_access(
-            user, typing_cast(DocumentProtocol, note)
-        )
-
-        if not result.visible:
-            return None
-
-        return note
-
-    async def save_with_version(
-        self,
-        db: AsyncSession,
-        *,
-        note_id: uuid.UUID,
-        obj_in: NoteUpdateSchema,
-        user: UserProtocol,
-    ) -> NotesModel:
-        """
-        Атомарное сохранение с проверкой доступа и оптимистической блокировкой.
-
-        Порядок:
-        1. Загрузка документа
-        2. Проверка доступа через AccessService (level >= EDITOR)
-        3. Проверка пессимистической блокировки
-        4. Атомарный UPDATE с version
-        """
-        model = self.model
-
-        # ШАГ 1: Загрузка
-        stmt = select(model).where(
-            model.id == note_id,
-            model.deleted_at.is_(None),
-        )
-        note = (await db.execute(stmt)).scalar_one_or_none()
-
-        if note is None:
-            raise NoteNotFoundError("Заметка не найдена")
-
-        # ШАГ 2: ✅ Проверка доступа через AccessService (ТЗ §8)
-        access_service = get_access_service(db)
-        # access_result = await access_service.resolve_access(user, note)
-        access_result = await access_service.resolve_access(
-            user, typing_cast(DocumentProtocol, note)
-        )
-
-        if not access_result.visible:
-            raise NoteAccessDeniedError("Нет доступа к документу")
-
-        if access_result.level < ACCESS_LEVEL_EDITOR:
-            raise NoteAccessDeniedError(
-                "Недостаточно прав для редактирования. "
-                f"Требуется уровень >= 2 (редактор), текущий: {access_result.level}"
-            )
-
-        # ШАГ 3: ЖЁСТКАЯ проверка пессимистической блокировки (Правило №40)
-        if (
-            note.editing_by_user_id is not None
-            and note.editing_by_user_id != user.id
-            and not user.is_superadmin
-        ):
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
-            if note.editing_since is None or note.editing_since > cutoff:
-                raise NoteEditingLockedError(
-                    "Документ заблокирован другим пользователем для редактирования"
-                )
-
-        # ШАГ 4: Проверка доступности нового раздела (если меняется)
-        if obj_in.section_id is not None:
-            section_stmt = select(SectionModel).where(
-                SectionModel.id == obj_in.section_id
-            )
-            section = (await db.execute(section_stmt)).scalar_one_or_none()
-
-            if section is None or (
-                section.tenant_id is not None
-                and section.tenant_id != note.tenant_id
-            ):
-                raise SectionNotInTenantError(
-                    "Раздел недоступен в этой организации"
-                )
-            # ✅ Вариант D: перемещение в «Общий» — только Суперадмин.
-            # Иначе Редактор мог бы «экSPORTировать» свой документ в общее пространство.
-            if (
-                section.section_type == SectionType.PLATFORM
-                and not user.is_superadmin
-            ):
-                raise NoteAccessDeniedError(
-                    "Перемещение документа в раздел «Общий» доступно только Суперадмину"
-                )
-
-        # ШАГ 5: Атомарный UPDATE с оптимистической блокировкой
-        values: dict[str, Any] = obj_in.model_dump(
-            exclude_unset=True, exclude={"version"}
-        )
-        values["version"] = model.version + 1
-        values["updated_at"] = func.now()
-        values["updated_by_user_id"] = user.id
-        values["editing_by_user_id"] = None
-        values["editing_since"] = None
-
-        conditions: list[ColumnElement[bool]] = [
-            model.id == note_id,
-            model.version == obj_in.version,
-            model.deleted_at.is_(None),
-        ]
-
-        stmt = (
-            update(model)
-            .where(*conditions)
-            .values(**values)
-            .returning(model.id)
-        )
-
-        updated_id = (await db.execute(stmt)).scalar_one_or_none()
-
-        if updated_id is None:
-            raise NoteVersionConflictError(
-                "Документ изменён другим пользователем. Обновите данные."
-            )
-
-        await db.flush()
-        await db.refresh(note)
-        return note
-
-    async def mark_deleted(
-        self,
-        db: AsyncSession,
-        *,
-        note_id: uuid.UUID,
-        user: UserProtocol,
-    ) -> NotesModel:
-        """
-        Мягкое удаление с проверкой can_delete через AccessService.
-        """
-        model = self.model
-
-        # ШАГ 1: Загрузка
-        stmt = select(model).where(
-            model.id == note_id,
-            model.deleted_at.is_(None),
-        )
-        note = (await db.execute(stmt)).scalar_one_or_none()
-
-        if note is None:
-            raise NoteNotFoundError("Заметка не найдена")
-
-        # ШАГ 2: ✅ Проверка доступа через AccessService (ТЗ §8)
-        access_service = get_access_service(db)
-        # access_result = await access_service.resolve_access(user, note)
-        access_result = await access_service.resolve_access(
-            user, typing_cast(DocumentProtocol, note)
-        )
-
-        if not access_result.visible:
-            raise NoteAccessDeniedError("Нет доступа к документу")
-
-        if not access_result.can_delete:
-            raise NoteAccessDeniedError(
-                "Недостаточно прав для удаления документа"
-            )
-
-        # ШАГ 3: Проверка пессимистической блокировки (Правило №40)
-        if (
-            note.editing_by_user_id is not None
-            and note.editing_by_user_id != user.id
-            and not user.is_superadmin
-        ):
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
-            if note.editing_since is None or note.editing_since > cutoff:
-                raise NoteEditingLockedError(
-                    "Документ заблокирован другим пользователем и не может быть удалён"
-                )
-
-        # ШАГ 4: Мягкое удаление
-        note.deleted_at = datetime.now(timezone.utc)
-        note.deleted_by_user_id = user.id
-        note.updated_by_user_id = user.id
-        note.editing_by_user_id = None
-        note.editing_since = None
-        note.version = note.version + 1
-
-        await db.flush()
-        await db.refresh(note)
-        return note
-
+    # ==================================================================
+    # БЛОКИРОВКИ (Правило №40, часть 3) + контроль доступа
+    # ==================================================================
     async def acquire_editing_lock(
         self,
         db: AsyncSession,
         *,
         note_id: uuid.UUID,
         user: UserProtocol,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        is_superadmin: bool = False,
     ) -> NotesModel:
-        """
-        Атомарный захват блокировки с проверкой доступа через AccessService.
-        """
+        """Атомарный захват блокировки с учётом таймаута и контроля доступа."""
         model = self.model
 
-        # ШАГ 1: Загрузка
-        stmt = select(model).where(
-            model.id == note_id,
-            model.deleted_at.is_(None),
+        # 1. СНАЧАЛА проверяем доступ
+        note = await self.get_for_user(
+            db,
+            note_id=note_id,
+            user=user,
+            tenant_id=tenant_id,
+            is_superadmin=is_superadmin,
         )
-        note = (await db.execute(stmt)).scalar_one_or_none()
-
         if note is None:
             raise NoteNotFoundError("Заметка не найдена")
 
-        # ШАГ 2: ✅ Проверка доступа через AccessService (ТЗ §8)
-        access_service = get_access_service(db)
-        # access_result = await access_service.resolve_access(user, note)
-        access_result = await access_service.resolve_access(
-            user, typing_cast(DocumentProtocol, note)
-        )
-        if not access_result.visible:
-            raise NoteAccessDeniedError("Нет доступа к документу")
+        # 2. ✅ КРИТИЧНО: Проверяем уровень доступа для блокировки (требуется >= 2)
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access: AccessResult = await access_service.resolve_access(user, note_doc)
+        if access.level < 2:
+            raise NotePermissionError("Недостаточно прав для редактирования заметки")
 
-        if access_result.level < ACCESS_LEVEL_EDITOR:
-            raise NoteAccessDeniedError(
-                "Недостаточно прав для редактирования. "
-                f"Требуется уровень >= 2 (редактор), текущий: {access_result.level}"
-            )
-
-        # ШАГ 3: Атомарный захват блокировки (Правило №40)
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
 
+        # ✅ Правило №40, часть 3.2: РОВНО ДВА условия для захвата
         conditions: list[ColumnElement[bool]] = [
             model.id == note_id,
             model.deleted_at.is_(None),
             or_(
-                model.editing_by_user_id.is_(None),
-                model.editing_since < cutoff,
+                model.editing_by_user_id.is_(None),   # свободно
+                model.editing_since < cutoff,          # истекло
             ),
         ]
+        if not is_superadmin:
+            conditions.append(model.tenant_id == tenant_id)
 
         stmt = (
             update(model)
             .where(*conditions)
-            .values(editing_by_user_id=user.id, editing_since=now)
+            .values(editing_by_user_id=user_id, editing_since=now)
             .returning(model.id)
         )
-
         locked_id = (await db.execute(stmt)).scalar_one_or_none()
-
         if locked_id is None:
-            raise NoteEditingLockedError("Документ уже редактируется")
+            # Повторная проверка
+            note = await self.get_for_user(
+                db,
+                note_id=note_id,
+                user=user,
+                tenant_id=tenant_id,
+                is_superadmin=is_superadmin,
+            )
+            if note is None:
+                raise NoteNotFoundError("Заметка не найдена")
+            raise NoteEditingLockedError("Заметка уже редактируется")
+
+        note = await self.get_for_user(
+            db,
+            note_id=note_id,
+            user=user,
+            tenant_id=tenant_id,
+            is_superadmin=is_superadmin,
+        )
+        if note is None:
+            raise NoteNotFoundError("Заметка не найдена")
 
         await db.flush()
         await db.refresh(note)
@@ -421,34 +289,184 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         *,
         note_id: uuid.UUID,
         user: UserProtocol,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        is_superadmin: bool = False,
     ) -> NotesModel:
         """Освобождение блокировки владельцем или суперадмином."""
-        # Загрузка с проверкой видимости
         note = await self.get_for_user(
             db,
             note_id=note_id,
             user=user,
+            tenant_id=tenant_id,
+            is_superadmin=is_superadmin,
         )
-
         if note is None:
             raise NoteNotFoundError("Заметка не найдена")
 
-        # Проверка владельца блокировки (Правило №40)
         if (
-            not user.is_superadmin
+            not is_superadmin
             and note.editing_by_user_id is not None
-            and note.editing_by_user_id != user.id
+            and note.editing_by_user_id != user_id
         ):
             raise NoteEditingLockedError("Блокировка принадлежит другому пользователю")
 
         note.editing_by_user_id = None
         note.editing_since = None
+        await db.flush()
+        await db.refresh(note)
+        return note
+
+    # ==================================================================
+    # СОХРАНЕНИЕ С ВЕРСИЕЙ (Правило №40, часть 5) + контроль доступа
+    # ==================================================================
+    async def save_with_version(
+        self,
+        db: AsyncSession,
+        *,
+        note_id: uuid.UUID,
+        obj_in: NoteUpdateSchema,
+        user: UserProtocol,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        is_superadmin: bool = False,
+    ) -> NotesModel:
+        """Сохранение с проверкой обеих блокировок и контроля доступа."""
+        model = self.model
+
+        note = await self.get_for_user(
+            db,
+            note_id=note_id,
+            user=user,
+            tenant_id=tenant_id,
+            is_superadmin=is_superadmin,
+        )
+        if note is None:
+            raise NoteNotFoundError("Заметка не найдена")
+
+        # ✅ Проверка уровня доступа: изменение требует минимум level >= 2
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access = await access_service.resolve_access(user, note_doc)
+
+        # level >= 2 означает «автор своей записи» или выше.
+        # ТЗ §5.1: автор (2) может изменять только свои, редактор (3) — любые.
+        if access.level < 2:
+            raise NoteNotFoundError("Заметка не найдена")
+
+        # ✅ Правило №40, часть 5.2: ЖЁСТКАЯ проверка пессимистической блокировки
+        if (
+            note.editing_by_user_id is not None
+            and note.editing_by_user_id != user_id
+            and not is_superadmin
+        ):
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
+            if note.editing_since is None or note.editing_since > cutoff:
+                raise NoteEditingLockedError(
+                    "Заметка заблокирована другим пользователем для редактирования"
+                )
+
+        # Проверка доступности нового раздела (если меняется)
+        if obj_in.section_id is not None and obj_in.section_id != note.section_id:
+            section_stmt = select(SectionModel).where(SectionModel.id == obj_in.section_id)
+            section = (await db.execute(section_stmt)).scalar_one_or_none()
+            if section is None or (
+                section.tenant_id is not None
+                and section.tenant_id != tenant_id
+            ):
+                raise SectionNotInTenantError("Раздел недоступен в этой организации")
+
+            # ✅ Вариант D: перемещение в «Общий» — только Суперадмин
+            if section.section_type == SectionType.PLATFORM and not is_superadmin:
+                raise NotePermissionError(
+                    "Перемещение документа в раздел «Общий» доступно только Суперадмину"
+                )
+
+        values: dict[str, Any] = obj_in.model_dump(exclude_unset=True, exclude={"version"})
+        values["version"] = model.version + 1
+        values["updated_at"] = func.now()
+        values["updated_by_user_id"] = user_id
+        values["editing_by_user_id"] = None
+        values["editing_since"] = None
+
+        conditions: list[ColumnElement[bool]] = [
+            model.id == note_id,
+            model.version == obj_in.version,
+            model.deleted_at.is_(None),
+        ]
+        if not is_superadmin:
+            conditions.append(model.tenant_id == tenant_id)
+
+        stmt = (
+            update(model)
+            .where(*conditions)
+            .values(**values)
+            .returning(model.id)
+        )
+        updated_id = (await db.execute(stmt)).scalar_one_or_none()
+        if updated_id is None:
+            raise NoteVersionConflictError(
+                "Заметка изменена другим пользователем. Обновите данные."
+            )
 
         await db.flush()
         await db.refresh(note)
         return note
 
+    # ==================================================================
+    # МЯГКОЕ УДАЛЕНИЕ (Правило №40, часть 6) + контроль доступа
+    # ==================================================================
+    async def mark_deleted(
+        self,
+        db: AsyncSession,
+        *,
+        note_id: uuid.UUID,
+        user: UserProtocol,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        is_superadmin: bool = False,
+    ) -> NotesModel:
+        """Мягкое удаление с проверкой блокировки и контроля доступа."""
+        note = await self.get_for_user(
+            db,
+            note_id=note_id,
+            user=user,
+            tenant_id=tenant_id,
+            is_superadmin=is_superadmin,
+        )
+        if note is None:
+            raise NoteNotFoundError("Заметка не найдена")
 
-EDITING_LOCK_TIMEOUT_MINUTES_LOCAL: int = EDITING_LOCK_TIMEOUT_MINUTES
+        # ✅ Проверка права на удаление
+        access_service = AccessService(db)
+        note_doc: DocumentProtocol = typing_cast("DocumentProtocol", note)
+        access = await access_service.resolve_access(user, note_doc)
+        if not access.can_delete:
+            raise NoteNotFoundError("Заметка не найдена")
+
+        # ✅ Правило №40, часть 6.1: проверка блокировки перед удалением
+        if (
+            note.editing_by_user_id is not None
+            and note.editing_by_user_id != user_id
+            and not is_superadmin
+        ):
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
+            if note.editing_since is None or note.editing_since > cutoff:
+                raise NoteEditingLockedError(
+                    "Заметка заблокирована другим пользователем и не может быть удалена"
+                )
+
+        note.deleted_at = datetime.now(timezone.utc)
+        note.deleted_by_user_id = user_id
+        note.updated_by_user_id = user_id
+        note.editing_by_user_id = None
+        note.editing_since = None
+        note.version = note.version + 1
+        await db.flush()
+        await db.refresh(note)
+        return note
+
 
 crud_note = CRUDNote(NotesModel)

@@ -84,7 +84,7 @@ async def get_company(
         is_superadmin=session.is_superadmin,
     )
     if company is None:
-        raise HTTPException(status_code=404, detail="Компания не найдена")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Компания не найдена")
     return ApiResponse(
         success=True,
         message="Компания получена",
@@ -117,7 +117,7 @@ async def create_company(
             is_superadmin=session.is_superadmin,
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     # ✅ Правило №40, часть 8.1: commit выполняется в роутере
     await db.commit()
     await db.refresh(company)
@@ -186,9 +186,9 @@ async def delete_company(
             is_superadmin=session.is_superadmin,
         )
     except CompanyNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except CompanyEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     return ApiResponse(
         success=True,
@@ -256,9 +256,9 @@ async def release_company_lock(
             is_superadmin=session.is_superadmin,
         )
     except CompanyNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except CompanyEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(company)
     return ApiResponse(

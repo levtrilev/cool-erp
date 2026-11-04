@@ -28,7 +28,7 @@ import {
   useGetSectionsSectionsGet,
 } from "@/api/generated/sections/sections";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import {
   readTenantsTenantsGet,
   useReadTenantsTenantsGet,
@@ -82,7 +82,7 @@ export function EditRoleModal({
 }: EditRoleModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
   const isSuperadmin = userData?.data?.is_superadmin === true;
   const isEdit = !!role;

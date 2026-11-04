@@ -1,9 +1,9 @@
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LayoutDashboard, TrendingUp, Clock } from "lucide-react";
 
 export const DashboardPage = () => {
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
 
   return (
     <div className="container mx-auto px-4 py-8">

@@ -11,7 +11,7 @@
 from typing import cast
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.access.schemas import ACCESS_LEVEL_AUTHOR, UserProtocol
 from app.core.auth.dependencies import DBSession, CurrentUser
@@ -107,9 +107,9 @@ async def create_region(
             user=cast(UserProtocol, session),
         )
     except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # ✅ Правило №40, часть 8.1: commit выполняется в роутере
     await db.commit()
@@ -147,7 +147,7 @@ async def get_region(
         user=cast(UserProtocol, session),
     )
     if region is None:
-        raise HTTPException(status_code=404, detail="Регион не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Регион не найден")
 
     return ApiResponse(
         success=True,
@@ -185,14 +185,14 @@ async def update_region(
     )
     if access_result is None:
         # Документ не существует для пользователя (ТЗ §2.3)
-        raise HTTPException(status_code=404, detail="Регион не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Регион не найден")
 
     if access_result.level < ACCESS_LEVEL_AUTHOR:
         # ✅ ТЗ §5.4: право на чтение есть, но недостаточный уровень
         # для изменения → режим «только чтение»
         # ✅ ТЗ §4.3.3: в разделе «Общий» все кроме суперадмина — только чтение
         raise HTTPException(
-            status_code=423,
+            status_code=status.HTTP_423_LOCKED,
             detail="Недостаточно прав для редактирования региона",
         )
 
@@ -204,16 +204,16 @@ async def update_region(
             user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RegionVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except RegionEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except PermissionError as exc:
         # Попытка переместить в платформенный раздел не суперадмином
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(region)
@@ -251,11 +251,11 @@ async def delete_region(
         user=cast(UserProtocol, session),
     )
     if access_result is None:
-        raise HTTPException(status_code=404, detail="Регион не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Регион не найден")
 
     if not access_result.can_delete:
         raise HTTPException(
-            status_code=423,
+            status_code=status.HTTP_423_LOCKED,
             detail="Нет прав на удаление региона",
         )
 
@@ -266,9 +266,9 @@ async def delete_region(
             user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RegionEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     return ApiResponse(
@@ -306,11 +306,11 @@ async def acquire_region_lock(
         user=cast(UserProtocol, session),
     )
     if access_result is None:
-        raise HTTPException(status_code=404, detail="Регион не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Регион не найден")
 
     if access_result.level < ACCESS_LEVEL_AUTHOR:
         raise HTTPException(
-            status_code=423,
+            status_code=status.HTTP_423_LOCKED,
             detail="Недостаточно прав для редактирования региона",
         )
 
@@ -321,9 +321,9 @@ async def acquire_region_lock(
             user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RegionEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(region)
@@ -351,9 +351,9 @@ async def release_region_lock(
             user=cast(UserProtocol, session),
         )
     except RegionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RegionEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(region)

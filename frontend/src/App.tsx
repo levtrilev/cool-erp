@@ -28,25 +28,28 @@ import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
 import { RegisterPage } from "./core/users/RegisterPage";
 
-const queryClient = new QueryClient();
-// const queryClient = new QueryClient({
-//   defaultOptions: {
-//     queries: {
-//       // ✅ Умная логика retry: если 401 — сразу отказ, без задержек
-//       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-//       retry: (failureCount, error: any) => {
-//         if (error?.response?.status === 401) {
-//           return false; // Мгновенный отказ при потере авторизации
-//         }
-//         return failureCount < 2; // Для остальных ошибок (500, сеть) делаем 2 попытки
-//       },
-//       retryDelay: 1000,
-//     },
-//     mutations: {
-//       retry: false, // Мутации (POST/PUT/DELETE) никогда не должны ретраиться автоматически
-//     },
-//   },
-// });
+// const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // ✅ Умная логика retry: 401/403 — сразу отказ без повторных попыток
+      retry: (failureCount, error) => {
+        console.log("🔍 Retry check:", { failureCount, error });
+        const status = (error as { response?: { status?: number } })
+          ?.response?.status;
+        if (status === 401 || status === 403) {
+          return false; // Мгновенный отказ при потере авторизации
+        }
+        return failureCount < 2; // Для сетевых ошибок / 500 — 2 попытки
+      },
+      retryDelay: 200,
+    },
+    mutations: {
+      retry: false, // Мутации никогда не ретраятся автоматически
+    },
+  },
+});
+
 
 function App() {
   return (
@@ -57,17 +60,19 @@ function App() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/sales/goods" element={<GoodsPage />} />
             <Route path="/inventory/warehouses" element={<WarehousesPage />} />
-            <Route path="/business-partners/companies" element={<CompaniesPage />} />
+            <Route
+              path="/business-partners/companies"
+              element={<CompaniesPage />}
+            />
             <Route path="/sales/regions" element={<RegionsPage />} />
             {/* Другие маршруты будут добавлены здесь */}
-            <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
+            {/* <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} /> */}
           </Route>
-
 
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
           <Route path="/" element={<PublicHomePage />} />
           <Route path="/auth/login" element={<LoginPage />} />
-          <Route path="/auth/register" element={<RegisterPage />} />
+          <Route path="/auth/register__" element={<RegisterPage />} />
 
           {/* === ЗАЩИЩЁННЫЕ РОУТЫ (с Layout) === */}
           <Route element={<AppLayout />}>

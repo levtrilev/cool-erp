@@ -1,10 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldCheck, Users, Factory, Database } from "lucide-react"; // , Settings, Activity, Building, Server
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { Link } from "react-router-dom";
 
 export const SuperAdminPage = () => {
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
 
   return (
     <div className="container mx-auto px-4 py-8">

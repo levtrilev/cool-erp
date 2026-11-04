@@ -1,15 +1,15 @@
 import uuid
-from typing import cast
-from fastapi import APIRouter, HTTPException
+from typing import cast as typing_cast
+from fastapi import APIRouter, HTTPException, status
 
 from app.core.access.schemas import UserProtocol
-
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.notes.crud import crud_note
 from app.core.notes.exceptions import (
     NoteAccessDeniedError,
     NoteEditingLockedError,
     NoteNotFoundError,
+    NotePermissionError,
     NoteVersionConflictError,
     SectionNotInTenantError,
 )
@@ -35,21 +35,21 @@ async def get_notes(
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[NoteResponseSchema]]:
     """Список заметок с SQL-фильтрацией через AccessService."""
-    items, total = await crud_note.list_for_user(
+    items, total = await crud_note.get_multi(
         db,
-        user=cast(UserProtocol, current_session),
+        user=typing_cast(UserProtocol, current_session),
+        tenant_id=current_session.tenant_id,
+        is_superadmin=current_session.is_superadmin,
         skip=skip,
         limit=limit,
         search=search,
     )
-
     paginated = PaginatedResponse[NoteResponseSchema](
         items=[NoteResponseSchema.model_validate(item) for item in items],
         total=total,
         page=(skip // limit) + 1,
         size=limit,
     )
-
     return ApiResponse(
         success=True,
         message="Заметки получены",
@@ -67,12 +67,12 @@ async def get_note(
     note = await crud_note.get_for_user(
         db,
         note_id=note_id,
-        user=cast(UserProtocol, current_session),
+        user=typing_cast(UserProtocol, current_session),
+        tenant_id=current_session.tenant_id,
+        is_superadmin=current_session.is_superadmin,
     )
-
     if note is None:
-        raise HTTPException(status_code=404, detail="Заметка не найдена")
-
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заметка не найдена")
     return ApiResponse(
         success=True,
         message="Заметка получена",
@@ -80,7 +80,7 @@ async def get_note(
     )
 
 
-@router.post("/", response_model=ApiResponse[NoteResponseSchema], status_code=201)
+@router.post("/", response_model=ApiResponse[NoteResponseSchema], status_code=status.HTTP_201_CREATED)
 async def create_note(
     obj_in: NoteCreateSchema,
     current_session: CurrentUser,
@@ -91,14 +91,16 @@ async def create_note(
         note = await crud_note.create_for_user(
             db,
             obj_in=obj_in,
-            user=cast(UserProtocol, current_session),
+            user=typing_cast(UserProtocol, current_session),
+            tenant_id=current_session.tenant_id,
+            is_superadmin=current_session.is_superadmin,
         )
     except SectionNotInTenantError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except NotePermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(note)
-
     return ApiResponse(
         success=True,
         message="Заметка создана",
@@ -119,22 +121,25 @@ async def update_note(
             db,
             note_id=note_id,
             obj_in=obj_in,
-            user=cast(UserProtocol, current_session),
+            user=typing_cast(UserProtocol, current_session),
+            tenant_id=current_session.tenant_id,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_superadmin=current_session.is_superadmin,
         )
     except NoteNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteVersionConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except NotePermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except SectionNotInTenantError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(note)
-
     return ApiResponse(
         success=True,
         message="Заметка сохранена",
@@ -153,17 +158,18 @@ async def delete_note(
         note = await crud_note.mark_deleted(
             db,
             note_id=note_id,
-            user=cast(UserProtocol, current_session),
+            user=typing_cast(UserProtocol, current_session),
+            tenant_id=current_session.tenant_id,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_superadmin=current_session.is_superadmin,
         )
     except NoteNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
-
     return ApiResponse(
         success=True,
         message="Заметка удалена",
@@ -182,18 +188,21 @@ async def acquire_note_lock(
         note = await crud_note.acquire_editing_lock(
             db,
             note_id=note_id,
-            user=cast(UserProtocol, current_session),
+            user=typing_cast(UserProtocol, current_session),
+            tenant_id=current_session.tenant_id,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_superadmin=current_session.is_superadmin,
         )
     except NoteNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except NotePermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(note)
-
     return ApiResponse(
         success=True,
         message="Блокировка захвачена",
@@ -212,16 +221,17 @@ async def release_note_lock(
         note = await crud_note.release_editing_lock(
             db,
             note_id=note_id,
-            user=cast(UserProtocol, current_session),
+            user=typing_cast(UserProtocol, current_session),
+            tenant_id=current_session.tenant_id,
+            user_id=typing_cast(UserProtocol, current_session).id,
+            is_superadmin=current_session.is_superadmin,
         )
     except NoteNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
-        raise HTTPException(status_code=423, detail=str(exc)) from exc
-
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(note)
-
     return ApiResponse(
         success=True,
         message="Блокировка освобождена",

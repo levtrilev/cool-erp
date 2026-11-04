@@ -12,9 +12,10 @@ import {
 import { LoginModal } from "@/core/auth/LoginModal";
 import { RegisterModal } from "@/core/users/RegisterModal";
 import { Shield, Users, Zap, UserCircle, LogOut } from "lucide-react";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { useLogoutAuthLogoutPost } from "@/api/generated/authentication/authentication";
 import { useQueryClient } from "@tanstack/react-query";
+// import { AUTH_USER_QUERY_OPTIONS } from "./auth/authQueryOptions";
 
 export const PublicHomePage = () => {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export const PublicHomePage = () => {
   const [registerOpen, setRegisterOpen] = useState(false);
 
   // Проверяем, залогинен ли пользователь
-  const { data: userData, isError } = useGetUserAuthUserGet();
+  const { data: userData, isError } = useGetCurrentUserAuthUserGet();
   const logoutMutation = useLogoutAuthLogoutPost();
 
   //   const handleLogout = () => {

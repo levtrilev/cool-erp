@@ -37,7 +37,7 @@ import {
   readUsersUsersGet,
 } from "@/api/generated/users/users";
 // ✅ НОВОЕ: текущий пользователь и справочник организаций
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 import { ReferenceSelect, type ReferenceItem } from "@/lib/reusable/ReferenceSelect";
 import { EditUserModal } from "@/core/users/EditUserModal";
@@ -71,7 +71,7 @@ export const AdminUsersPage = () => {
     null,
   );
   // ✅ НОВОЕ: Определяем права текущего пользователя
-  const { data: currentUserData } = useGetUserAuthUserGet();
+  const { data: currentUserData } = useGetCurrentUserAuthUserGet();
   const isSuperadmin = currentUserData?.data?.is_superadmin === true;
   const currentTenantId = currentUserData?.data?.tenant_id || "";
 
