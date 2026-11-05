@@ -49,7 +49,10 @@ interface EditNoteModalProps {
   onSaved: (id: string, title?: string) => Promise<void>;
   readOnly?: boolean;
   readOnlyReason?: string;
+  copyFromNote?: NoteResponseSchema | null; 
 }
+
+type StatusType = "draft" | "pending" | "approved" | "active" | "archived"
 
 export const EditNoteModal = ({
   open,
@@ -58,7 +61,12 @@ export const EditNoteModal = ({
   onSaved,
   readOnly = false,
   readOnlyReason,
+  copyFromNote = null,
 }: EditNoteModalProps) => {
+    // ✅ Режимы
+  const isEdit = !!initialData;
+  const isCopy = !!copyFromNote && !isEdit;
+  const sourceNote = copyFromNote ?? initialData ?? null;
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -75,26 +83,46 @@ export const EditNoteModal = ({
   const createMutation = useCreateNoteNotesPost();
   const updateMutation = useUpdateNoteNotesNoteIdPut();
 
-  useEffect(() => {
+  // useEffect(() => {
+  //   if (open) {
+  //     if (initialData) {
+  //       reset({
+  //         title: initialData.title,
+  //         content: initialData.content ?? "",
+  //         section_id: initialData.section_id,
+  //         doc_status: initialData.doc_status as NoteFormData["doc_status"],
+  //         doc_number: initialData.doc_number ?? "",
+  //         doc_date: initialData.doc_date ?? "",
+  //         or_tags: initialData.or_tags ?? [],
+  //         and_tags: initialData.and_tags ?? [],
+  //         version: initialData.version,
+  //       });
+  //     } else {
+  //       reset(CREATE_DEFAULTS);
+  //     }
+  //   }
+  // }, [open, initialData, reset]);
+
+    useEffect(() => {
     if (open) {
-      if (initialData) {
+      if (sourceNote) {
         reset({
-          title: initialData.title,
-          content: initialData.content ?? "",
-          section_id: initialData.section_id,
-          doc_status: initialData.doc_status as NoteFormData["doc_status"],
-          doc_number: initialData.doc_number ?? "",
-          doc_date: initialData.doc_date ?? "",
-          or_tags: initialData.or_tags ?? [],
-          and_tags: initialData.and_tags ?? [],
-          version: initialData.version,
+          title: isCopy ? `${sourceNote.title} (копия)` : sourceNote.title,
+          content: sourceNote.content ?? "",
+          section_id: sourceNote.section_id,
+          doc_number: isCopy ? undefined : sourceNote.doc_number as string,  // Копия — без номера
+          doc_date: isCopy ? undefined : sourceNote.doc_date as string,
+          doc_status: isCopy ? "draft" : sourceNote.doc_status as StatusType,
+          // doc_status: isCopy ? draft_status : sourceNote.doc_status,
+          or_tags: sourceNote.or_tags ?? [],
+          and_tags: sourceNote.and_tags ?? [],
         });
       } else {
         reset(CREATE_DEFAULTS);
       }
     }
-  }, [open, initialData, reset]);
-
+  }, [open, sourceNote, isCopy, reset]);
+  
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       reset(CREATE_DEFAULTS);

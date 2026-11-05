@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -78,3 +79,25 @@ class NoteResponseSchema(BaseModel):
 
     deleted_at: datetime | None = None
     deleted_by_user_id: uuid.UUID | None = None
+
+
+class NoteSortField(str, Enum):
+    """
+    Whitelist колонок, разрешённых для сортировки.
+    Enum в query-параметре даёт валидацию на уровне FastAPI (422 при
+    неизвестном значении) и защищает от SQL-инъекций через sort_by.
+    """
+
+    TITLE = "title"
+    DOC_NUMBER = "doc_number"
+    DOC_DATE = "doc_date"
+    DOC_STATUS = "doc_status"
+    SECTION_NAME = "section_name"
+    UPDATED_AT = "updated_at"
+
+
+class SortOrder(str, Enum):
+    """Направление сортировки."""
+
+    ASC = "asc"
+    DESC = "desc"

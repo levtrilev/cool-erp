@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import cast as typing_cast
 from fastapi import APIRouter, HTTPException, status
 
@@ -17,8 +18,11 @@ from app.core.notes.schemas import (
     NoteCreateSchema,
     NoteResponseSchema,
     NoteUpdateSchema,
+    NoteSortField,
+    SortOrder,
 )
 from app.core.schemas import ApiResponse, PaginatedResponse
+
 
 router = APIRouter(prefix="/notes", tags=["Notes"])
 
@@ -33,8 +37,16 @@ async def get_notes(
     skip: int = 0,
     limit: int = 15,
     search: str | None = None,
+    sort_by: NoteSortField | None = None,
+    sort_order: SortOrder = SortOrder.ASC,
+    filter_title: str | None = None,
+    filter_doc_number: str | None = None,
+    filter_doc_date: date | None = None,
+    filter_doc_status: str | None = None,
+    filter_section_name: str | None = None,
+    filter_updated_at: date | None = None,
 ) -> ApiResponse[PaginatedResponse[NoteResponseSchema]]:
-    """Список заметок с SQL-фильтрацией через AccessService."""
+    """Список заметок с контролем доступа, сортировкой и фильтрацией."""
     items, total = await crud_note.get_multi(
         db,
         user=typing_cast(UserProtocol, current_session),
@@ -43,6 +55,14 @@ async def get_notes(
         skip=skip,
         limit=limit,
         search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        filter_title=filter_title,
+        filter_doc_number=filter_doc_number,
+        filter_doc_date=filter_doc_date,
+        filter_doc_status=filter_doc_status,
+        filter_section_name=filter_section_name,
+        filter_updated_at=filter_updated_at,
     )
     paginated = PaginatedResponse[NoteResponseSchema](
         items=[NoteResponseSchema.model_validate(item) for item in items],
@@ -55,7 +75,6 @@ async def get_notes(
         message="Заметки получены",
         data=paginated,
     )
-
 
 @router.get("/{note_id}", response_model=ApiResponse[NoteResponseSchema])
 async def get_note(

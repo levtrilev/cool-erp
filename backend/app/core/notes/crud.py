@@ -22,6 +22,10 @@ from app.core.notes.models import NotesModel
 from app.core.notes.schemas import NoteCreateSchema, NoteUpdateSchema
 from app.core.sections.models import SectionModel, SectionType
 
+from datetime import date, datetime, time, timedelta, timezone
+from sqlalchemy import and_
+from app.core.notes.schemas import NoteSortField, SortOrder
+
 # if TYPE_CHECKING:
 #     from app.core.users.models import UserModel
 
@@ -53,6 +57,57 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
     # ==================================================================
     # СПИСОК (ТЗ §2.6 — RLS-семантика: скрытые записи не возвращаются)
     # ==================================================================
+    # async def get_multi(
+    #     self,
+    #     db: AsyncSession,
+    #     *,
+    #     user: UserProtocol,
+    #     tenant_id: uuid.UUID,
+    #     is_superadmin: bool = False,
+    #     skip: int = 0,
+    #     limit: int = 100,
+    #     search: str | None = None,
+    # ) -> tuple[list[NotesModel], int]:
+    #     """
+    #     Список заметок с контролем доступа через AccessService.
+    #     Фильтр включает ВСЕ 5 слоёв ТЗ RBAC/ABAC §3:
+    #       Слой 1 (тенант) + Слой 2 (разделы роли) + Слой 3 (doctype/permission)
+    #       + Слой 4 (теги) + Слой 5 (уровень ≥ 1 для видимости).
+    #     """
+    #     model = self.model
+    #     base_where = model.deleted_at.is_(None)
+
+    #     # ✅ КРИТИЧНО: SQL-фильтр видимости через AccessService
+    #     access_service = AccessService(db)
+    #     access_filter = await access_service.build_access_filter(user, model)
+    #     if access_filter is None:
+    #         return [], 0
+
+    #     stmt = select(model).where(base_where, access_filter)
+    #     count_stmt = (
+    #         select(func.count())
+    #         .select_from(model)
+    #         .where(base_where, access_filter)
+    #     )
+
+    #     # Поиск по тексту (применяется поверх фильтра доступа)
+    #     if search:
+    #         pattern: str = f"%{search}%"
+    #         search_cond = or_(
+    #             model.title.ilike(pattern),
+    #             model.content.ilike(pattern),
+    #         )
+    #         stmt = stmt.where(search_cond)
+    #         count_stmt = count_stmt.where(search_cond)
+
+    #     total: int = (await db.execute(count_stmt)).scalar_one() or 0
+    #     stmt = stmt.order_by(model.created_at.desc(), model.id.desc()).offset(skip).limit(limit)
+    #     items: list[NotesModel] = list((await db.execute(stmt)).scalars().all())
+    #     return items, total
+
+    # ==================================================================
+    # СПИСОК (ТЗ §2.6 — RLS-семантика) + СОРТИРОВКА + ФИЛЬТРЫ (SQL-уровень)
+    # ==================================================================
     async def get_multi(
         self,
         db: AsyncSession,
@@ -63,12 +118,20 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
+        sort_by: NoteSortField | None = None,
+        sort_order: SortOrder = SortOrder.ASC,
+        filter_title: str | None = None,
+        filter_doc_number: str | None = None,
+        filter_doc_date: date | None = None,
+        filter_doc_status: str | None = None,
+        filter_section_name: str | None = None,
+        filter_updated_at: date | None = None,
     ) -> tuple[list[NotesModel], int]:
         """
-        Список заметок с контролем доступа через AccessService.
-        Фильтр включает ВСЕ 5 слоёв ТЗ RBAC/ABAC §3:
-          Слой 1 (тенант) + Слой 2 (разделы роли) + Слой 3 (doctype/permission)
-          + Слой 4 (теги) + Слой 5 (уровень ≥ 1 для видимости).
+        Список заметок с контролем доступа, сортировкой и фильтрацией.
+        Фильтр доступа включает ВСЕ 5 слоёв ТЗ RBAC/ABAC §3.
+        Сортировка и фильтры колонок выполняются на уровне SQL
+        (Бэкенд Правило №26: фильтрация в SQL, не в памяти).
         """
         model = self.model
         base_where = model.deleted_at.is_(None)
@@ -86,7 +149,16 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             .where(base_where, access_filter)
         )
 
-        # Поиск по тексту (применяется поверх фильтра доступа)
+        # JOIN с sections нужен только при фильтре/сортировке по имени раздела
+        if filter_section_name is not None:
+            stmt = stmt.join(SectionModel, model.section_id == SectionModel.id)
+            count_stmt = count_stmt.join(
+                SectionModel, model.section_id == SectionModel.id
+            )
+        elif sort_by == NoteSortField.SECTION_NAME:
+            stmt = stmt.join(SectionModel, model.section_id == SectionModel.id)
+
+        # Глобальный поиск (поверх фильтра доступа)
         if search:
             pattern: str = f"%{search}%"
             search_cond = or_(
@@ -96,8 +168,75 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
             stmt = stmt.where(search_cond)
             count_stmt = count_stmt.where(search_cond)
 
+        # ── ФИЛЬТРЫ ПО КОЛОНКАМ ─────────────────────────────────────
+        if filter_title:
+            cond = model.title.ilike(f"%{filter_title}%")
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_doc_number:
+            cond = model.doc_number.ilike(f"%{filter_doc_number}%")
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_doc_date is not None:
+            cond = model.doc_date == filter_doc_date
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_doc_status:
+            cond = model.doc_status == filter_doc_status
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_section_name:
+            cond = SectionModel.name.ilike(f"%{filter_section_name}%")
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_updated_at is not None:
+            # ✅ Диапазон вместо CAST по колонке (sargable, индексы работают)
+            day_start = datetime.combine(
+                filter_updated_at, time.min, tzinfo=timezone.utc
+            )
+            day_end = day_start + timedelta(days=1)
+            cond = and_(
+                model.updated_at >= day_start,
+                model.updated_at < day_end,
+            )
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+
         total: int = (await db.execute(count_stmt)).scalar_one() or 0
-        stmt = stmt.order_by(model.created_at.desc(), model.id.desc()).offset(skip).limit(limit)
+
+        # ── СОРТИРОВКА (whitelist через Enum) ───────────────────────
+        ascending: bool = sort_order == SortOrder.ASC
+        if sort_by == NoteSortField.TITLE:
+            stmt = stmt.order_by(
+                model.title.asc() if ascending else model.title.desc()
+            )
+        elif sort_by == NoteSortField.DOC_NUMBER:
+            stmt = stmt.order_by(
+                model.doc_number.asc() if ascending else model.doc_number.desc()
+            )
+        elif sort_by == NoteSortField.DOC_DATE:
+            stmt = stmt.order_by(
+                model.doc_date.asc() if ascending else model.doc_date.desc()
+            )
+        elif sort_by == NoteSortField.DOC_STATUS:
+            stmt = stmt.order_by(
+                model.doc_status.asc() if ascending else model.doc_status.desc()
+            )
+        elif sort_by == NoteSortField.SECTION_NAME:
+            stmt = stmt.order_by(
+                SectionModel.name.asc() if ascending else SectionModel.name.desc()
+            )
+        elif sort_by == NoteSortField.UPDATED_AT:
+            stmt = stmt.order_by(
+                model.updated_at.asc() if ascending else model.updated_at.desc()
+            )
+        else:
+            # Порядок по умолчанию: новые сверху
+            stmt = stmt.order_by(model.created_at.desc())
+        # Вторичная сортировка для стабильной пагинации
+        stmt = stmt.order_by(model.id.asc())
+
+        stmt = stmt.offset(skip).limit(limit)
         items: list[NotesModel] = list((await db.execute(stmt)).scalars().all())
         return items, total
 
@@ -320,6 +459,7 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
     # ==================================================================
     # СОХРАНЕНИЕ С ВЕРСИЕЙ (Правило №40, часть 5) + контроль доступа
     # ==================================================================
+
     async def save_with_version(
         self,
         db: AsyncSession,
