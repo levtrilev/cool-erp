@@ -96,7 +96,7 @@ export const AuditPage = ({ className }: AuditPageProps) => {
     }
   };
 
-   const handleExport = () => {
+  const handleExport = async () => {
     // Формируем URL с текущими параметрами фильтров
     const params = new URLSearchParams();
     if (entityTypeFilter) params.append('entity_type', entityTypeFilter);
@@ -105,8 +105,32 @@ export const AuditPage = ({ className }: AuditPageProps) => {
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
 
-    // Открываем ссылку на экспорт (бэкенд сам отдаст файл)
-    window.open(`http://127.0.0.1:8000/api/v1/audit/export?${params.toString()}`, '_blank');
+    try {
+      // Делаем запрос через fetch, чтобы передать куки (credentials)
+        const response = await fetch(`http://localhost:8000/api/v1/audit/export?${params.toString()}`, {
+          credentials: 'include',
+      });
+
+      if (!response.ok) {
+        alert('Ошибка при экспорте данных');
+        return;
+      }
+
+      // Превращаем ответ в Blob (файл) и скачиваем его
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'audit.csv'; // Имя файла
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Ошибка экспорта:', error);
+      alert('Не удалось скачать файл');
+    }
+  
   };
 
   return (
