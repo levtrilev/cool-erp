@@ -134,6 +134,7 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         search_field: str = "doctype_name",  # Не используется, но сохраняем для совместимости
         user_is_superadmin: bool = False,
         target_tenant_id: Optional[uuid.UUID] = None,
+        domain_id: Optional[uuid.UUID] = None,
     ) -> Tuple[List[DoctypeModel], int]:
         """
         Получение списка типов документов с пагинацией и фильтрацией.
@@ -144,6 +145,11 @@ class CRUDDoctype(CRUDBase[DoctypeModel, DoctypeCreateSchema, DoctypeUpdateSchem
         """
         stmt = select(self.model)
         count_stmt = select(func.count()).select_from(self.model)
+
+        # ✅ фильтр по домену (применяется поверх остальных условий)
+        if domain_id:
+            stmt = stmt.where(self.model.domain_id == domain_id)
+            count_stmt = count_stmt.where(self.model.domain_id == domain_id)
 
         # ✅ ПРИОРИТЕТ: Если передан available_for_tenant_id — фильтруем по нему
         # Это используется, когда суперадмин редактирует роль конкретной организации
