@@ -10,9 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/components/ui/use-toast"; // ✅ Импортируем toast
 
 import { 
-  useGetUserAuthUserGet, 
-  useUpdateUserAuthUserIdPut 
+  useGetCurrentUserAuthUserGet, 
+  // useUpdateUserAuthUserIdPut 
 } from "@/api/generated/authentication/authentication";
+import { useUpdateUserUsersUserIdPut } from "@/api/generated/users/users";
 
 // Схема валидации формы
 const profileSchema = z.object({
@@ -29,10 +30,10 @@ export const ProfilePage = () => {
   const { toast } = useToast(); // ✅ Хук для уведомлений
 
   // Получаем данные текущего пользователя
-  const { data: userData, isLoading: isLoadingUser } = useGetUserAuthUserGet();
+  const { data: userData, isLoading: isLoadingUser } = useGetCurrentUserAuthUserGet();
   
   // Хук для обновления пользователя
-  const updateUserMutation = useUpdateUserAuthUserIdPut();
+  const updateUserMutation = useUpdateUserUsersUserIdPut();
 
   // Инициализируем форму с данными пользователя
   const {

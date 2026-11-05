@@ -14,7 +14,7 @@ interface TenantMultiSelectProps {
 export function TenantMultiSelect({ value, onChange }: TenantMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const { data } = useReadTenantsTenantsGet({ limit: 100 }); // Загружаем все тенанты (их обычно немного)
-  const tenants = data?.items || [];
+  const tenants = data?.data?.items || [];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

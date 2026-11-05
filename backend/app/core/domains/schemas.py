@@ -5,7 +5,8 @@ from pydantic import BaseModel, ConfigDict
 class DomainBaseSchema(BaseModel):
     name: str
     description: str | None = None
-
+    prefix: str | None = None
+    is_active: bool = True
 
 class DomainCreateSchema(DomainBaseSchema):
     pass
@@ -14,6 +15,8 @@ class DomainCreateSchema(DomainBaseSchema):
 class DomainUpdateSchema(BaseModel):
     name: str | None = None
     description: str | None = None
+    prefix: str | None = None
+    is_active: bool | None = None
 
 
 class DomainResponseSchema(DomainBaseSchema):

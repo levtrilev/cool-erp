@@ -1,0 +1,361 @@
+# ════════════════════════════════════════════════════════════
+# ЗАДАНИЕ НА ФОРМУ: EditCompanyModal - Карточка компании
+# Формат: cool-erp-form v1.1
+# Правила проекта подразумеваются и НЕ дублируются.
+# ════════════════════════════════════════════════════════════
+
+meta:
+  format_version: "1.1"
+  module: business_partners/companies
+  component: EditCompanyModal
+  entity: companies
+  entity_type: BpCompanyResponseSchema
+  entity_kind: document            # ← ПОЛНЫЙ КОНТРАКТ: access + lifecycle
+  save_mutation:
+    create: useCreateCompanyBusinessPartnersCompaniesPost
+    update: useUpdateCompanyBusinessPartnersCompaniesCompanyIdPut
+  contract_overrides:
+    # Теги доступа существуют в контракте, но в этой версии
+    # формы пользователем не редактируются (пусты при создании)
+    hide_tags_in_form: true
+
+titles:
+  create: "Новая компания"
+  edit: "Редактирование компании: {entity.name}"
+  view: "Просмотр компании (только чтение)"
+
+dialog:
+  width: 860
+  max_height: "90vh"
+
+# ════════════════════════════════════════════════════════════
+# РЕЖИМЫ
+# ════════════════════════════════════════════════════════════
+modes:
+  create: {}
+  edit: {}
+  view:                             # readOnly при блокировке (423)
+    trigger: "entity.is_editing_locked or http_423"
+
+# ════════════════════════════════════════════════════════════
+# ИСТОЧНИКИ ДАННЫХ
+# ════════════════════════════════════════════════════════════
+data_sources:
+  current_user:
+    endpoint: GET /auth/user
+    provides: [current_tenant_id, current_tenant_name]
+
+  sections:
+    endpoint: GET /sections
+    params:
+      target_tenant_id: "{current_tenant_id}"
+      limit: 1000
+    provides: [sections_list]
+
+  regions:
+    endpoint: GET /regions          # ⚠️ Зависимость: модуль регионов должен существовать
+    params: { limit: 1000 }
+    provides: [regions_list]
+    fallback_if_absent: |
+      Если модуль регионов ещё не реализован — поле region_id
+      временно не рендерить (не заменять текстовым полем).
+
+# ════════════════════════════════════════════════════════════
+# ОРГАНИЗАЦИЯ
+# Для документа организация НЕ выбирается пользователем:
+# tenant_id берётся из сессии текущего пользователя.
+# ════════════════════════════════════════════════════════════
+tenant_context:
+  effective_tenant:
+    priority: [current_tenant_id]
+  change_allowed_for: none          # Только отображение, не редактирование
+  display_as: readonly_organization_block
+  hint: "Компания будет создана для вашей организации."
+
+# ════════════════════════════════════════════════════════════
+# ВКЛАДКИ
+# ════════════════════════════════════════════════════════════
+tabs:
+
+  # ────────────────────────────────────────────────────────
+  - id: main
+    label: Реквизиты
+    dirty_indicators: [basics]
+
+    fields:
+      - name: organization
+        label: Организация
+        type: readonly_display
+        value: "{current_tenant_name}"
+
+      - name: name
+        label: Наименование
+        type: text
+        placeholder: "Например: ООО «Ромашка»"
+        required: true
+        validation:
+          rule: min_length
+          value: 1
+          message: "Наименование обязательно"
+
+      - name: fullname
+        label: Полное наименование
+        type: textarea
+        rows: 2
+        required: false
+        placeholder: "Полное юридическое наименование"
+
+      - name: inn
+        label: ИНН
+        type: text
+        placeholder: "10 цифр для юрлица"
+        required: false
+        validation:
+          rule: pattern
+          value: "^\\d{10}$"
+          message: "ИНН юридического лица — 10 цифр"
+
+      - name: kpp
+        label: КПП
+        type: text
+        placeholder: "9 цифр"
+        required: false
+        validation:
+          rule: pattern
+          value: "^\\d{9}$"
+          message: "КПП — 9 цифр"
+
+      - name: region_id
+        label: Регион
+        type: reference_single
+        source: regions
+        required: false
+        placeholder: "Выберите регион..."
+
+      - name: is_customer
+        label: Клиент
+        type: switch
+        default: false
+
+      - name: is_supplier
+        label: Поставщик
+        type: switch
+        default: false
+
+  # ────────────────────────────────────────────────────────
+  - id: contacts
+    label: Адреса и контакты
+    dirty_indicators: [contacts]
+
+    fields:
+      - name: address_legal
+        label: Юридический адрес
+        type: textarea
+        rows: 2
+        required: false
+
+      - name: address_fact
+        label: Фактический адрес
+        type: textarea
+        rows: 2
+        required: false
+
+      - name: phone
+        label: Телефон
+        type: text
+        placeholder: "+7 (999) 123-45-67"
+        required: false
+
+      - name: email
+        label: Email
+        type: text
+        placeholder: "info@example.com"
+        required: false
+        validation:
+          rule: email
+          message: "Некорректный email"
+
+      - name: contact
+        label: Контактное лицо
+        type: text
+        placeholder: "ФИО, должность"
+        required: false
+
+  # ────────────────────────────────────────────────────────
+  # Поля контракта документа.
+  # Добавляются автоматически для entity_kind: document;
+  # здесь задано их РАЗМЕЩЕНИЕ на вкладке.
+  # ────────────────────────────────────────────────────────
+  - id: document
+    label: Документ
+    dirty_indicators: [document]
+
+    fields:
+      - name: section_id
+        label: Раздел доступа
+        type: reference_single
+        source: sections
+        required: true
+        placeholder: "Выберите раздел..."
+
+      - name: doc_number
+        label: Номер документа
+        type: text
+        required: false
+        placeholder: "Например: КМП-001"
+        validation:
+          rule: max_length
+          value: 64
+          message: "Не более 64 символов"
+
+      - name: doc_date
+        label: Дата документа
+        type: date
+        required: false
+
+# ════════════════════════════════════════════════════════════
+# КНОПКИ
+# ════════════════════════════════════════════════════════════
+actions:
+  - id: save
+    label: Сохранить
+    type: submit
+    icon: check
+    disabled_when: "not has_any_changes"
+    hidden_when: "read_only"
+    loading_icon: spinner
+
+  - id: cancel
+    type: close
+    label_rules:
+      when: "read_only"
+      then: "Закрыть"
+      else: "Отмена"
+    min_width: 96px
+
+# ════════════════════════════════════════════════════════════
+# ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+# ════════════════════════════════════════════════════════════
+change_indicators:
+  basics:
+    watch:
+      - name
+      - fullname
+      - inn
+      - kpp
+      - region_id
+      - is_customer
+      - is_supplier
+    compare_with: source_entity      # Поимённое сравнение с исходной карточкой
+    mode: field_by_field
+
+  contacts:
+    watch:
+      - address_legal
+      - address_fact
+      - phone
+      - email
+      - contact
+    compare_with: source_entity
+    mode: field_by_field
+
+  document:
+    watch: [section_id, doc_number, doc_date]
+    compare_with: source_entity
+    mode: field_by_field
+
+has_any_changes:
+  formula: "basics or contacts or document"
+
+# ════════════════════════════════════════════════════════════
+# СОБЫТИЯ
+# Захват/освобождение блокировки — автоматические
+# для entity_kind: document (Правило №39, Бэкенд №40).
+# ════════════════════════════════════════════════════════════
+events:
+  on_open:
+    - reset_all_state
+    - init_form_from_source
+    # Для create: section_id = "", is_customer = false, is_supplier = false
+
+  on_save_before:
+    - check: "section_id != ''"
+      on_fail:
+        toast_error: "Выберите раздел доступа"
+        abort: true
+
+  on_save_success:
+    - invalidate_cache: ["business-partners-companies"]
+    - call_parent: onSaved          # (id, name) → подсветка в списке
+    - close_modal
+    - toast: "Компания сохранена"
+
+  on_save_error:
+    - when: "status == 409"
+      toast_error: "Карточка изменена другим пользователем. Обновите данные."
+    - when: "status == 423"
+      toast_error: "Карточка редактируется другим пользователем."
+    - otherwise:
+        toast_error: "{error.detail || 'Не удалось сохранить компанию'}"
+
+  on_close:
+    - reset_form_to_defaults
+    # Освобождение блокировки — автоматически (только если захвачена)
+
+# ════════════════════════════════════════════════════════════
+# PAYLOAD
+# ════════════════════════════════════════════════════════════
+payload:
+  name: "{form.name}"
+  fullname: "{form.fullname || null}"
+  inn: "{form.inn || null}"
+  kpp: "{form.kpp || null}"
+  region_id: "{form.region_id || null}"
+  is_customer: "{form.is_customer}"
+  is_supplier: "{form.is_supplier}"
+  address_legal: "{form.address_legal || null}"
+  address_fact: "{form.address_fact || null}"
+  phone: "{form.phone || null}"
+  email: "{form.email || null}"
+  contact: "{form.contact || null}"
+
+  # Контракт доступа
+  section_id: "{form.section_id}"
+  tenant_id: "{current_tenant_id}"     # Только create; из сессии
+  # author_id, created_by_user_id — заполняет БЭКЕНД из сессии
+
+  # Жизненный цикл
+  doc_number: "{form.doc_number || null}"
+  doc_date: "{form.doc_date || null}"
+  version: "{entity.version}"          # Только update (оптимистическая блокировка)
+
+mutation_params:
+  create:
+    data: "{payload}"                  # Без version
+  edit:
+    data: "{payload}"                  # С version
+    params: { company_id: "{entity.id}" }
+
+# ════════════════════════════════════════════════════════════
+# ОСОБЫЕ БИЗНЕС-ПРАВИЛА
+# ════════════════════════════════════════════════════════════
+business_rules:
+  - id: flags_independence
+    rule: |
+      Флаги is_customer и is_supplier независимы.
+      Допустимы: только клиент, только поставщик, и то и другое, ни то ни другое.
+
+  - id: inn_optional
+    rule: |
+      ИНН не обязателен при создании (например, для иностранного контрагента),
+      но если заполнен — должен содержать ровно 10 цифр.
+
+  - id: tenant_immutable
+    rule: |
+      Организация компании не меняется через эту форму.
+      При редактировании tenant_id не отправляется.
+
+  - id: tags_readonly
+    rule: |
+      or_tags / and_tags в форме не отображаются.
+      При создании передаются пустыми или не передаются вовсе.

@@ -8,8 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 # Импорт обработчиков репликации для регистрации
-import app.modules.inventory.replica.handlers  # pyright: ignore[reportUnusedImport] # noqa: F401
-import app.modules.sales.replica.handlers      # pyright: ignore[reportUnusedImport] # noqa: F401
+from app.modules import register_all_replication_handlers
 
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
@@ -25,16 +24,23 @@ from app.core.tenants.router import router as tenant_router
 from app.core.users.models import UserModel
 from app.core.users.router import router as user_router
 from app.core.domains.router import router as domain_router
-from app.core.doctypes.router import router as doctype_router
 from app.core.notes.router import router as notes_router
 from app.modules.inventory.warehouses.router import router as warehouses_router
 from app.modules.sales.goods.router import router as goods_router
+from app.modules.business_partners.companies.router import router as companies_router
+from app.modules.sales.regions.router import router as regions_router
+from app.modules.business_partners.regions_replica.router import (
+    router as bp_regions_replica_router,
+)
 
+from app.core.auth.router import router as auth_router
+from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
 
+register_all_replication_handlers()
 
 # ==========================================
 #  LIFESPAN (Жизненный цикл)
@@ -111,6 +117,7 @@ app.add_middleware(
 # , prefix="/api/v1") - добавить позднее, когда в путях добавятся префиксы
 app.include_router(tenant_router)
 app.include_router(auth_router)
+app.include_router(audit_router)
 app.include_router(user_router)
 app.include_router(section_router)
 app.include_router(role_router)
@@ -120,3 +127,6 @@ app.include_router(doctype_router)
 app.include_router(notes_router)
 app.include_router(warehouses_router)
 app.include_router(goods_router)
+app.include_router(companies_router)
+app.include_router(regions_router)
+app.include_router(bp_regions_replica_router)

@@ -13,13 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { useGetUserAuthUserGet, useUpdateUserAuthUserIdPut } from "@/api/generated/authentication/authentication";
-import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
+// import { readUsersAuthGetResponse } from "@/api/generated/zod/authentication/authentication.schema";
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 import { useEffect, useState } from "react";
 import { Plus, Tag, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useUpdateUserUsersUserIdPut } from "@/api/generated/users/users";
+import { readUsersUsersGetResponse } from "@/api/generated/zod/users/users.schema";
 
 // ✅ Валидация формата тега (ТЗ §6.2.1–6.2.3)
 // Формат: <пространство>:<значение>, без пробелов, регистр значим
@@ -39,9 +41,12 @@ const editUserSchema = z.object({
 
 type EditUserFormData = z.infer<typeof editUserSchema>;
 
-// ✅ Извлекаем тип из Zod-схемы (гарантированно работает)
-type UserResponseSchema = z.infer<
-  typeof readUsersAuthGetResponse
+// // ✅ Извлекаем тип из Zod-схемы (гарантированно работает)
+// type UserResponseSchema = z.infer<
+//   typeof readUsersUsersGetResponse
+// >["items"][number];
+type UserResponseSchema = NonNullable<
+  z.infer<typeof readUsersUsersGetResponse>["data"]
 >["items"][number];
 
 interface EditUserModalProps {
@@ -58,10 +63,10 @@ export const EditUserModal = ({
   onUserUpdated,
 }: EditUserModalProps) => {
   const { toast } = useToast();
-  const updateUserMutation = useUpdateUserAuthUserIdPut();
+  const updateUserMutation = useUpdateUserUsersUserIdPut();
 
     // ✅ Определяем права текущего пользователя (ТЗ §6.3.2: теги назначает только Админ/Суперадмин)
-  const { data: currentUserData } = useGetUserAuthUserGet();
+  const { data: currentUserData } = useGetCurrentUserAuthUserGet();
   const canEditTags =
     currentUserData?.data?.is_admin === true ||
     currentUserData?.data?.is_superadmin === true;
@@ -243,8 +248,8 @@ export const EditUserModal = ({
                     const response = await readTenantsTenantsGet(params);
                     // Распаковываем ApiResponse -> { items, total }
                     return {
-                      items: response?.items ?? [],
-                      total: response?.total ?? 0,
+                      items: response?.data?.items ?? [],
+                      total: response?.data?.total ?? 0,
                     };
                   }}
                   queryKey={["tenants", "active"]} // ✅ Чистый ключ кэша, без специфики пользователя

@@ -212,8 +212,8 @@ export const EditSectionModal = ({
                     fetchFn={async (params) => {
                       const response = await readTenantsTenantsGet(params);
                       return {
-                        items: response?.items ?? [],
-                        total: response?.total ?? 0,
+                        items: response?.data?.items ?? [],
+                        total: response?.data?.total ?? 0,
                       };
                     }}
                     queryKey={["tenants", "active"]}

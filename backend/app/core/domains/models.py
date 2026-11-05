@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, UniqueConstraint, text
+from sqlalchemy import Boolean, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,10 @@ class DomainModel(Base):
     )
 
     name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    prefix: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("true"), nullable=False
+    )
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # ✅ Правило №1: back_populates и lazy="selectin", каскадное удаление doctypes

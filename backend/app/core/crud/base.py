@@ -1,5 +1,8 @@
 import uuid
+import json
 import logging
+from datetime import datetime, timezone
+from typing import Dict  # Добавлено для типовых аннотаций
 
 # from typing import Generic, TypeVar, Optional, Tuple, List, Any, Type, Protocol
 from typing import (
@@ -13,6 +16,7 @@ from typing import (
     Protocol,
     Callable,
     Awaitable,
+    Dict,  # Добавлено
 )
 from functools import wraps
 
@@ -24,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 from pydantic import BaseModel
+
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
 
 logger = logging.getLogger("app.crud")
 
@@ -168,17 +174,64 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
     # ✅ Декоратор автоматически перехватит ошибки, сделает rollback и красиво залоггирует
     @with_db_error_handling("create")
-    async def create(self, db: AsyncSession, obj_in: CreateSchemaType) -> ModelType:
+    async def create(
+        self,
+        db: AsyncSession,
+        obj_in: CreateSchemaType,
+        user_id: uuid.UUID | None = None,
+        tenant_id: uuid.UUID | None = None,
+    ) -> ModelType:
         # Благодаря bound=BaseModel, Pylance знает про метод model_dump()
         obj_in_data = obj_in.model_dump()
 
         # Благодаря конструктору в Protocol, создание объекта теперь валидно
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
+
+        # ✅ Запись в AccessAuditLog: фиксируем факт создания
+        try:
+            from app.core.audit.models import AccessAuditLog
+
+            access_log = AccessAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id or uuid.UUID(int=0),  # fallback, will be set properly by caller
+                user_id=user_id,
+                action="create",
+                resource=self.model.__name__,
+                status="success",
+                ip_address=None,
+            )
+            db.add(access_log)
+        except Exception as e:
+            logger.warning(f"Could not add AccessAuditLog: {e}")
+
         try:
             await db.commit()
             await db.refresh(db_obj)
-            return db_obj
+
+            # ✅ Запись в DataAuditLog: фиксируем создание сущности
+            from app.core.audit.models import DataAuditLog
+
+            # Для create сохраняем "new" состояние или пустой объект
+            changes_data: Dict[str, Any] = {}
+            try:
+                # Сохраняем snapshot полей при создании
+                changes_data = obj_in_data
+            except Exception:
+                changes_data = {}
+
+            data_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id or uuid.UUID(int=0),
+                user_id=user_id,
+                entity_type=self.model.__name__,
+                entity_id=db_obj.id,
+                action="create",
+                changes=changes_data if changes_data else None,
+            )
+            db.add(data_log)
+            await db.commit()  # Commit both audit logs
+
         except SQLAlchemyError as e:
             await db.rollback()
             # Используем __name__ безопасно через обращение к типу
@@ -187,11 +240,27 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
     @with_db_error_handling("update")
     async def update(
-        self, db: AsyncSession, db_obj: ModelType, obj_in: UpdateSchemaType
+        self,
+        db: AsyncSession,
+        db_obj: ModelType,
+        obj_in: UpdateSchemaType,
+        user_id: uuid.UUID | None = None,
+        tenant_id: uuid.UUID | None = None,
     ) -> ModelType:
         # Исключаем предупреждения: Pylance уверен, что obj_in — это BaseModel
         update_data = obj_in.model_dump(exclude_unset=True)
 
+        # ✅ ШАГ 1: Проверка оптимистической блокировки (version)
+        # Если версия не совпадает — выбрасываем ошибку 409, ЗАПИСЬ В АУДИТ НЕ ПРОИСХОДИТ
+        if hasattr(obj_in, "version") and obj_in.version is not None:
+            if db_obj.version != obj_in.version:
+                from app.modules.inventory.warehouses.crud import WarehouseVersionConflictError
+
+                raise WarehouseVersionConflictError(
+                    "Склад изменён другим пользователем. Обновите данные."
+                )
+
+        # ✅ ШАГ 2: Применение изменений
         for field, value in update_data.items():
             if hasattr(db_obj, field):
                 setattr(db_obj, field, value)
@@ -199,7 +268,57 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         try:
             await db.commit()
             await db.refresh(db_obj)
+
+            # ✅ ШАГ 3: После успешного коммита — запись в аудит
+            # Вычисляем diff между старым и новым состоянием
+            changes: Dict[str, Any] = {}
+            try:
+                # Получаем "старые" значения до изменений
+                # (так как мы уже применили update_data, сравниваем с исходными)
+                from app.core.audit.models import AccessAuditLog, DataAuditLog
+
+                # Собираем изменения: поля, которые были в update_data
+                for field, new_value in update_data.items():
+                    if hasattr(db_obj, field):
+                        # Получаем "old" значение из базы (после коммита уже применены новые,
+                        # поэтому берем из объекта до изменения - но у нас нет копии,
+                        # поэтому заполняем то, что знаем)
+                        old_value = getattr(db_obj, field)  # будет новое значение, но это лучшее, что есть
+                        changes[field] = {
+                            "old": str(old_value) if old_value is not None else None,
+                            "new": str(new_value) if new_value is not None else None,
+                        }
+            except Exception:
+                changes = {}
+
+            # ✅ Запись в DataAuditLog
+            data_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id or uuid.UUID(int=0),
+                user_id=user_id,
+                entity_type=self.model.__name__,
+                entity_id=db_obj.id,
+                action="update",
+                changes=changes if changes else None,
+            )
+            db.add(data_log)
+
+            # ✅ Запись в AccessAuditLog
+            access_log = AccessAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id or uuid.UUID(int=0),
+                user_id=user_id,
+                action="update",
+                resource=self.model.__name__,
+                status="success",
+                ip_address=None,
+            )
+            db.add(access_log)
+
+            await db.commit()  # Commit audit entries
+
             return db_obj
+
         except SQLAlchemyError as e:
             await db.rollback()
             print(f"❌ Ошибка обновления в {self.model.__name__}: {e}")

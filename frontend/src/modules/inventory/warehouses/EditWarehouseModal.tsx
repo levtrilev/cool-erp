@@ -24,7 +24,7 @@ import {
   useUpdateWarehouseInventoryWarehousesWarehouseIdPut,
 } from "@/api/generated/inventory-warehouses/inventory-warehouses";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { InvWarehouseResponseSchema } from "@/api/generated/fastAPI.schemas";
 import {
   ReferenceSelect,
@@ -69,7 +69,7 @@ export function EditWarehouseModal({
 }: EditWarehouseModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
   const isEdit = !!initialData;
 

@@ -1,5 +1,5 @@
 class NoteNotFoundError(Exception):
-    """Документ не найден или недоступен в текущем тенанте."""
+    """Документ не найден или недоступен в текущем тенанте (404)."""
 
 
 class NoteVersionConflictError(Exception):
@@ -13,9 +13,12 @@ class NoteEditingLockedError(Exception):
 class SectionNotInTenantError(Exception):
     """Раздел не существует или не принадлежит организации (400)."""
 
-# ✅ отказ в доступе по решению AccessService (ТЗ §8)
+
 class NoteAccessDeniedError(Exception):
     """
-    Доступ к документу запрещён согласно алгоритму resolve_access.
-    Возвращается HTTP 403.
+    Доступ к документу запрещён согласно алгоритму resolve_access (403).
     """
+
+
+class NotePermissionError(Exception):
+    """Недостаточно прав для операции с заметкой (403)."""

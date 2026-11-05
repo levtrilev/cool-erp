@@ -57,8 +57,8 @@ export function CreateTenantModal({ open, onOpenChange, onTenantCreated }: Creat
           onOpenChange(false);
           reset();
 
-          if (response?.id) {
-            await onTenantCreated(response.id);
+          if (response?.data?.id) {
+            await onTenantCreated(response.data.id);
           } else {
             toast({ title: "Организация создана" });
           }

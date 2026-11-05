@@ -11,8 +11,12 @@ import {
 import { UserCircle, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
-import { useLogoutAuthLogoutPost } from "@/api/generated/authentication/authentication";
+// import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import {
+  useGetCurrentUserAuthUserGet,
+  useLogoutAuthLogoutPost,
+} from "@/api/generated/authentication/authentication";
+// import { useLogoutAuthLogoutPost } from "@/api/generated/authentication/authentication";
 import { useEffect } from "react";
 
 export const AppLayout = () => {
@@ -20,7 +24,7 @@ export const AppLayout = () => {
   const queryClient = useQueryClient();
   // Запрашиваем данные пользователя.
   // data содержит ответ от сервера (имя, email и т.д.)
-  const { data: user, isError, isLoading } = useGetUserAuthUserGet();
+  const { data: user, isError, isLoading } = useGetCurrentUserAuthUserGet();
 
   // ✅ ВРЕМЕННЫЙ ЛОГ ДЛЯ ДИАГНОСТИКИ
   // console.log("=== ДАННЫЕ ПОЛЬЗОВАТЕЛЯ ===", user);

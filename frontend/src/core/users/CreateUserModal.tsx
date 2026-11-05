@@ -185,8 +185,8 @@ export const CreateUserModal = ({
                     const response = await readTenantsTenantsGet(params);
                     // ✅ Адаптируем ответ под формат ReferenceSelect
                     return {
-                      items: response?.items ?? [],
-                      total: response?.total ?? 0,
+                      items: response?.data?.items ?? [],
+                      total: response?.data?.total ?? 0,
                     };
                   }}
                   queryKey={["tenants", "active"]}

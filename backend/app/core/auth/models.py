@@ -58,6 +58,15 @@ class UserSession(Base):
         """
         Возвращает is_superadmin через связь с пользователем.
         Позволяет использовать session.is_superadmin во всех роутерах
-        без обращения к session.user.tenant_id.
+        без обращения к session.user.is_superadmin.
         """
         return self.user.is_superadmin
+
+    @property
+    def is_admin(self) -> bool:
+        """
+        Возвращает is_admin через связь с пользователем.
+        Позволяет использовать session.is_admin во всех роутерах
+        без обращения к session.user.is_admin.
+        """
+        return self.user.is_admin

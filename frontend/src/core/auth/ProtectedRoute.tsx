@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
+// import { AUTH_USER_QUERY_OPTIONS } from "./authQueryOptions";
 
 type RoleType = "admin" | "superadmin";
 
@@ -10,7 +11,7 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   const location = useLocation();
-  const { data: userData, isLoading, isError } = useGetUserAuthUserGet();
+  const { data: userData, isLoading, isError } = useGetCurrentUserAuthUserGet();
 
   // Показываем загрузку, пока проверяем сессию
   if (isLoading) {

@@ -33,7 +33,7 @@ import {
   getSectionsSectionsGet,
   useDeleteSectionSectionsSectionIdDelete,
 } from "@/api/generated/sections/sections";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
 
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
@@ -71,7 +71,7 @@ export function AdminSectionsPage() {
   >(null);
 
   // ✅ Текущий пользователь для проверки прав
-  const { data: currentUser } = useGetUserAuthUserGet();
+  const { data: currentUser } = useGetCurrentUserAuthUserGet();
   const canManageSections: boolean =
     currentUser?.data?.is_admin === true ||
     currentUser?.data?.is_superadmin === true;

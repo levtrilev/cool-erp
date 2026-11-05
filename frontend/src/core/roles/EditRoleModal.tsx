@@ -28,7 +28,7 @@ import {
   useGetSectionsSectionsGet,
 } from "@/api/generated/sections/sections";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
-import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
+import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
 import {
   readTenantsTenantsGet,
   useReadTenantsTenantsGet,
@@ -82,7 +82,7 @@ export function EditRoleModal({
 }: EditRoleModalProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data: userData } = useGetUserAuthUserGet();
+  const { data: userData } = useGetCurrentUserAuthUserGet();
   const currentTenantId = userData?.data?.tenant_id;
   const isSuperadmin = userData?.data?.is_superadmin === true;
   const isEdit = !!role;
@@ -224,7 +224,7 @@ export function EditRoleModal({
 
   // ✅ Правило №36: Безопасное приведение типа для role_ids
   const allUsers = useMemo(() => {
-    return (usersData?.items ?? []).map((u) => ({
+    return (usersData?.data?.items ?? []).map((u) => ({
       id: u.id,
       name: u.name,
       email: u.email,
@@ -746,7 +746,7 @@ export function EditRoleModal({
 
                       // ✅ Адаптер: приводим к ReferenceItem с индексной сигнатурой
                       const items: ReferenceItem[] = (
-                        response?.items ?? []
+                        response?.data?.items ?? []
                       ).map((t) => ({
                         id: t.id,
                         name: t.name,
@@ -754,7 +754,7 @@ export function EditRoleModal({
 
                       return {
                         items,
-                        total: response?.total ?? 0,
+                        total: response?.data?.total ?? 0,
                       };
                     }}
                     queryKey={["tenants-for-role"]}

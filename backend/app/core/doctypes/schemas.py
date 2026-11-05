@@ -46,5 +46,6 @@ class DoctypeQueryParams(BaseModel):
     skip: int = 0
     limit: int = 100
     search: str | None = None
-    # ✅ параметр для: фильтровать doctypes, доступные конкретному tenant
+    # ✅ параметры для фильтровать doctypes
     available_for_tenant_id: uuid.UUID | None = None
+    domain_id: uuid.UUID | None = None

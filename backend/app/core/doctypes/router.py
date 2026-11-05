@@ -20,7 +20,8 @@ router = APIRouter(prefix="/doctypes", tags=["Doctypes"])
 async def get_doctypes(
     current_session: CurrentUser,  # ✅ Правило №32: Аннотированный тип
     db: DBSession,
-    available_for_tenant_id: uuid.UUID | None = None,  # ✅ НОВЫЙ query-параметр
+    available_for_tenant_id: uuid.UUID | None = None,
+    domain_id: uuid.UUID | None = None,
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
@@ -34,6 +35,7 @@ async def get_doctypes(
         search=search,
         user_is_superadmin=current_session.is_superadmin,
         target_tenant_id=available_for_tenant_id,
+        domain_id=domain_id,
     )
 
     # ✅ 1. Явное создание экземпляра (ОБЯЗАТЕЛЬНО со скобками и аргументами!)

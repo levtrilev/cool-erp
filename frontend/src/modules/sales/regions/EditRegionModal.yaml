@@ -1,0 +1,291 @@
+# ════════════════════════════════════════════════════════════
+# ЗАДАНИЕ НА ФОРМУ: Карточка региона
+# Формат: cool-erp-form v1.2
+# Правила проекта подразумеваются и НЕ дублируются.
+# ════════════════════════════════════════════════════════════
+
+meta:
+  format_version: "1.2"
+  module: sales/regions
+  component: EditRegionModal
+  entity: regions
+  entity_type: SalesRegionResponseSchema
+  entity_kind: document            # ← ПОЛНЫЙ КОНТРАКТ: access + lifecycle
+  save_mutation:
+    create: useCreateRegionSalesRegionsPost
+    update: useUpdateRegionSalesRegionsRegionIdPut
+  contract_overrides:
+    # Теги доступа существуют в контракте, но в форме не редактируются
+    hide_tags_in_form: true
+    # section_id фиксирован (см. business_rules.fixed_tenant_and_section),
+    # поэтому стандартный обязательный ReferenceSelect для раздела не рендерится
+    section_id_fixed: true
+
+titles:
+  create: "Новый регион"
+  edit: "Редактирование региона: {entity.name}"
+  copy: "Копирование региона: {copy_source.name}"
+  view: "Просмотр региона (только чтение)"
+
+dialog:
+  width: 700
+  max_height: "90vh"
+
+# ════════════════════════════════════════════════════════════
+# РЕЖИМЫ
+# ════════════════════════════════════════════════════════════
+modes:
+  create: {}
+  edit: {}
+
+  copy:
+    source_prop: copyFromData
+    name_transform: "{name} (копия)"
+    # Поля контракта НЕ копируются как редактируемые —
+    # они фиксированы (см. business_rules.fixed_tenant_and_section).
+    # Копируются только специфичные поля: name, capital, code, area.
+    preserve_fields: [capital, code, area]
+    close_after_save: true
+
+  view:
+    trigger: "entity.is_editing_locked or http_423"
+
+# ════════════════════════════════════════════════════════════
+# ИСТОЧНИКИ ДАННЫХ
+# ════════════════════════════════════════════════════════════
+data_sources:
+  # tenant_id и section_id фиксированы, справочники не нужны.
+  # Профиль используется только для проверки прав (опционально).
+  current_user:
+    endpoint: GET /auth/user
+    provides: [is_superadmin]
+
+# ════════════════════════════════════════════════════════════
+# ОРГАНИЗАЦИЯ И РАЗДЕЛ
+# Для глобального справочника регионов — фиксированные значения,
+# отображаются как блок только для чтения.
+# ════════════════════════════════════════════════════════════
+tenant_context:
+  effective_tenant:
+    priority: [fixed_tenant_id]     # Всегда константа, не из сессии
+  change_allowed_for: none
+  display_as: readonly_organization_block
+  hint: |
+    Регионы — глобальный справочник. Создаются в организации суперадмина
+    в разделе «Общий» и видны всем организациям (ТЗ §4.3).
+
+# ════════════════════════════════════════════════════════════
+# ВКЛАДКИ
+# ════════════════════════════════════════════════════════════
+tabs:
+
+  # ────────────────────────────────────────────────────────
+  - id: main
+    label: Реквизиты
+    dirty_indicators: [basics]
+
+    fields:
+      - name: name
+        label: Название региона
+        type: text
+        placeholder: "Например: Сибирь"
+        required: true
+        validation:
+          rule: min_length
+          value: 1
+          message: "Название обязательно"
+
+      - name: capital
+        label: Административный центр
+        type: text
+        placeholder: "Например: Новосибирск"
+        required: false
+        validation:
+          rule: max_length
+          value: 128
+          message: "Не более 128 символов"
+
+      - name: code
+        label: Код региона
+        type: text
+        placeholder: "Например: RU-SIB"
+        required: false
+        validation:
+          rule: max_length
+          value: 8
+          message: "Не более 8 символов"
+
+      - name: area
+        label: Область / округ
+        type: text
+        placeholder: "Например: Сибирский ФО"
+        required: false
+        validation:
+          rule: max_length
+          value: 64
+          message: "Не более 64 символов"
+
+  # ────────────────────────────────────────────────────────
+  # Поля контракта документа.
+  # Раздел фиксирован → отображается как "Общий" только для чтения.
+  # ────────────────────────────────────────────────────────
+  - id: document
+    label: Документ
+    dirty_indicators: [document]
+
+    fields:
+      - name: section_id
+        label: Раздел доступа
+        type: readonly_display
+        value: "Общий"
+        hint: "Раздел фиксирован: регионы видны всем организациям (ТЗ §4.3)"
+
+      - name: doc_number
+        label: Номер документа
+        type: text
+        required: false
+        placeholder: "Например: РГН-001"
+        validation:
+          rule: max_length
+          value: 64
+          message: "Не более 64 символов"
+
+      - name: doc_date
+        label: Дата документа
+        type: date
+        required: false
+
+# ════════════════════════════════════════════════════════════
+# КНОПКИ
+# ════════════════════════════════════════════════════════════
+actions:
+  - id: save
+    label: Сохранить
+    type: submit
+    icon: check
+    disabled_when: "mode == 'edit' and not has_any_changes"
+    hidden_when: "read_only"
+    loading_icon: spinner
+
+  - id: cancel
+    type: close
+    label_rules:
+      when: "read_only"
+      then: "Закрыть"
+      else: "Отмена"
+    min_width: 96px
+
+# ════════════════════════════════════════════════════════════
+# ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+# ════════════════════════════════════════════════════════════
+change_indicators:
+  basics:
+    watch: [name, capital, code, area]
+    compare_with: source_entity
+    mode: field_by_field
+
+  document:
+    watch: [doc_number, doc_date]
+    compare_with: source_entity
+    mode: field_by_field
+
+has_any_changes:
+  formula: "basics or document"
+
+# ════════════════════════════════════════════════════════════
+# СОБЫТИЯ
+# Захват/освобождение блокировки — автоматические
+# для entity_kind: document (Правило №39, Бэкенд №40).
+# ════════════════════════════════════════════════════════════
+events:
+  on_open:
+    - reset_all_state
+    - init_form_from_source
+
+  on_save_success:
+    - invalidate_cache: ["sales-regions"]
+    - call_parent: onSaved
+    - if: "mode == 'copy'"
+      then: close_modal
+    - toast:
+        when: "mode == 'copy'"
+        text: "Копия региона создана"
+        else: "Регион сохранён"
+
+  on_save_error:
+    - when: "status == 409"
+      toast_error: "Регион изменён другим пользователем. Обновите данные."
+    - when: "status == 423"
+      toast_error: "Регион редактируется другим пользователем."
+    - otherwise:
+        toast_error: "{error.detail || 'Не удалось сохранить регион'}"
+
+  on_close:
+    - reset_form_to_defaults
+    # Освобождение блокировки — автоматически (только если захвачена)
+
+# ════════════════════════════════════════════════════════════
+# PAYLOAD
+# ════════════════════════════════════════════════════════════
+payload:
+  # Специфичные поля
+  name: "{form.name}"
+  capital: "{form.capital || null}"
+  code: "{form.code || null}"
+  area: "{form.area || null}"
+
+  # Контракт доступа — ФИКСИРОВАННЫЕ значения для глобального справочника.
+  # Передаются ТОЛЬКО при создании (включая копирование).
+  # При редактировании НЕ отправляются (не меняются).
+  tenant_id: "'38d6532a-e1b7-45c5-ab41-11317528d85e'"   # Организация суперадмина
+  section_id: "'61a895ab-58cd-45d4-beba-f563f395d333'"  # Раздел «Общий» (платформенный)
+  # author_id, created_by_user_id — заполняет БЭКЕНД из сессии
+
+  # Жизненный цикл
+  doc_number: "{form.doc_number || null}"
+  doc_date: "{form.doc_date || null}"
+  version: "{entity.version}"          # Только update (оптимистическая блокировка)
+
+mutation_params:
+  create:
+    data: "{payload}"                  # Без version
+  edit:
+    data: "{payload}"                  # С version; без tenant_id/section_id
+    params: { region_id: "{entity.id}" }
+  copy:
+    data: "{payload}"                  # Без version; с фиксированными значениями
+
+# ════════════════════════════════════════════════════════════
+# ОСОБЫЕ БИЗНЕС-ПРАВИЛА
+# ════════════════════════════════════════════════════════════
+business_rules:
+  - id: global_reference
+    rule: |
+      Регионы — глобальный справочник с кросс-организационной видимостью.
+      Все регионы создаются в организации суперадмина в разделе «Общий».
+      Раздел «Общий» (платформенный) даёт видимость всем организациям (ТЗ §4.3).
+
+  - id: fixed_tenant_and_section
+    rule: |
+      При создании (включая копирование):
+      - tenant_id = '38d6532a-e1b7-45c5-ab41-11317528d85e' (организация суперадмина)
+      - section_id = '61a895ab-58cd-45d4-beba-f563f395d333' (раздел «Общий»)
+      Эти значения НЕ редактируются пользователем и НЕ отображаются
+      как редактируемые поля. Раздел отображается как «Общий» только для чтения.
+
+  - id: tenant_immutable
+    rule: |
+      Организация и раздел региона не меняются через эту форму.
+      При редактировании tenant_id и section_id не отправляются.
+
+  - id: tags_readonly
+    rule: |
+      or_tags / and_tags в форме не отображаются.
+      При создании передаются пустыми или не передаются вовсе.
+
+  - id: copy_preserves_fixed_values
+    rule: |
+      При копировании региона фиксированные значения (tenant_id, section_id)
+      не копируются из исходного региона как данные, а подставляются
+      как константы при создании копии. Копируются только специфичные поля:
+      name (с суффиксом «(копия)»), capital, code, area.

@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
-// import { AppLayout} from "@/components/layout/AppLayout_1";
 import { NotesPage } from "@/core/notes/NotesPage";
 import { ProtectedRoute } from "@/core/auth/ProtectedRoute";
 
@@ -24,8 +23,31 @@ import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
 import { TagsPage } from "./core/tags/TagsPage";
 import { GoodsPage } from "./modules/sales/goods/GoodsPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
+import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
+import { RegionsPage } from "./modules/sales/regions/RegionsPage";
+import { RegisterPage } from "./core/users/RegisterPage";
+import { AuditPage } from "@/modules/audit/AuditPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // ✅ Умная логика retry: 401/403 — сразу отказ без повторных попыток
+      retry: (failureCount, error) => {
+        console.log("🔍 Retry check:", { failureCount, error });
+        const status = (error as { response?: { status?: number } })
+          ?.response?.status;
+        if (status === 401 || status === 403) {
+          return false; // Мгновенный отказ при потере авторизации
+        }
+        return failureCount < 2; // Для сетевых ошибок / 500 — 2 попытки
+      },
+      retryDelay: 200,
+    },
+    mutations: {
+      retry: false, // Мутации никогда не ретраятся автоматически
+    },
+  },
+});
 
 function App() {
   return (
@@ -36,15 +58,18 @@ function App() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/sales/goods" element={<GoodsPage />} />
             <Route path="/inventory/warehouses" element={<WarehousesPage />} />
+            <Route
+              path="/business-partners/companies"
+              element={<CompaniesPage />}
+            />
+            <Route path="/sales/regions" element={<RegionsPage />} />
             {/* Другие маршруты будут добавлены здесь */}
-            <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} />
           </Route>
-
 
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
           <Route path="/" element={<PublicHomePage />} />
           <Route path="/auth/login" element={<LoginPage />} />
-          {/* <Route path="/auth/register" element={<RegisterPage />} /> */}
+          <Route path="/auth/register__" element={<RegisterPage />} />
 
           {/* === ЗАЩИЩЁННЫЕ РОУТЫ (с Layout) === */}
           <Route element={<AppLayout />}>
@@ -119,6 +144,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/audit"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AuditPage />
+                </ProtectedRoute>
+              }
+            />
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"
@@ -128,11 +161,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
-            {/* Сюда добавляйте сотни будущих страниц с RBAC */}
-            {/* <Route element={<ProtectedRoute requiredRole="manager" />}>
-              <Route path="/projects" element={<ProjectsPage />} />
-            </Route> */}
           </Route>
 
           {/* Редирект для неизвестных путей */}
