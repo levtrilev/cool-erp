@@ -8,6 +8,7 @@ import {
   HouseIcon,
   GlobeIcon,
   GlobeCheck,
+  Shield,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -108,6 +109,12 @@ export const MENU_CONFIG: MenuItem[] = [
         label: "Тэги доступа",
         path: "/admin/tags",
         icon: Building2,
+      },
+      {
+        id: "audit",
+        label: "Аудит",
+        path: "/admin/audit",
+        icon: Shield,
       },
     ],
   },

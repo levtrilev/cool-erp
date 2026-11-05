@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
-// import { AppLayout} from "@/components/layout/AppLayout_1";
 import { NotesPage } from "@/core/notes/NotesPage";
 import { ProtectedRoute } from "@/core/auth/ProtectedRoute";
 
@@ -27,8 +26,8 @@ import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
 import { RegisterPage } from "./core/users/RegisterPage";
+import { AuditPage } from "@/modules/audit/AuditPage";
 
-// const queryClient = new QueryClient();
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -50,7 +49,6 @@ const queryClient = new QueryClient({
   },
 });
 
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -66,7 +64,6 @@ function App() {
             />
             <Route path="/sales/regions" element={<RegionsPage />} />
             {/* Другие маршруты будут добавлены здесь */}
-            {/* <Route path="/" element={<div>Добро пожаловать в Cool ERP</div>} /> */}
           </Route>
 
           {/* === ПУБЛИЧНЫЕ РОУТЫ (без Layout) === */}
@@ -147,6 +144,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/audit"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AuditPage />
+                </ProtectedRoute>
+              }
+            />
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"
@@ -156,11 +161,6 @@ function App() {
                 </ProtectedRoute>
               }
             />
-
-            {/* Сюда добавляйте сотни будущих страниц с RBAC */}
-            {/* <Route element={<ProtectedRoute requiredRole="manager" />}>
-              <Route path="/projects" element={<ProjectsPage />} />
-            </Route> */}
           </Route>
 
           {/* Редирект для неизвестных путей */}

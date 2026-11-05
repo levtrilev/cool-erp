@@ -6,6 +6,7 @@ from typing import Any, Mapping, cast
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import text as sql_text
 
+from app.core.audit.utils import get_entity_name
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.core.users.crud import crud_user
@@ -20,15 +21,14 @@ from app.core.users.schemas import (
     UserUpdateSchema,
 )
 from app.core.access.schemas import UserProtocol
-# from app.core.tenants.crud import crud_tenant
 
-logger = logging.getLogger(__name__)  # ✅ Исправлено: __name__ вместо name
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
 # ==================================================================
-# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ (Умная логика + полная структура доступа)
+# ПУБЛИЧНАЯ РЕГИСТРАЦИЯ
 # ==================================================================
 @router.post(
     "/public/register",  # ✅ Исправлено: убран пробел в пути
@@ -37,16 +37,9 @@ router = APIRouter(prefix="/users", tags=["Users"])
 )
 async def public_register(
     user_in: PublicRegisterSchema,
-    db: DBSession,  # ✅ Правило №32: аннотированный тип вместо Depends
+    db: DBSession,
 ) -> PublicRegisterResponseSchema:
-    """
-    Публичная регистрация гостя.
-    - Если организация существует → рядовой пользователь.
-    - Если не существует → новая организация + полная структура доступа:
-      тенант, раздел «Общий-<Организация>», роль администратора,
-      Permissions для всех активных doctype, пользователь с is_admin=True.
-    """
-    # 1. Проверяем, нет ли уже пользователя с таким email
+    """Публичная регистрация гостя."""
     existing_user = await crud_user.get_by_email(db, email=user_in.email)
     if existing_user:
         raise HTTPException(
@@ -60,7 +53,6 @@ async def public_register(
             ],
         )
 
-    # 2. Регистрация через сервис (полная структура доступа)
     try:
         new_user, is_new_tenant = await registration_service.register(
             db, user_in=user_in
@@ -73,11 +65,9 @@ async def public_register(
             detail=f"Ошибка при регистрации: {str(e)}",
         )
 
-    # 3. Commit в роутере (Правило №40, часть 8.1)
     await db.commit()
     await db.refresh(new_user)
 
-    # 4. Формируем ответ
     return PublicRegisterResponseSchema(
         id=new_user.id,
         name=new_user.name,
@@ -100,34 +90,22 @@ async def public_register(
 )
 async def register(
     user_in: UserRegisterSchema,
-    db: DBSession,  # ✅ НОВОЕ: аутентификация обязательна
-    session: CurrentUser,  # ✅ НОВОЕ: аутентификация обязательна
+    db: DBSession,
+    session: CurrentUser,
 ) -> ApiResponse[UserResponseSchema]:
-    """
-    Регистрация нового пользователя администратором или суперадмином.
-
-    Права:
-    - Администратор организации может создавать пользователей только
-      в своей организации.
-    - Суперадмин может создавать пользователей в любой организации.
-    """
-    # ✅ Проверка прав: только админ или суперадмин
+    """Регистрация нового пользователя администратором или суперадмином."""
     if not session.is_admin and not session.is_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Создание пользователей доступно только администратору "
-            "или суперадмину",
+            detail="Создание пользователей доступно только администратору или суперадмину",
         )
 
-    # ✅ Проверка тенанта: админ не может создавать пользователей
-    # в чужой организации
     if not session.is_superadmin and user_in.tenant_id != session.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к другой организации",
         )
 
-    # Проверяем, нет ли уже пользователя с таким email
     existing_user = await crud_user.get_by_email(db, email=user_in.email)
     if existing_user:
         raise HTTPException(
@@ -168,24 +146,16 @@ async def register(
     response_model=ApiResponse[PaginatedResponse[UserResponseSchema]],
 )
 async def read_users(
-    db: DBSession,  # ✅ Правило №32
-    session: CurrentUser,  # ✅ Правило №32
+    db: DBSession,
+    session: CurrentUser,
     tenant_id: uuid.UUID | None = None,
     skip: int = 0,
     limit: int = 100,
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[UserResponseSchema]]:
-    """
-    Получение списка пользователей с пагинацией.
-
-    Права:
-    - Обычный пользователь: всегда видит только свою организацию.
-    - Суперадмин без tenant_id: видит пользователей всех организаций.
-    - Суперадмин с tenant_id: видит пользователей указанной организации.
-    """
+    """Получение списка пользователей с пагинацией."""
     is_superadmin: bool = bool(session.is_superadmin)
 
-    # ✅ Правило №26: обычный админ не может запрашивать чужой тенант
     if tenant_id and not is_superadmin:
         tenant_id = session.tenant_id
 
@@ -202,7 +172,7 @@ async def read_users(
     return ApiResponse(
         success=True,
         message="Пользователи получены",
-        data=PaginatedResponse(
+        data=PaginatedResponse[UserResponseSchema](
             items=[UserResponseSchema.model_validate(item) for item in items],
             total=total,
             page=(skip // limit) + 1,
@@ -222,15 +192,7 @@ async def get_tags_with_users(
     db: DBSession,
     session: CurrentUser,
 ) -> ApiResponse[list[TagWithUsersResponseSchema]]:
-    """
-    Список тегов доступа и пользователей, которым они присвоены.
-
-    ТЗ RBAC_ABAC v2.1 §6.3.5:
-    - Администратор видит только пользователей своей Организации
-    - Суперадмин видит пользователей всех Организаций
-
-    Фильтрация выполняется на уровне SQL (Правило №26).
-    """
+    """Список тегов доступа и пользователей."""
     is_superadmin: bool = bool(session.is_superadmin)
 
     where_clause: str
@@ -296,17 +258,10 @@ async def get_tags_with_users(
 )
 async def read_user(
     user_id: uuid.UUID,
-    db: DBSession,  # ✅ НОВОЕ: аутентификация обязательна
-    session: CurrentUser,  # ✅ НОВОЕ: аутентификация обязательна
+    db: DBSession,
+    session: CurrentUser,
 ) -> ApiResponse[UserResponseSchema]:
-    """
-    Получение одного пользователя по UUID.
-
-    Права:
-    - Пользователь может видеть свой профиль.
-    - Администратор может видеть пользователей своей организации.
-    - Суперадмин может видеть любого пользователя.
-    """
+    """Получение одного пользователя по UUID."""
     db_user = await crud_user.get(db, id=user_id)
     if db_user is None:
         raise HTTPException(
@@ -314,7 +269,6 @@ async def read_user(
             detail="Пользователь не найден",
         )
 
-    # ✅ Проверка прав: свой профиль, админ своей организации или суперадмин
     if not session.is_superadmin:
         if db_user.id != cast(UserProtocol, session).id:
             if not session.is_admin:
@@ -345,31 +299,14 @@ async def read_user(
 async def update_user(
     user_id: uuid.UUID,
     user_changes: UserUpdateSchema,
-    db: DBSession,  # ✅ НОВОЕ: аутентификация обязательна
-    session: CurrentUser,  # ✅ НОВОЕ: аутентификация обязательна
+    db: DBSession,
+    session: CurrentUser,
 ) -> ApiResponse[UserResponseSchema]:
-    """
-    Обновление пользователя.
-
-    Права:
-    - Пользователь может обновлять свой профиль.
-    - Администратор может обновлять пользователей своей организации.
-    - Суперадмин может обновлять любого пользователя.
-
-    Ограничения:
-    - Назначение суперадминистратора доступно только суперадмину.
-    - Смена организации доступна только суперадмину.
-    - Назначение администратора доступно только администратору или суперадмину.
-    - Назначение ролей доступно только администратору или суперадмину.
-    """
+    """Обновление пользователя."""
     db_user = await crud_user.get(db, id=user_id)
     if db_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пользователь не найден",
-        )
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    # ✅ Проверка прав: свой профиль, админ своей организации или суперадмин
     if not session.is_superadmin:
         if db_user.id != cast(UserProtocol, session).id:
             if not session.is_admin:
@@ -383,7 +320,6 @@ async def update_user(
                     detail="Нет доступа к пользователю другой организации",
                 )
 
-    # ✅ ЗАЩИТА: запрет повышения до суперадмина для не-суперадмина
     if (
         user_changes.is_superadmin is not None
         and user_changes.is_superadmin
@@ -394,7 +330,6 @@ async def update_user(
             detail="Назначение суперадминистратора доступно только суперадмину",
         )
 
-    # ✅ ЗАЩИТА: запрет смены организации для не-суперадмина
     if (
         user_changes.tenant_id is not None
         and user_changes.tenant_id != db_user.tenant_id
@@ -405,7 +340,6 @@ async def update_user(
             detail="Смена организации доступна только суперадмину",
         )
 
-    # ✅ ЗАЩИТА: запрет назначения администратора для не-админа/не-суперадмина
     if (
         user_changes.is_admin is not None
         and not session.is_admin
@@ -413,11 +347,9 @@ async def update_user(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Назначение администратора доступно только администратору "
-            "или суперадмину",
+            detail="Назначение администратора доступно только администратору или суперадмину",
         )
 
-    # ✅ ЗАЩИТА: запрет назначения ролей для не-админа/не-суперадмина
     if (
         user_changes.role_ids is not None
         and not session.is_admin
@@ -425,9 +357,14 @@ async def update_user(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Назначение ролей доступно только администратору "
-            "или суперадмину",
+            detail="Назначение ролей доступно только администратору или суперадмину",
         )
+
+    old_values = {}
+    if db_user:
+        for field in user_changes.model_fields:
+            if field in user_changes.model_dump(exclude_unset=True):
+                old_values[field] = getattr(db_user, field, None)
 
     try:
         # ⚠️ ЗАМЕЧАНИЕ: crud_user.update_user делает commit внутри.
@@ -443,10 +380,49 @@ async def update_user(
             detail="Ошибка обновления. Возможно ошибка БД.",
         )
 
+    # ✅ СНИМОК
+    updated_user_snapshot = UserResponseSchema.model_validate(updated_user)
+    updated_user_id = updated_user.id
+    updated_user_tenant_id = updated_user.tenant_id
+    updated_user_email = updated_user.email
+
+    # ✅ АУДИТ
+    try:
+        from app.core.audit.models import DataAuditLog
+        changes = {}
+        dump = user_changes.model_dump(exclude_unset=True)
+        for field, new_value in dump.items():
+            if field in old_values and old_values[field] != new_value:
+                if field.endswith('_id'):
+                    old_name = await get_entity_name(db, field[:-3], old_values[field])
+                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    changes[field] = {
+                        "old": old_name if old_name else str(old_values[field]),
+                        "new": new_name if new_name else str(new_value)
+                    }
+                else:
+                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+
+        if changes:
+            audit_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=updated_user_tenant_id,
+                user_id=session.id,
+                entity_type="user",
+                entity_id=updated_user_id,
+                entity_name=updated_user_email,
+                action="update",
+                changes=changes if changes else None,
+            )
+            db.add(audit_log)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
+
     return ApiResponse(
         success=True,
         message="Пользователь обновлён",
-        data=UserResponseSchema.model_validate(updated_user),
+        data=updated_user_snapshot,
     )
 
 
@@ -460,27 +436,16 @@ async def update_user(
 )
 async def delete_user(
     user_id: uuid.UUID,
-    db: DBSession,  # ✅ НОВОЕ: аутентификация обязательна
-    session: CurrentUser,  # ✅ НОВОЕ: аутентификация обязательна
+    db: DBSession,
+    session: CurrentUser,
 ) -> ApiResponse[UserResponseSchema]:
-    """
-    Удаление пользователя из базы данных.
-
-    Права:
-    - Только администратор или суперадмин может удалять пользователей.
-    - Администратор может удалять только пользователей своей организации.
-    - Суперадмин может удалять любого пользователя.
-    - Нельзя удалить себя (защита от случайного удаления).
-    """
-    # ✅ Проверка прав: только админ или суперадмин
+    """Удаление пользователя из базы данных."""
     if not session.is_admin and not session.is_superadmin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Удаление пользователей доступно только администратору "
-            "или суперадмину",
+            detail="Удаление пользователей доступно только администратору или суперадмину",
         )
 
-    # ✅ ЗАЩИТА: нельзя удалить себя
     if user_id == cast(UserProtocol, session).id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -494,27 +459,46 @@ async def delete_user(
             detail="Пользователь не найден",
         )
 
-    # ✅ Проверка тенанта: админ не может удалять пользователей
-    # чужой организации
     if not session.is_superadmin and deleted_user.tenant_id != session.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Нет доступа к пользователю другой организации",
         )
 
-    # Удаляем пользователя
+    # ✅ СНИМОК до удаления
+    user_snapshot = UserResponseSchema.model_validate(deleted_user)
+    user_name = deleted_user.name
+    user_id_for_audit = deleted_user.id
+    tenant_id_for_audit = deleted_user.tenant_id
+
+    # ✅ УДАЛЕНИЕ
     result = await crud_user.remove(db, id=user_id)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Пользователь не найден",
         )
-
-    # ✅ Правило №40, часть 8.1: commit в роутере
     await db.commit()
+
+    # ✅ АУДИТ
+    try:
+        from app.core.audit.models import DataAuditLog
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id_for_audit,
+            user_id=session.id,
+            entity_type="user",
+            entity_id=user_id_for_audit,
+            action="delete",
+            changes={"deleted": True},
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
-        message=f"Пользователь {result.name} успешно удалён",
-        data=UserResponseSchema.model_validate(result),
+        message=f"Пользователь {user_name} успешно удалён",
+        data=user_snapshot,
     )

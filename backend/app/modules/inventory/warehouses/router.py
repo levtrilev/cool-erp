@@ -1,5 +1,6 @@
 """FastAPI роутер для складов с блокировками (Правило №40, часть 7)
 и контролем доступа (ТЗ RBAC/ABAC §8)."""
+import logging
 from typing import cast
 import uuid
 from fastapi import APIRouter, HTTPException, status
@@ -20,7 +21,10 @@ from app.modules.inventory.warehouses.schemas import (
     InvWarehouseResponseSchema,
     InvWarehouseUpdateSchema,
 )
+from app.core.audit.utils import get_entity_name
 from app.modules.inventory.warehouses.service import warehouse_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inventory/warehouses", tags=["Inventory: warehouses"])
 
@@ -81,6 +85,26 @@ async def create_warehouse(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
+
+    # ✅ ЗАПИСЬ В АУДИТ: создание склада
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="warehouse",
+            entity_id=warehouse.id,
+            entity_name=warehouse.name,
+            action="create",
+            changes=None,
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
+
     return ApiResponse(
         success=True,
         message="Склад создан",
@@ -126,6 +150,14 @@ async def update_warehouse(
 ) -> ApiResponse[InvWarehouseResponseSchema]:
     """Сохранение с проверкой версии (409), блокировки (423) и контроля доступа."""
     try:
+        # ✅ Сохраняем текущие значения полей перед обновлением
+        warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
+        old_values = {}
+        if warehouse_before:
+            for field in data.model_fields:
+                if field in data.model_dump(exclude_unset=True):
+                    old_values[field] = getattr(warehouse_before, field, None)
+
         warehouse = await warehouse_service.update(
             db,
             warehouse_id=warehouse_id,
@@ -143,6 +175,42 @@ async def update_warehouse(
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(warehouse)
+
+    # ✅ ЗАПИСЬ В АУДИТ: обновление склада
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        # Формируем словарь изменений
+        changes = {}
+        dump = data.model_dump(exclude_unset=True)
+        for field, new_value in dump.items():
+            if field in old_values and old_values[field] != new_value:
+                if field.endswith('_id'):
+                    old_name = await get_entity_name(db, field[:-3], old_values[field])
+                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    changes[field] = {
+                        "old": old_name if old_name else str(old_values[field]),
+                        "new": new_name if new_name else str(new_value)
+                    }
+                else:
+                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+
+        if changes:
+            audit_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=session.tenant_id,
+                user_id=session.id,
+                entity_type="warehouse",
+                entity_id=warehouse.id,
+                entity_name=warehouse.name,
+                action="update",
+                changes=changes if changes else None,
+            )
+            db.add(audit_log)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
+
     return ApiResponse(
         success=True,
         message="Склад обновлён",
@@ -176,6 +244,26 @@ async def delete_warehouse(
     except WarehousePermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     await db.commit()
+
+    # ✅ ЗАПИСЬ В АУДИТ: удаление склада
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="warehouse",
+            entity_id=warehouse.id,
+            entity_name=warehouse.name,
+            action="delete",
+            changes={"deleted": True},
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
+
     return ApiResponse(
         success=True,
         message="Склад удалён",

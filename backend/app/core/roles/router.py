@@ -16,6 +16,11 @@ from app.core.roles.schemas import (
 )
 from app.core.roles.services import role_service
 from app.core.users.models import UserModel
+import logging
+logger = logging.getLogger(__name__)
+
+from app.core.audit.utils import get_entity_name, get_user_emails
+
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
@@ -83,7 +88,7 @@ async def get_role(
 async def create_role(
     data: RoleCreateSchema,
     db: DBSession,
-    session: CurrentUser,  
+    session: CurrentUser,
 ):
     """Создание новой роли."""
     is_superadmin = session.is_superadmin if session else False
@@ -91,6 +96,26 @@ async def create_role(
     role = await crud_role.create(
         db, data=data, current_tenant_id=session.tenant_id, is_superadmin=is_superadmin
     )
+
+    # ✅ ЗАПИСЬ В АУДИТ: создание роли
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="role",
+            entity_id=role.id,
+            entity_name=role.name,
+            action="create",
+            changes=None,
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.exception(f"Could not write data audit: {e}")
+        await db.rollback()
 
     return ApiResponse(
         success=True,
@@ -104,10 +129,22 @@ async def update_role(
     role_id: uuid.UUID,
     data: RoleUpdateSchema,
     db: DBSession,
-    session: CurrentUser,  
+    session: CurrentUser,
 ):
     """Обновление существующей роли."""
     is_superadmin = session.is_superadmin if session else False
+
+    role_before = await crud_role.get(
+        db,
+        item_id=role_id,
+        current_tenant_id=session.tenant_id,
+        is_superadmin=is_superadmin,
+    )
+    old_values = {}
+    if role_before:
+        for field in data.model_fields:
+            if field in data.model_dump(exclude_unset=True):
+                old_values[field] = getattr(role_before, field, None)
 
     role = await crud_role.update(
         db,
@@ -116,6 +153,43 @@ async def update_role(
         current_tenant_id=session.tenant_id,
         is_superadmin=is_superadmin,
     )
+
+    # ✅ ЗАПИСЬ В АУДИТ: обновление роли
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        # Формируем словарь изменений
+        changes = {}
+        dump = data.model_dump(exclude_unset=True)
+        for field, new_value in dump.items():
+            if field in old_values and old_values[field] != new_value:
+                if field.endswith('_id'):
+                    old_name = await get_entity_name(db, field[:-3], old_values[field])
+                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    changes[field] = {
+                        "old": old_name if old_name else str(old_values[field]),
+                        "new": new_name if new_name else str(new_value)
+                    }
+                else:
+                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+
+        if changes:
+            audit_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=session.tenant_id,
+                user_id=session.id,
+                entity_type="role",
+                entity_id=role.id,
+            entity_name=role.name,
+                action="update",
+                changes=changes if changes else None,
+                
+            )
+            db.add(audit_log)
+            await db.commit()
+    except Exception as e:
+        logger.exception(f"Could not write data audit: {e}")
+        await db.rollback()
 
     return ApiResponse(
         success=True,
@@ -184,6 +258,26 @@ async def delete_role(
     # 4. ✅ Явно фиксируем транзакцию удаления
     await db.commit()
 
+    # ✅ ЗАПИСЬ В АУДИТ: удаление роли
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="role",
+            entity_id=role_id,
+            entity_name=deleted_role.name,
+            action="delete",
+            changes={"deleted": True},
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.exception(f"Could not write data audit: {e}")
+        await db.rollback()
+
     return ApiResponse(
         success=True,
         message="Роль удалена",
@@ -203,6 +297,20 @@ async def save_role(
     """
     is_superadmin = session.is_superadmin if session else False
 
+    # Сохраняем старые значения перед обновлением, если роль существует
+    old_values = {}
+    if role_id:
+        role_before = await crud_role.get(
+            db,
+            item_id=role_id,
+            current_tenant_id=session.tenant_id,
+            is_superadmin=is_superadmin,
+        )
+        if role_before:
+            for field in data.model_fields:
+                if field in data.model_dump(exclude_unset=True):
+                    old_values[field] = getattr(role_before, field, None)
+
     role = await role_service.save_role(
         db,
         data=data,
@@ -210,6 +318,57 @@ async def save_role(
         is_superadmin=is_superadmin,
         role_id=role_id,
     )
+
+    # ✅ ЗАПИСЬ В АУДИТ: создание или обновление роли
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        # Определяем action
+        action = "update" if role_id else "create"
+
+        # Формируем словарь изменений для update
+        changes = None
+        if action == "update":
+            changes = {}
+            dump = data.model_dump(exclude_unset=True)
+            for field, new_value in dump.items():
+                if field in old_values and old_values[field] != new_value:
+                    if field.endswith('_id'):
+                        old_name = await get_entity_name(db, field[:-3], old_values[field])
+                        new_name = await get_entity_name(db, field[:-3], new_value)
+                        changes[field] = {
+                            "old": old_name if old_name else str(old_values[field]),
+                            "new": new_name if new_name else str(new_value)
+                        }
+                    else:
+                        changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+
+                    if field == 'user_ids':
+                        old_emails = await get_user_emails(db, old_values.get(field, []))
+                        new_emails = await get_user_emails(db, new_value)
+                        changes['user_emails'] = {
+                            "old": old_emails if old_emails else str(old_values.get(field, [])),
+                            "new": new_emails if new_emails else str(new_value)
+                        }
+                    
+ 
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="role",
+            entity_id=role.id,
+            action=action,
+            entity_name=role.name,
+            changes=changes if changes else None,
+             
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.exception(f"Could not write data audit: {e}")
+        await db.rollback()
 
     return ApiResponse(
         success=True,

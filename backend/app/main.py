@@ -24,7 +24,6 @@ from app.core.tenants.router import router as tenant_router
 from app.core.users.models import UserModel
 from app.core.users.router import router as user_router
 from app.core.domains.router import router as domain_router
-from app.core.doctypes.router import router as doctype_router
 from app.core.notes.router import router as notes_router
 from app.modules.inventory.warehouses.router import router as warehouses_router
 from app.modules.sales.goods.router import router as goods_router
@@ -33,6 +32,9 @@ from app.modules.sales.regions.router import router as regions_router
 from app.modules.business_partners.regions_replica.router import (
     router as bp_regions_replica_router,
 )
+
+from app.core.auth.router import router as auth_router
+from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
@@ -115,6 +117,7 @@ app.add_middleware(
 # , prefix="/api/v1") - добавить позднее, когда в путях добавятся префиксы
 app.include_router(tenant_router)
 app.include_router(auth_router)
+app.include_router(audit_router)
 app.include_router(user_router)
 app.include_router(section_router)
 app.include_router(role_router)

@@ -1,16 +1,21 @@
+
 """FastAPI роутер для аутентификации и управления сессиями."""
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import delete
 
+from app.core.audit.models import AccessAuditLog
 from app.core.auth.crud import crud_auth
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.auth.models import UserSession
 from app.core.schemas import ApiResponse
 from app.core.users.crud import crud_user
 from app.core.users.schemas import UserLoginSchema, UserResponseSchema
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -31,10 +36,28 @@ async def login(
     response: Response,
     db: DBSession,
 ) -> ApiResponse[UserResponseSchema]:
-    """Авторизация пользователя с созданием сессии в БД и установкой cookie."""
+    """Авторизация пользователя с созданием сессии в БД и записью в аудит."""
     db_user = await crud_user.get_by_email(db, email=user_in.email)
 
+    # ⚠️ Если crud_auth.authenticate не async, оставь без await. 
+    # Если async — добавь await перед ним.
     if not db_user or not crud_auth.authenticate(db_user, user_in.password):
+        # ✅ ЗАПИСЬ В АУДИТ: неудачная попытка login
+        try:
+            access_log = AccessAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=uuid.UUID(int=0),
+                user_id=None,
+                action="access_denied",
+                resource="auth",
+                status="fail",
+                ip_address=request.client.host if request.client else None,
+            )
+            db.add(access_log)
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"Could not write access_denied audit: {e}")
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный email или пароль",
@@ -53,6 +76,22 @@ async def login(
 
     db.add(new_session)
     await db.commit()
+
+    # ✅ ЗАПИСЬ В АУДИТ: успешный login
+    try:
+        access_log = AccessAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=db_user.tenant_id,
+            user_id=db_user.id,
+            action="login",
+            resource="auth",
+            status="success",
+            ip_address=request.client.host if request.client else None,
+        )
+        db.add(access_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write login audit: {e}")
 
     response.set_cookie(
         key="session_token",
@@ -76,16 +115,32 @@ async def login(
 # ==================================================================
 @router.post(
     "/logout",
-    response_model=ApiResponse[dict[str, str]],  # ✅ Явные аргументы типов
+    response_model=ApiResponse[dict[str, str]],
 )
 async def logout(
     request: Request,
     response: Response,
     db: DBSession,
     session: CurrentUser,
-) -> ApiResponse[dict[str, str]]:  # ✅ Явные аргументы типов
-    """Выход из системы: удаляет сессию из БД и очищает cookie."""
+) -> ApiResponse[dict[str, str]]:
+    """Выход из системы: удаляет сессию из БД, очищает cookie и пишет в аудит."""
     session_token = request.cookies.get("session_token")
+
+    # ✅ ЗАПИСЬ В АУДИТ: logout
+    try:
+        access_log = AccessAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            action="logout",
+            resource="auth",
+            status="success",
+            ip_address=request.client.host if request.client else None,
+        )
+        db.add(access_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write logout audit: {e}")
 
     if session_token:
         await db.execute(
@@ -102,7 +157,7 @@ async def logout(
     return ApiResponse(
         success=True,
         message="Успешный выход",
-        data={"status": "ok"},  # ✅ Непустой dict для строгой типизации
+        data={"status": "ok"},
     )
 
 

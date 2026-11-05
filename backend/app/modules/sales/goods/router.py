@@ -1,5 +1,7 @@
 """FastAPI роутер для товаров с блокировками (Правило №40, часть 7)
 и контролем доступа."""
+import logging
+from typing import cast
 import uuid
 from typing import cast
 
@@ -19,7 +21,10 @@ from app.modules.sales.goods.schemas import (
     SalesGoodsResponseSchema,
     SalesGoodsUpdateSchema,
 )
+from app.core.audit.utils import get_entity_name
 from app.modules.sales.goods.service import goods_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sales/goods", tags=["Sales: goods"])
 
@@ -83,6 +88,25 @@ async def create_goods(
     await db.commit()
     await db.refresh(goods)
 
+    # ✅ ЗАПИСЬ В АУДИТ: создание товара
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="goods",
+            entity_id=goods.id,
+            entity_name=goods.name,
+            action="create",
+            changes=None,
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
+
     return ApiResponse(
         success=True,
         message="Товар создан",
@@ -130,6 +154,14 @@ async def update_goods(
 ) -> ApiResponse[SalesGoodsResponseSchema]:
     """Сохранение с проверкой версии, блокировки и права изменения."""
     try:
+        # ✅ Сохраняем текущие значения полей перед обновлением
+        goods_before = await crud_goods.get(db, id=goods_id)
+        old_values = {}
+        if goods_before:
+            for field in data.model_fields:
+                if field in data.model_dump(exclude_unset=True):
+                    old_values[field] = getattr(goods_before, field, None)
+
         goods = await goods_service.update(
             db,
             goods_id=goods_id,
@@ -148,6 +180,41 @@ async def update_goods(
 
     await db.commit()
     await db.refresh(goods)
+
+    # ✅ ЗАПИСЬ В АУДИТ: обновление товара
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        # Формируем словарь изменений
+        changes = {}
+        dump = data.model_dump(exclude_unset=True)
+        for field, new_value in dump.items():
+            if field in old_values and old_values[field] != new_value:
+                if field.endswith('_id'):
+                    old_name = await get_entity_name(db, field[:-3], old_values[field])
+                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    changes[field] = {
+                        "old": old_name if old_name else str(old_values[field]),
+                        "new": new_name if new_name else str(new_value)
+                    }
+                else:
+                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+
+        if changes:
+            audit_log = DataAuditLog(
+                id=uuid.uuid4(),
+                tenant_id=session.tenant_id,
+                user_id=session.id,
+                entity_type="goods",
+                entity_id=goods.id,
+                entity_name=goods.name,
+                action="update",
+                changes=changes if changes else None,
+            )
+            db.add(audit_log)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
@@ -181,6 +248,25 @@ async def delete_goods(
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
 
     await db.commit()
+
+    # ✅ ЗАПИСЬ В АУДИТ: удаление товара
+    try:
+        from app.core.audit.models import DataAuditLog
+
+        audit_log = DataAuditLog(
+            id=uuid.uuid4(),
+            tenant_id=session.tenant_id,
+            user_id=session.id,
+            entity_type="goods",
+            entity_id=goods.id,
+            entity_name=goods.name,
+            action="delete",
+            changes={"deleted": True},
+        )
+        db.add(audit_log)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
