@@ -26,7 +26,7 @@ import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
 import { RegisterPage } from "./core/users/RegisterPage";
-import { AuditPage } from "@/modules/audit/AuditPage";
+// import { AuditPage } from "@/modules/audit/AuditPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -144,14 +144,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/admin/audit"
               element={
                 <ProtectedRoute requiredRole="admin">
                   <AuditPage />
                 </ProtectedRoute>
               }
-            />
+            /> */}
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"
