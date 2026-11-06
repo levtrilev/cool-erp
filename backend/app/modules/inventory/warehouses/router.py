@@ -21,7 +21,7 @@ from app.modules.inventory.warehouses.schemas import (
     InvWarehouseResponseSchema,
     InvWarehouseUpdateSchema,
 )
-from app.core.audit.utils import get_entity_name
+# from app.core.audit.utils import get_entity_name
 from app.modules.inventory.warehouses.service import warehouse_service
 
 logger = logging.getLogger(__name__)
@@ -87,23 +87,23 @@ async def create_warehouse(
     await db.refresh(warehouse)
 
     # ✅ ЗАПИСЬ В АУДИТ: создание склада
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
-            user_id=session.id,
-            entity_type="warehouse",
-            entity_id=warehouse.id,
-            entity_name=warehouse.name,
-            action="create",
-            changes=None,
-        )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     audit_log = DataAuditLog(
+    #         id=uuid.uuid4(),
+    #         tenant_id=session.tenant_id,
+    #         user_id=session.id,
+    #         entity_type="warehouse",
+    #         entity_id=warehouse.id,
+    #         entity_name=warehouse.name,
+    #         action="create",
+    #         changes=None,
+    #     )
+    #     db.add(audit_log)
+    #     await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
@@ -151,12 +151,12 @@ async def update_warehouse(
     """Сохранение с проверкой версии (409), блокировки (423) и контроля доступа."""
     try:
         # ✅ Сохраняем текущие значения полей перед обновлением
-        warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
-        old_values = {}
-        if warehouse_before:
-            for field in data.model_fields:
-                if field in data.model_dump(exclude_unset=True):
-                    old_values[field] = getattr(warehouse_before, field, None)
+        # warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
+        # old_values = {}
+        # if warehouse_before:
+        #     for field in data.model_fields:
+        #         if field in data.model_dump(exclude_unset=True):
+        #             old_values[field] = getattr(warehouse_before, field, None)
 
         warehouse = await warehouse_service.update(
             db,
@@ -177,39 +177,39 @@ async def update_warehouse(
     await db.refresh(warehouse)
 
     # ✅ ЗАПИСЬ В АУДИТ: обновление склада
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        # Формируем словарь изменений
-        changes = {}
-        dump = data.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+    #     # Формируем словарь изменений
+    #     changes = {}
+    #     dump = data.model_dump(exclude_unset=True)
+    #     for field, new_value in dump.items():
+    #         if field in old_values and old_values[field] != new_value:
+    #             if field.endswith('_id'):
+    #                 old_name = await get_entity_name(db, field[:-3], old_values[field])
+    #                 new_name = await get_entity_name(db, field[:-3], new_value)
+    #                 changes[field] = {
+    #                     "old": old_name if old_name else str(old_values[field]),
+    #                     "new": new_name if new_name else str(new_value)
+    #                 }
+    #             else:
+    #                 changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
 
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=session.tenant_id,
-                user_id=session.id,
-                entity_type="warehouse",
-                entity_id=warehouse.id,
-                entity_name=warehouse.name,
-                action="update",
-                changes=changes if changes else None,
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     if changes:
+    #         audit_log = DataAuditLog(
+    #             id=uuid.uuid4(),
+    #             tenant_id=session.tenant_id,
+    #             user_id=session.id,
+    #             entity_type="warehouse",
+    #             entity_id=warehouse.id,
+    #             entity_name=warehouse.name,
+    #             action="update",
+    #             changes=changes if changes else None,
+    #         )
+    #         db.add(audit_log)
+    #         await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
@@ -246,23 +246,23 @@ async def delete_warehouse(
     await db.commit()
 
     # ✅ ЗАПИСЬ В АУДИТ: удаление склада
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
-            user_id=session.id,
-            entity_type="warehouse",
-            entity_id=warehouse.id,
-            entity_name=warehouse.name,
-            action="delete",
-            changes={"deleted": True},
-        )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     audit_log = DataAuditLog(
+    #         id=uuid.uuid4(),
+    #         tenant_id=session.tenant_id,
+    #         user_id=session.id,
+    #         entity_type="warehouse",
+    #         entity_id=warehouse.id,
+    #         entity_name=warehouse.name,
+    #         action="delete",
+    #         changes={"deleted": True},
+    #     )
+    #     db.add(audit_log)
+    #     await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
