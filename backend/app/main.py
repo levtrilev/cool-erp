@@ -99,10 +99,13 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
-    ],  # Разрешаем запросы с нашего фронтенда
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # Разрешаем все методы (GET, POST, PUT, DELETE, OPTIONS)
-    allow_headers=["*"],  # Разрешаем все заголовки (включая Content-Type)
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"], 
 )
 
 # ==========================================
