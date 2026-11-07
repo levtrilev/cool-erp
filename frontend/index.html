@@ -5,6 +5,31 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("cool-erp-theme");
+          var palette = localStorage.getItem("cool-erp-palette");
+          var allowed = [
+            "onedark",
+            "nord",
+            "ghdimmed",
+            "catppuccin",
+            "solarized",
+          ];
+          var dark =
+            stored === "dark" ||
+            (!stored &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) {
+            document.documentElement.classList.add("dark");
+            if (palette && allowed.indexOf(palette) !== -1) {
+              document.documentElement.classList.add("palette-" + palette);
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

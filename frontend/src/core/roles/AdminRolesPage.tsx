@@ -355,7 +355,7 @@ export function AdminRolesPage() {
                       type="button"
                       onClick={() => handleEdit(role)}
                       title={role.name}
-                      className="block w-full text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium truncate"
+                      className="block w-full text-left text-link hover:text-link-hover focus:ring-link hover:underline cursor-pointer font-medium truncate"
                     >
                       {role.name}
                     </button>

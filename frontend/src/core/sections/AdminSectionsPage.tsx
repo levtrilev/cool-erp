@@ -360,7 +360,7 @@ export function AdminSectionsPage() {
                       <button
                         type="button"
                         onClick={() => openEdit(section)}
-                        className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium w-full truncate block"
+                        className="text-left text-link hover:text-link-hover hover:underline cursor-pointer font-medium w-full truncate block"
                         title={section.name}
                       >
                         {section.name}
