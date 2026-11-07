@@ -9,10 +9,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/hooks/useTheme";
-import { THEME_PALETTES } from "@/components/theme/theme-context";
+import { LIGHT_PALETTES, DARK_PALETTES } from "@/components/theme/theme-context";
 
 export const ThemeToggle = () => {
-  const { theme, resolvedTheme, palette, setTheme, setPalette } = useTheme();
+  const {
+    theme,
+    resolvedTheme,
+    lightPalette,
+    darkPalette,
+    setTheme,
+    setLightPalette,
+    setDarkPalette,
+  } = useTheme();
 
   return (
     <DropdownMenu>
@@ -34,6 +42,13 @@ export const ThemeToggle = () => {
             <Check className="ml-auto h-4 w-4 text-primary" />
           )}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark")}>
+          <Moon className="mr-2 h-4 w-4" />
+          Тёмная
+          {theme === "dark" && (
+            <Check className="ml-auto h-4 w-4 text-primary" />
+          )}
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("system")}>
           <Monitor className="mr-2 h-4 w-4" />
           Как в системе
@@ -42,18 +57,41 @@ export const ThemeToggle = () => {
           )}
         </DropdownMenuItem>
 
+        {/* Светлые палитры */}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          Светлая тема — палитра
+        </DropdownMenuLabel>
+        {LIGHT_PALETTES.map((p) => (
+          <DropdownMenuItem
+            key={p.id}
+            onClick={() => {
+              setTheme("light");
+              setLightPalette(p.id);
+            }}
+          >
+            <Sun className="mr-2 h-4 w-4" />
+            <span className="flex flex-col leading-tight">
+              <span>{p.label}</span>
+              <span className="text-xs text-muted-foreground">{p.hint}</span>
+            </span>
+            {lightPalette === p.id && (
+              <Check className="ml-auto h-4 w-4 text-primary" />
+            )}
+          </DropdownMenuItem>
+        ))}
+
+        {/* Тёмные палитры */}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           Тёмная тема — палитра
         </DropdownMenuLabel>
-
-        {/* Палитры тёмной темы: выбор включает режим dark */}
-        {THEME_PALETTES.map((p) => (
+        {DARK_PALETTES.map((p) => (
           <DropdownMenuItem
             key={p.id}
             onClick={() => {
               setTheme("dark");
-              setPalette(p.id);
+              setDarkPalette(p.id);
             }}
           >
             <Moon className="mr-2 h-4 w-4" />
@@ -61,7 +99,7 @@ export const ThemeToggle = () => {
               <span>{p.label}</span>
               <span className="text-xs text-muted-foreground">{p.hint}</span>
             </span>
-            {theme === "dark" && palette === p.id && (
+            {darkPalette === p.id && (
               <Check className="ml-auto h-4 w-4 text-primary" />
             )}
           </DropdownMenuItem>

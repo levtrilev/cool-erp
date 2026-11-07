@@ -7,15 +7,19 @@ import {
 } from "react";
 import {
   ThemeContext,
-  THEME_PALETTES,
+  LIGHT_PALETTES,
+  DARK_PALETTES,
   THEME_STORAGE_KEY,
-  PALETTE_STORAGE_KEY,
+  LIGHT_PALETTE_STORAGE_KEY,
+  DARK_PALETTE_STORAGE_KEY,
   getInitialTheme,
-  getInitialPalette,
+  getInitialLightPalette,
+  getInitialDarkPalette,
   getSystemTheme,
   type ResolvedTheme,
   type Theme,
-  type ThemePalette,
+  type LightPalette,
+  type DarkPalette,
   type ThemeContextValue,
 } from "./theme-context";
 
@@ -25,11 +29,14 @@ interface ThemeProviderProps {
 
 /**
  * ✅ Файл экспортирует ТОЛЬКО компонент (требование Fast Refresh).
- * Управляет режимом (light/dark/system) и палитрой тёмной темы.
+ * Управляет режимом и раздельными палитрами для светлой/тёмной темы.
  */
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [theme, setThemeState] = useState<Theme>(getInitialTheme);
-  const [palette, setPaletteState] = useState<ThemePalette>(getInitialPalette);
+  const [lightPalette, setLightPaletteState] =
+    useState<LightPalette>(getInitialLightPalette);
+  const [darkPalette, setDarkPaletteState] =
+    useState<DarkPalette>(getInitialDarkPalette);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => {
     const initial = getInitialTheme();
     return initial === "system" ? getSystemTheme() : initial;
@@ -56,31 +63,55 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
     return undefined;
   }, [theme]);
 
-  // ✅ Класс палитры активен ТОЛЬКО в тёмной теме.
-  // Сначала снимаем все классы палитр, затем ставим нужный.
+  // ✅ Палитра применяется только при совпадении её типа с активным режимом:
+  // светлая палитра — в светлой теме, тёмная — в тёмной.
   useEffect(() => {
     const root = document.documentElement;
-    for (const p of THEME_PALETTES) {
-      root.classList.remove(`palette-${p.id}`);
+    for (const p of [...LIGHT_PALETTES, ...DARK_PALETTES]) {
+      if (p.id !== "default") {
+        root.classList.remove(`palette-${p.id}`);
+      }
     }
-    if (resolvedTheme === "dark" && palette !== "default") {
-      root.classList.add(`palette-${palette}`);
+    const active = resolvedTheme === "light" ? lightPalette : darkPalette;
+    if (active !== "default") {
+      root.classList.add(`palette-${active}`);
     }
-  }, [palette, resolvedTheme]);
+  }, [lightPalette, darkPalette, resolvedTheme]);
 
   const setTheme = useCallback((next: Theme) => {
     localStorage.setItem(THEME_STORAGE_KEY, next);
     setThemeState(next);
   }, []);
 
-  const setPalette = useCallback((next: ThemePalette) => {
-    localStorage.setItem(PALETTE_STORAGE_KEY, next);
-    setPaletteState(next);
+  const setLightPalette = useCallback((next: LightPalette) => {
+    localStorage.setItem(LIGHT_PALETTE_STORAGE_KEY, next);
+    setLightPaletteState(next);
+  }, []);
+
+  const setDarkPalette = useCallback((next: DarkPalette) => {
+    localStorage.setItem(DARK_PALETTE_STORAGE_KEY, next);
+    setDarkPaletteState(next);
   }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, resolvedTheme, palette, setTheme, setPalette }),
-    [theme, resolvedTheme, palette, setTheme, setPalette],
+    () => ({
+      theme,
+      resolvedTheme,
+      lightPalette,
+      darkPalette,
+      setTheme,
+      setLightPalette,
+      setDarkPalette,
+    }),
+    [
+      theme,
+      resolvedTheme,
+      lightPalette,
+      darkPalette,
+      setTheme,
+      setLightPalette,
+      setDarkPalette,
+    ],
   );
 
   return (

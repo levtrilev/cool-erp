@@ -8,24 +8,25 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem("cool-erp-theme");
-          var palette = localStorage.getItem("cool-erp-palette");
-          var allowed = [
-            "onedark",
-            "nord",
-            "ghdimmed",
-            "catppuccin",
-            "solarized",
-          ];
-          var dark =
-            stored === "dark" ||
-            (!stored &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var theme = localStorage.getItem("cool-erp-theme");
+          var lightPalette = localStorage.getItem("cool-erp-light-palette");
+          var darkPalette =
+            localStorage.getItem("cool-erp-dark-palette") ||
+            localStorage.getItem("cool-erp-palette");
+
+          var dark;
+          if (theme === "dark") dark = true;
+          else if (theme === "light") dark = false;
+          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+          var root = document.documentElement;
           if (dark) {
-            document.documentElement.classList.add("dark");
-            if (palette && allowed.indexOf(palette) !== -1) {
-              document.documentElement.classList.add("palette-" + palette);
+            root.classList.add("dark");
+            if (darkPalette && darkPalette !== "default") {
+              root.classList.add("palette-" + darkPalette);
             }
+          } else if (lightPalette && lightPalette !== "default") {
+            root.classList.add("palette-" + lightPalette);
           }
         } catch (e) {}
       })();

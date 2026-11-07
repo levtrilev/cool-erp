@@ -6,12 +6,11 @@ import { createContext } from "react";
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-/**
- * Идентификатор палитры тёмной темы.
- * "default" — базовый блок .dark без переопределений.
- * Остальные — классы .dark.palette-<id> в index.css.
- */
-export type ThemePalette =
+/** Палитры светлой темы. "default" — базовый :root без переопределений. */
+export type LightPalette = "default" | "sepia";
+
+/** Палитры тёмной темы. "default" — базовый .dark без переопределений. */
+export type DarkPalette =
   | "default"
   | "onedark"
   | "nord"
@@ -22,20 +21,33 @@ export type ThemePalette =
 export interface ThemeContextValue {
   theme: Theme;
   resolvedTheme: ResolvedTheme;
-  palette: ThemePalette;
+  lightPalette: LightPalette;
+  darkPalette: DarkPalette;
   setTheme: (theme: Theme) => void;
-  setPalette: (palette: ThemePalette) => void;
+  setLightPalette: (palette: LightPalette) => void;
+  setDarkPalette: (palette: DarkPalette) => void;
 }
 
 // ============================================================
 // КОНСТАНТЫ И ХЕЛПЕРЫ (без компонентов — безопасно для Fast Refresh)
 // ============================================================
 export const THEME_STORAGE_KEY = "cool-erp-theme";
-export const PALETTE_STORAGE_KEY = "cool-erp-palette";
+export const LIGHT_PALETTE_STORAGE_KEY = "cool-erp-light-palette";
+export const DARK_PALETTE_STORAGE_KEY = "cool-erp-dark-palette";
+/** Старый ключ тёмной палитры — читаем для миграции существующего выбора. */
+const LEGACY_DARK_PALETTE_KEY = "cool-erp-palette";
 
-/** Реестр палитр для меню переключения. */
-export const THEME_PALETTES: ReadonlyArray<{
-  id: ThemePalette;
+export const LIGHT_PALETTES: ReadonlyArray<{
+  id: LightPalette;
+  label: string;
+  hint: string;
+}> = [
+  { id: "default", label: "Стандартная", hint: "Чистая светлая тема" },
+  { id: "sepia", label: "Сепия", hint: "Спокойная, тёплая, как бумага" },
+];
+
+export const DARK_PALETTES: ReadonlyArray<{
+  id: DarkPalette;
   label: string;
   hint: string;
 }> = [
@@ -58,10 +70,18 @@ export const getInitialTheme = (): Theme => {
   return "system";
 };
 
-/** Безопасное чтение палитры: неизвестное значение → "default". */
-export const getInitialPalette = (): ThemePalette => {
-  const stored = localStorage.getItem(PALETTE_STORAGE_KEY);
-  const found = THEME_PALETTES.find((p) => p.id === stored);
+export const getInitialLightPalette = (): LightPalette => {
+  const stored = localStorage.getItem(LIGHT_PALETTE_STORAGE_KEY);
+  const found = LIGHT_PALETTES.find((p) => p.id === stored);
+  return found ? found.id : "default";
+};
+
+export const getInitialDarkPalette = (): DarkPalette => {
+  // ✅ Миграция: если нового ключа нет, берём старый выбор тёмной палитры
+  const stored =
+    localStorage.getItem(DARK_PALETTE_STORAGE_KEY) ??
+    localStorage.getItem(LEGACY_DARK_PALETTE_KEY);
+  const found = DARK_PALETTES.find((p) => p.id === stored);
   return found ? found.id : "default";
 };
 
