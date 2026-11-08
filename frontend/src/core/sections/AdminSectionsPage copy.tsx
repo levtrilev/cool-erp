@@ -37,7 +37,7 @@
 //   getSectionsSectionsGet,
 //   useDeleteSectionSectionsSectionIdDelete,
 // } from "@/api/generated/sections/sections";
-// import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
+// import type { SectionResponseSchema } from "@/api/generated/coolERP.schemas";
 
 // export function AdminSectionsPage() {
 //   const [searchInput, setSearchInput] = useState("");

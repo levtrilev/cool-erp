@@ -30,10 +30,12 @@ import {
   useUpdateNoteNotesNoteIdPut,
 } from "@/api/generated/notes/notes";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import type {
+import {
   NoteResponseSchema,
-  NoteCreateSchema,
-} from "@/api/generated/fastAPI.schemas";
+  // NoteCreateSchema,
+  NoteCreateSchemaDocStatus,
+  NoteUpdateSchemaDocStatus,
+} from "@/api/generated/coolERP.schemas";
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import {
@@ -53,7 +55,28 @@ interface EditNoteModalProps {
   copyFromNote?: NoteResponseSchema | null;
 }
 
-type StatusType = "draft" | "pending" | "approved" | "active" | "archived";
+// type StatusType = "draft" | "pending" | "approved" | "active" | "archived";
+/**
+ * Безопасный маппинг статуса из Update-контракта в Create-контракт.
+ * Оба enum'а содержат идентичный набор строковых значений (контракт DocStatus),
+ * но являются разными номинальными типами после генерации Orval 8.x.
+ * Сопоставление по значениям через String() исключает приведения типов (Правило №44)
+ * и не зависит от регистра имён членов enum'а.
+ */
+const mapDocStatusToCreate = (
+  value: NoteUpdateSchemaDocStatus,
+): NoteCreateSchemaDocStatus => {
+  const target = Object.values(NoteCreateSchemaDocStatus).find(
+    (candidate) => String(candidate) === String(value),
+  );
+  if (target === undefined) {
+    throw new Error(
+      `Статус документа "${String(value)}" отсутствует в схеме создания`,
+    );
+  }
+  return target;
+};
+
 
 export const EditNoteModal = ({
   open,
@@ -84,26 +107,6 @@ export const EditNoteModal = ({
   const createMutation = useCreateNoteNotesPost();
   const updateMutation = useUpdateNoteNotesNoteIdPut();
 
-  // useEffect(() => {
-  //   if (open) {
-  //     if (initialData) {
-  //       reset({
-  //         title: initialData.title,
-  //         content: initialData.content ?? "",
-  //         section_id: initialData.section_id,
-  //         doc_status: initialData.doc_status as NoteFormData["doc_status"],
-  //         doc_number: initialData.doc_number ?? "",
-  //         doc_date: initialData.doc_date ?? "",
-  //         or_tags: initialData.or_tags ?? [],
-  //         and_tags: initialData.and_tags ?? [],
-  //         version: initialData.version,
-  //       });
-  //     } else {
-  //       reset(CREATE_DEFAULTS);
-  //     }
-  //   }
-  // }, [open, initialData, reset]);
-
   useEffect(() => {
     if (open) {
       if (sourceNote) {
@@ -113,7 +116,7 @@ export const EditNoteModal = ({
           section_id: sourceNote.section_id,
           doc_number: isCopy ? undefined : (sourceNote.doc_number as string), // Копия — без номера
           doc_date: isCopy ? undefined : (sourceNote.doc_date as string),
-          doc_status: isCopy ? "draft" : (sourceNote.doc_status as StatusType),
+          doc_status: isCopy ? NoteUpdateSchemaDocStatus.draft : (sourceNote.doc_status as NoteUpdateSchemaDocStatus),
           // doc_status: isCopy ? draft_status : sourceNote.doc_status,
           or_tags: sourceNote.or_tags ?? [],
           and_tags: sourceNote.and_tags ?? [],
@@ -170,7 +173,7 @@ export const EditNoteModal = ({
             content: formData.content || null,
             section_id: formData.section_id,
             // ✅ Приведение типа через indexed access type
-            doc_status: formData.doc_status as NoteCreateSchema["doc_status"],
+            doc_status: mapDocStatusToCreate(formData.doc_status),
             doc_number: formData.doc_number || null,
             doc_date: formData.doc_date || null,
             or_tags: formData.or_tags ?? null,

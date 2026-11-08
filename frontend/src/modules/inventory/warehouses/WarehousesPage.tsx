@@ -43,7 +43,7 @@ import {
   useReleaseWarehouseLockInventoryWarehousesWarehouseIdLockDelete,
   listWarehousesInventoryWarehousesGet,
 } from "@/api/generated/inventory-warehouses/inventory-warehouses";
-import type { InvWarehouseResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { InvWarehouseResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditWarehouseModal } from "./EditWarehouseModal";
 
 export function WarehousesPage() {

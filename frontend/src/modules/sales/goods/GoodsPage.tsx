@@ -43,7 +43,7 @@ import {
   useReleaseGoodsLockSalesGoodsGoodsIdLockDelete,
   listGoodsSalesGoodsGet,
 } from "@/api/generated/sales-goods/sales-goods";
-import type { SalesGoodsResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SalesGoodsResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditGoodModal } from "./EditGoodModal";
 
 export function GoodsPage() {

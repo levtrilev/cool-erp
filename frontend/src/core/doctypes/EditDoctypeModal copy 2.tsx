@@ -27,7 +27,7 @@ import type {
   DoctypeResponseSchema,
   DoctypeCreateSchema,
   DoctypeUpdateSchema,
-} from "@/api/generated/fastAPI.schemas";
+} from "@/api/generated/coolERP.schemas";
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import { TenantMultiSelect } from "@/core/tenants/TenantMultiSelect";

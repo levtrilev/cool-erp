@@ -1,26 +1,38 @@
-import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import axios from "axios";
+import type {
+  AxiosError,
+  AxiosRequestConfig,
+  AxiosResponse,
+} from "axios";
 
-// Базовый инстанс axios для всех запросов к бэкенду
 export const AXIOS_INSTANCE = axios.create({
-  baseURL: 'http://localhost:8000', // URL вашего FastAPI приложения
+  baseURL: "http://localhost:8000",
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
-  withCredentials: true, // <-- ОБЯЗАТЕЛЬНО для HttpOnly куки!
+  withCredentials: true,
 });
 
-// Функция-обертка, которую ожидает Orval для интеграции с React Query.
-// Используем AxiosRequestConfig вместо any для строгой типизации.
+/**
+ * Транспортный адаптер для Orval + React Query.
+ *
+ * Важно:
+ * - снимается только обёртка AxiosResponse;
+ * - бизнес-обёртка ApiResponse<T> сохраняется;
+ * - компоненты должны читать:
+ *   - одиночные объекты: data?.data?.field
+ *   - списки: data?.data?.items / data?.data?.total
+ */
 export const customInstance = async <T>(
   config: AxiosRequestConfig,
-  options?: AxiosRequestConfig
+  options?: AxiosRequestConfig,
 ): Promise<T> => {
-  const response = await AXIOS_INSTANCE({
+  const response: AxiosResponse<T> = await AXIOS_INSTANCE.request<T>({
     ...config,
     ...options,
   });
+
   return response.data;
 };
 
-// Тип ошибки для React Query (используется Orval для типизации ошибок)
 export type ErrorType<Error> = AxiosError<Error>;

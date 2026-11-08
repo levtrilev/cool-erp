@@ -41,7 +41,7 @@
 //   useAcquireNoteLockNotesNoteIdLockPost,
 //   useReleaseNoteLockNotesNoteIdLockDelete,
 // } from "@/api/generated/notes/notes";
-// import type { NoteResponseSchema } from "@/api/generated/fastAPI.schemas";
+// import type { NoteResponseSchema } from "@/api/generated/coolERP.schemas";
 // import { EditNoteModal } from "./EditNoteModal";
 // import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 // import { DOC_STATUS_LABELS } from "./schemas";

@@ -38,7 +38,7 @@ import {
   readTenantsTenantsGet,
   useDeleteTenantTenantsTenantIdDelete,
 } from "@/api/generated/tenants/tenants";
-import type { TenantResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { TenantResponseSchema } from "@/api/generated/coolERP.schemas";
 
 export function AdminTenantsPage() {
   const [searchInput, setSearchInput] = useState("");

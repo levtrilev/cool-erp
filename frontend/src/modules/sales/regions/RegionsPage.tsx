@@ -44,7 +44,7 @@ import {
   useReleaseRegionLockSalesRegionsRegionIdLockDelete,
   listRegionsSalesRegionsGet,
 } from "@/api/generated/sales-regions/sales-regions";
-import type { SalesRegionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SalesRegionResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditRegionModal } from "./EditRegionModal";
 
 export function RegionsPage() {

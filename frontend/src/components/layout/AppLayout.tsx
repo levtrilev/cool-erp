@@ -134,7 +134,7 @@ const UserOnLayout = () => {
       </div>
     );
   }
-
+// console.log("[diag] user =", JSON.stringify(user, null, 2));
   return (
     <div className="flex items-center gap-4">
       <DropdownMenu>

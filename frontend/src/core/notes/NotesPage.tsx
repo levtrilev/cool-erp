@@ -41,7 +41,7 @@ import {
   useAcquireNoteLockNotesNoteIdLockPost,
   useReleaseNoteLockNotesNoteIdLockDelete,
 } from "@/api/generated/notes/notes";
-import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/fastAPI.schemas";
+import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/coolERP.schemas";
 
 import { EditNoteModal } from "./EditNoteModal";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";

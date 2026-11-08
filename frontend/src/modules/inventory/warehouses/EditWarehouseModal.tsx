@@ -25,7 +25,7 @@ import {
 } from "@/api/generated/inventory-warehouses/inventory-warehouses";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
 import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
-import type { InvWarehouseResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { InvWarehouseResponseSchema } from "@/api/generated/coolERP.schemas";
 import {
   ReferenceSelect,
   type ReferenceItem,

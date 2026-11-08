@@ -12,7 +12,7 @@ import { useToast } from "@/components/ui/use-toast";
 import {
   useCreateTenantTenantsPost,
 } from "@/api/generated/tenants/tenants";
-// import type { TenantCreateSchema } from "@/api/generated/fastAPI.schemas";
+// import type { TenantCreateSchema } from "@/api/generated/coolERP.schemas";
 
 const tenantSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(128),

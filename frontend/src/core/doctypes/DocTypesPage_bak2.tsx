@@ -37,7 +37,7 @@ import {
   useDeleteDoctypeDoctypesDoctypeIdDelete,
 } from "@/api/generated/doctypes/doctypes";
 import { getDoctypesDoctypesGet } from "@/api/generated/doctypes/doctypes";
-import type { DoctypeResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { DoctypeResponseSchema } from "@/api/generated/coolERP.schemas";
 
 // ✅ Импорт вынесенного компонента модального окна
 import { EditDoctypeModal } from "./EditDoctypeModal";

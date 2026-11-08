@@ -35,7 +35,7 @@ import {
   useDeleteDomainDomainsDomainIdDelete,
   getDomainsDomainsGet,
 } from "@/api/generated/domains/domains";
-import type { DomainResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { DomainResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditDomainModal } from "./EditDomainModal";
 
 export const DomainsPage = () => {

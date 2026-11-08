@@ -34,7 +34,7 @@ import {
   useDeleteSectionSectionsSectionIdDelete,
 } from "@/api/generated/sections/sections";
 import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
-import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SectionResponseSchema } from "@/api/generated/coolERP.schemas";
 
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 import {

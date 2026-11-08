@@ -40,7 +40,7 @@ import {
   useDeleteRoleRolesRoleIdDelete,
   getRolesRolesGet,
 } from "@/api/generated/roles/roles";
-import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { RoleResponseSchema } from "@/api/generated/coolERP.schemas";
 
 import { EditRoleModal } from "@/core/roles/EditRoleModal";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";

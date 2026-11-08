@@ -43,7 +43,7 @@ import {
   useReleaseCompanyLockBusinessPartnersCompaniesCompanyIdLockDelete,
   listCompaniesBusinessPartnersCompaniesGet,
 } from "@/api/generated/business-partners-companies/business-partners-companies";
-import type { BpCompanyResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { BpCompanyResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditCompanyModal } from "./EditCompanyModal";
 
 export function CompaniesPage() {

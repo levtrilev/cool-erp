@@ -47,7 +47,7 @@
 // } from "@/api/generated/business-partners-companies/business-partners-companies";
 // import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
 // import { useGetUserAuthUserGet } from "@/api/generated/authentication/authentication";
-// import type { BpCompanyResponseSchema } from "@/api/generated/fastAPI.schemas";
+// import type { BpCompanyResponseSchema } from "@/api/generated/coolERP.schemas";
 // import {
 //   ReferenceSelect,
 //   type ReferenceItem,
