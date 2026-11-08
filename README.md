@@ -52,25 +52,6 @@ https://github.com/fastapi/full-stack-fastapi-template
 
 ---
 
-## 📊 Текущее состояние (20.10.2026) разработки и Roadmap
-
-| Компонент | Статус | Прогресс |
-|-----------|--------|----------|
-| 🏗️ Архитектура и фундамент | ✅ Завершено | `CRUDBase`, миксины документов, контракт §3.3 |
-| 🔑 Аутентификация (cookie-сессии) | ✅ Завершено | Логин, логут, защита маршрутов |
-| 🏢 Базовые справочники | ✅ Завершено | `tenants`, `domains`, `doctypes` |
-| 👥 Пользователи и роли | ✅ Завершено | `users`, `roles`, `permissions` |
-| 📄 Документный модуль-эталон (`notes`) | ✅ Завершено | Полный цикл: список → создание → редактирование → удаление + блокировки |
-| 🎨 Настраиваемый макет (меню слева/сверху) | ✅ Завершено | Иерархическое меню с ветвью «НСИ» |
-| 📐 Полный свод правил | ✅ Завершено | **42 правила** (11 backend + 31 frontend) |
-| 📚 Технические задания | ✅ Завершено | ТЗ §2.0 по RBAC/ABAC + контракт документов |
-| 🗂️ Модуль «Разделы» (`sections`) | 🔜 Следующий этап | Типы разделов, автоматическое создание |
-| 🧮 `AccessService` (алгоритм §8) | ⏳ В планах | Ядро вычисления доступа |
-| 🤝 Делегирование (§11) | ⏳ В планах | Временная передача прав |
-| 📜 Аудит (§12) | ⏳ В планах | `access_audit_log` + `data_audit_log` |
-| 📈 Отчёты A/B/C (§12.1.6) | ⏳ В планах | Карта доступов, изменения, «сироты» |
-
----
 
 ## 🤝 Участие в разработке (Contributing)
 
@@ -113,13 +94,6 @@ https://github.com/fastapi/full-stack-fastapi-template
 * **Telegram:** [@coolerp_community](https://t.me/coolerp) (under construction)
 
 
-
-
-
-
-
-
-
 ## 📦 Быстрый старт (under construction)
 
 ### Требования (under construction)
@@ -149,3 +123,122 @@ https://github.com/fastapi/full-stack-fastapi-template
    ```
 
 ---
+
+## Текущее состояние разработки Cool ERP (**06 ноября 2026**)
+
+### 1. Подсистема контроля доступа (RBAC + ABAC, ТЗ v2.1) — ✅ реализована
+
+Компонент: `app/core/access/service.py` (`AccessService`).
+
+- `resolve_access()` — 9 шагов ТЗ §8.2: тенант → роли → разделы → permission →
+  максимальный уровень → переключатели тегов → правило «нет тегов» → тег-проверка → финал.
+- `build_access_filter()` / `build_replica_access_filter()` — SQL-фильтр видимости
+  для списков (RLS-семантика, ТЗ §2.6), включая тег-условия на уровне SQL
+  (операторы `&&`, `<@`, GIN-индексы; без `func.*` — Правило №44).
+- Уровни: 4 (полный) > 3 (редактор) > 2 (автор) > 1 (читатель) > 0 (нет).
+- `can_delete = (флаг роли) OR (уровень ≥ 2)`; потолок раздела «Общий»:
+  для не-Суперадмина уровень 1, `can_delete = false` (§4.3.3).
+- Создание/перемещение в раздел «Общий» — только Суперадмин (Вариант D).
+- Протоколы типизации: `DocumentProtocol`, `DocumentClassProtocol`,
+  `ReplicaClassProtocol` (каст `typing_cast` в точке вызова — Правило №47).
+- **Ограничение периода**: таблица `user_role_grants` (ТЗ §10) не создана;
+  роли читаются через `user.role_ids` (fallback обратной совместимости, ТЗ §8.2 ШАГ 2).
+
+---
+
+### 2. Контракт документов и блокировки (Правило №40) — ✅ реализовано
+
+- Миксины: `DocumentAccessMixin` (5 полей ТЗ §3.3) + `DocumentLifecycleMixin`
+  (статус, номер, дата, version, editing_*, аудит времени, мягкое удаление).
+- Двойная блокировка: оптимистическая (`version`, 409) + пессимистическая
+  (`editing_by_user_id`/`editing_since`, таймаут 30 мин, 423, атомарный захват
+  `UPDATE … WHERE … RETURNING`).
+- CRUD-контракт: `get_multi`, `get_for_user`, `create_for_user`,
+  `acquire_editing_lock`, `release_editing_lock`, `save_with_version`, `mark_deleted`.
+- Эндпоинты документного модуля: `GET/POST /`, `GET/PUT/DELETE /{id}`,
+  `POST/DELETE /{id}/lock`.
+- Фронтенд-паттерн (Правило №39): название-ссылка, иконка замка,
+  режим `readOnly` при 423/403, освобождение блокировки при закрытии.
+
+---
+
+### 3. Репликация между доменами (ТЗ v1.1) — ✅ инфраструктура готова
+
+- Таблицы: `core_outbox`, `core_inbox`, `core_sequence_counters`,
+  `core_replication_tasks`, `core_replication_progress`, `core_replication_metrics`.
+- `Replicator` (фоновый процесс, lifespan): поллинг 2 c, батчи 50, строгий порядок
+  по `ordering_key` + `sequence_no`, идемпотентность, экспоненциальные ретраи,
+  адвайзорные блокировки, `FOR UPDATE SKIP LOCKED`.
+- Реплики хранят полный контракт доступа (5 полей) и проверяются через
+  `AccessService` в домене-получателе.
+- Реестр обработчиков `register_handler()`; публикация событий — в транзакции
+  бизнес-изменения (outbox-паттерн).
+
+---
+
+### 4. Состояние модулей
+
+#### Backend
+
+| Модуль | Статус | Примечания |
+|---|---|---|
+| `core/auth` | ✅ готов | Только login/logout/user |
+| `core/users` | ✅ готов | Публичная регистрация с созданием организации и полной структурой доступа |
+| `core/tenants`, `sections`, `roles`, `permissions` | ✅ готовы | |
+| `core/doctypes`, `domains` | ✅ готовы | Домены: `prefix`, `is_active`; фильтр doctypes по `domain_id` |
+| `core/notes` | ✅ эталон | Серверные сортировка/фильтрация (`NoteSortField`, `SortOrder`, `filter_*`) |
+| `core/access` | ✅ готов | См. раздел 3 |
+| `core/events` | ✅ готов | См. раздел 5 |
+| `business_partners/companies` | ✅ готов | AccessService + блокировки + сервисный слой |
+| `inventory/warehouses` | ✅ готов | То же |
+| `sales/goods`, `sales/regions` | ✅ готовы | То же |
+
+#### Frontend
+
+| Компонент/страница | Статус | Примечания |
+|---|---|---|
+| Auth-guard (`AppLayout`, `ProtectedRoute`) | ✅ готов | Render-редирект при 401; `AUTH_USER_QUERY_OPTIONS` (1 запрос на сессию) |
+| `LoginPage`, `PublicHomePage` | ✅ готовы | |
+| `RegisterPage` (публичная регистрация) | 🚧 в работе | Готово + будет автовход после регистрации |
+| `NotesPage` + `EditNoteModal` | ✅ эталон | Пагинация, копирование, меню сортировки/фильтров колонок (серверные), блокировки, readOnly |
+| `ColumnHeaderMenu` | ✅ готов | 4 состояния меню (фильтр/сортировка/комбинация) |
+| `AdminRolesPage` + `EditRoleModal` | ✅ готовы | Вкладки, черновики, индикаторы изменений, режим копирования |
+| `DomainsPage` + `EditDomainModal` | ✅ готовы | Вкладки «Основное» + «Типы документов» (таблица с открытием EditDoctypeModal) |
+| `DoctypesPage`, `AdminUsersPage`, `AdminTenantsPage`, `AdminSectionsPage`, `TagsPage` | ✅ готовы | |
+| Страницы companies / warehouses / goods / regions | ✅ готовы | |
+
+---
+
+### 5. Тестирование
+
+Комплект: `backend/tests/test_access_control/` — **42 теста, все зелёные**.
+
+- Параметризация по 3 доменам (companies, warehouses, goods).
+- Покрытие слоёв ТЗ: тенант, раздел (включая платформенный «Общий»),
+  permission, роль без разделов, уровни доступа, `can_delete` (авто при ≥ 2),
+  автор удаляет только свои, читатель не создаёт/не изменяет/не удаляет,
+  захват блокировки требует уровень ≥ 2.
+- Фикстуры идемпотентны (`conftest.py`), документы создаются напрямую в БД
+  (`create_document_in_db`) независимо от CRUD.
+
+Команды:
+
+```powershell
+cd backend;  pytest tests/test_access_control/ -v --tb=short
+cd frontend; npm run api:gen   # после изменений backend-схем
+```
+
+---
+
+### 6. Дорожная карта (не реализовано)
+
+| № | Задача | Источник |
+|---|---|---|
+| 1 | Таблица `user_role_grants` (сроки действия назначений) | ТЗ §10 |
+| 2 | Делегирование прав | ТЗ §11 |
+| 3 | Аудит настроек доступа и данных (`access_audit_log`, `data_audit_log`) | ТЗ §12 |
+| 4 | Подписка на события `LISTEN/NOTIFY` (сейчас поллинг) | ТЗ архитектуры §10.2 |
+| 5 | Тег-фильтрация в UI документов (редактирование `or_tags`/`and_tags`) | ТЗ §6 |
+
+---
+

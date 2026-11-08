@@ -38,7 +38,7 @@ import {
   readTenantsTenantsGet,
   useDeleteTenantTenantsTenantIdDelete,
 } from "@/api/generated/tenants/tenants";
-import type { TenantResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { TenantResponseSchema } from "@/api/generated/coolERP.schemas";
 
 export function AdminTenantsPage() {
   const [searchInput, setSearchInput] = useState("");
@@ -465,7 +465,7 @@ export function AdminTenantsPage() {
                     <button
                       type="button"
                       onClick={() => handleEdit(tenant)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left font-medium"
+                      className="text-link hover:text-link-hover hover:underline cursor-pointer text-left font-medium"
                     >
                       {tenant.name}
                     </button>

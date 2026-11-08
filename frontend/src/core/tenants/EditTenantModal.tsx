@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { useUpdateTenantTenantsTenantIdPut } from "@/api/generated/tenants/tenants";
-import type { TenantResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { TenantResponseSchema } from "@/api/generated/coolERP.schemas";
 
 const tenantSchema = z.object({
   name: z.string().min(1, "Название обязательно").max(128),

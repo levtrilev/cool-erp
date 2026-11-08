@@ -38,7 +38,7 @@ import {
 } from "@/api/generated/doctypes/doctypes";
 import { getDoctypesDoctypesGet } from "@/api/generated/doctypes/doctypes";
 // import { getDomainsDomainsGet } from "@/api/generated/domains/domains"; // ✅ Добавлено для prefetch
-import type { DoctypeResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { DoctypeResponseSchema } from "@/api/generated/coolERP.schemas";
 
 // ✅ Импорт вынесенного компонента модального окна
 import { EditDoctypeModal } from "./EditDoctypeModal";
@@ -355,7 +355,7 @@ export const DoctypesPage = () => {
                     <button
                       onClick={() => openEdit(item)}
                       title={item.doctype}
-                      className="block w-full text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium truncate"
+                      className="block w-full text-left text-link hover:text-link-hover hover:underline cursor-pointer font-medium truncate"
                     >
                       {item.doctype}
                     </button>

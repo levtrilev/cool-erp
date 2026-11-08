@@ -23,7 +23,7 @@ from app.core.notes.schemas import (
     NoteSortField,
     SortOrder,
 )
-from app.core.audit.utils import get_entity_name
+# from app.core.audit.utils import get_entity_name
 from app.core.schemas import ApiResponse, PaginatedResponse
 
 logger = logging.getLogger(__name__)
@@ -126,23 +126,23 @@ async def create_note(
     await db.refresh(note)
 
     # ✅ ЗАПИСЬ В АУДИТ: создание заметки
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=current_session.tenant_id,
-            user_id=current_session.id,
-            entity_type="note",
-            entity_id=note.id,
-            entity_name=note.title,
-            action="create",
-            changes=None,
-        )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     audit_log = DataAuditLog(
+    #         id=uuid.uuid4(),
+    #         tenant_id=current_session.tenant_id,
+    #         user_id=current_session.id,
+    #         entity_type="note",
+    #         entity_id=note.id,
+    #         entity_name=note.title,
+    #         action="create",
+    #         changes=None,
+    #     )
+    #     db.add(audit_log)
+    #     await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
@@ -161,12 +161,12 @@ async def update_note(
     """Сохранение с проверкой доступа, версии и блокировки."""
     try:
         # ✅ Сохраняем текущие значения полей перед обновлением
-        note_before = await crud_note.get(db, id=note_id)
-        old_values = {}
-        if note_before:
-            for field in NoteUpdateSchema.model_fields:
-                if field in obj_in.model_dump(exclude_unset=True):
-                    old_values[field] = getattr(note_before, field, None)
+        # note_before = await crud_note.get(db, id=note_id)
+        # old_values = {}
+        # if note_before:
+        #     for field in NoteUpdateSchema.model_fields:
+        #         if field in obj_in.model_dump(exclude_unset=True):
+        #             old_values[field] = getattr(note_before, field, None)
 
         note = await crud_note.save_with_version(
             db,
@@ -193,39 +193,39 @@ async def update_note(
     await db.refresh(note)
 
     # ✅ ЗАПИСЬ В АУДИТ: обновление заметки
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        # Формируем словарь изменений
-        changes = {}
-        dump = obj_in.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+    #     # Формируем словарь изменений
+    #     changes = {}
+    #     dump = obj_in.model_dump(exclude_unset=True)
+    #     for field, new_value in dump.items():
+    #         if field in old_values and old_values[field] != new_value:
+    #             if field.endswith('_id'):
+    #                 old_name = await get_entity_name(db, field[:-3], old_values[field])
+    #                 new_name = await get_entity_name(db, field[:-3], new_value)
+    #                 changes[field] = {
+    #                     "old": old_name if old_name else str(old_values[field]),
+    #                     "new": new_name if new_name else str(new_value)
+    #                 }
+    #             else:
+    #                 changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
 
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=current_session.tenant_id,
-                user_id=current_session.id,
-                entity_type="note",
-                entity_id=note.id,
-                entity_name=note.title,
-                action="update",
-                changes=changes if changes else None,
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     if changes:
+    #         audit_log = DataAuditLog(
+    #             id=uuid.uuid4(),
+    #             tenant_id=current_session.tenant_id,
+    #             user_id=current_session.id,
+    #             entity_type="note",
+    #             entity_id=note.id,
+    #             entity_name=note.title,
+    #             action="update",
+    #             changes=changes if changes else None,
+    #         )
+    #         db.add(audit_log)
+    #         await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,
@@ -259,23 +259,23 @@ async def delete_note(
     await db.commit()
 
     # ✅ ЗАПИСЬ В АУДИТ: удаление заметки
-    try:
-        from app.core.audit.models import DataAuditLog
+    # try:
+    #     from app.core.audit.models import DataAuditLog
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=current_session.tenant_id,
-            user_id=current_session.id,
-            entity_type="note",
-            entity_id=note.id,
-            entity_name=note.title,
-            action="delete",
-            changes={"deleted": True},
-        )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    #     audit_log = DataAuditLog(
+    #         id=uuid.uuid4(),
+    #         tenant_id=current_session.tenant_id,
+    #         user_id=current_session.id,
+    #         entity_type="note",
+    #         entity_id=note.id,
+    #         entity_name=note.title,
+    #         action="delete",
+    #         changes={"deleted": True},
+    #     )
+    #     db.add(audit_log)
+    #     await db.commit()
+    # except Exception as e:
+    #     logger.warning(f"Could not write data audit: {e}")
 
     return ApiResponse(
         success=True,

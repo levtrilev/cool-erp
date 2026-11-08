@@ -32,7 +32,7 @@
 // import type {
 //   NoteResponseSchema,
 //   NoteCreateSchema,
-// } from "@/api/generated/fastAPI.schemas";
+// } from "@/api/generated/coolERP.schemas";
 
 // import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 // import {

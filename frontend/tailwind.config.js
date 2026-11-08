@@ -3,10 +3,7 @@ import tailwindcssAnimate from "tailwindcss-animate";
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     container: {
       center: true,
@@ -50,6 +47,8 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        link: "hsl(var(--link))",
+        "link-hover": "hsl(var(--link-hover))",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -60,4 +59,4 @@ export default {
   },
   // Используем импортированную переменную вместо require()
   plugins: [tailwindcssAnimate],
-}
+};

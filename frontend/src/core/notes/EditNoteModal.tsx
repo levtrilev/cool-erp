@@ -3,6 +3,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, AlertCircle } from "lucide-react";
+import { Lock as LockIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -29,10 +30,12 @@ import {
   useUpdateNoteNotesNoteIdPut,
 } from "@/api/generated/notes/notes";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
-import type {
+import {
   NoteResponseSchema,
-  NoteCreateSchema,
-} from "@/api/generated/fastAPI.schemas";
+  // NoteCreateSchema,
+  NoteCreateSchemaDocStatus,
+  NoteUpdateSchemaDocStatus,
+} from "@/api/generated/coolERP.schemas";
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import {
@@ -49,10 +52,31 @@ interface EditNoteModalProps {
   onSaved: (id: string, title?: string) => Promise<void>;
   readOnly?: boolean;
   readOnlyReason?: string;
-  copyFromNote?: NoteResponseSchema | null; 
+  copyFromNote?: NoteResponseSchema | null;
 }
 
-type StatusType = "draft" | "pending" | "approved" | "active" | "archived"
+// type StatusType = "draft" | "pending" | "approved" | "active" | "archived";
+/**
+ * Безопасный маппинг статуса из Update-контракта в Create-контракт.
+ * Оба enum'а содержат идентичный набор строковых значений (контракт DocStatus),
+ * но являются разными номинальными типами после генерации Orval 8.x.
+ * Сопоставление по значениям через String() исключает приведения типов (Правило №44)
+ * и не зависит от регистра имён членов enum'а.
+ */
+const mapDocStatusToCreate = (
+  value: NoteUpdateSchemaDocStatus,
+): NoteCreateSchemaDocStatus => {
+  const target = Object.values(NoteCreateSchemaDocStatus).find(
+    (candidate) => String(candidate) === String(value),
+  );
+  if (target === undefined) {
+    throw new Error(
+      `Статус документа "${String(value)}" отсутствует в схеме создания`,
+    );
+  }
+  return target;
+};
+
 
 export const EditNoteModal = ({
   open,
@@ -63,7 +87,7 @@ export const EditNoteModal = ({
   readOnlyReason,
   copyFromNote = null,
 }: EditNoteModalProps) => {
-    // ✅ Режимы
+  // ✅ Режимы
   const isEdit = !!initialData;
   const isCopy = !!copyFromNote && !isEdit;
   const sourceNote = copyFromNote ?? initialData ?? null;
@@ -83,36 +107,16 @@ export const EditNoteModal = ({
   const createMutation = useCreateNoteNotesPost();
   const updateMutation = useUpdateNoteNotesNoteIdPut();
 
-  // useEffect(() => {
-  //   if (open) {
-  //     if (initialData) {
-  //       reset({
-  //         title: initialData.title,
-  //         content: initialData.content ?? "",
-  //         section_id: initialData.section_id,
-  //         doc_status: initialData.doc_status as NoteFormData["doc_status"],
-  //         doc_number: initialData.doc_number ?? "",
-  //         doc_date: initialData.doc_date ?? "",
-  //         or_tags: initialData.or_tags ?? [],
-  //         and_tags: initialData.and_tags ?? [],
-  //         version: initialData.version,
-  //       });
-  //     } else {
-  //       reset(CREATE_DEFAULTS);
-  //     }
-  //   }
-  // }, [open, initialData, reset]);
-
-    useEffect(() => {
+  useEffect(() => {
     if (open) {
       if (sourceNote) {
         reset({
           title: isCopy ? `${sourceNote.title} (копия)` : sourceNote.title,
           content: sourceNote.content ?? "",
           section_id: sourceNote.section_id,
-          doc_number: isCopy ? undefined : sourceNote.doc_number as string,  // Копия — без номера
-          doc_date: isCopy ? undefined : sourceNote.doc_date as string,
-          doc_status: isCopy ? "draft" : sourceNote.doc_status as StatusType,
+          doc_number: isCopy ? undefined : (sourceNote.doc_number as string), // Копия — без номера
+          doc_date: isCopy ? undefined : (sourceNote.doc_date as string),
+          doc_status: isCopy ? NoteUpdateSchemaDocStatus.draft : (sourceNote.doc_status as NoteUpdateSchemaDocStatus),
           // doc_status: isCopy ? draft_status : sourceNote.doc_status,
           or_tags: sourceNote.or_tags ?? [],
           and_tags: sourceNote.and_tags ?? [],
@@ -122,7 +126,7 @@ export const EditNoteModal = ({
       }
     }
   }, [open, sourceNote, isCopy, reset]);
-  
+
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
       reset(CREATE_DEFAULTS);
@@ -169,7 +173,7 @@ export const EditNoteModal = ({
             content: formData.content || null,
             section_id: formData.section_id,
             // ✅ Приведение типа через indexed access type
-            doc_status: formData.doc_status as NoteCreateSchema["doc_status"],
+            doc_status: mapDocStatusToCreate(formData.doc_status),
             doc_number: formData.doc_number || null,
             doc_date: formData.doc_date || null,
             or_tags: formData.or_tags ?? null,
@@ -220,7 +224,16 @@ export const EditNoteModal = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        // className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="max-h-[90vh] items-start pt-8"
+        style={{
+          width: "500px",
+          maxWidth: "500px",
+          minHeight: "600px",
+          height: "auto",
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {readOnly
@@ -233,13 +246,25 @@ export const EditNoteModal = ({
 
         {/* ✅ Предупреждение в режиме только чтения */}
         {readOnly && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Документ заблокирован</AlertTitle>
-            <AlertDescription>
-              {readOnlyReason ||
-                "Документ недоступен для редактирования. Вы можете только просматривать данные."}
-            </AlertDescription>
+          <Alert
+            variant="destructive"
+            className="flex items-center gap-3 py-2.5"
+          >
+            {readOnlyReason?.includes("редактируется другим пользователем") && (
+              <LockIcon className="h-4 w-4 shrink-0" />
+            )}{" "}
+            {readOnlyReason?.includes("нет прав на изменение") && (
+              <AlertCircle className="h-4 w-4shrink-0" />
+            )}{" "}
+            {/* shrink-0 не дает иконке сжиматься */}
+            <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+              <AlertTitle className="font-semibold mb-0">
+                Только чтение:
+              </AlertTitle>
+              <AlertDescription className="text-muted-foreground inline">
+                {readOnlyReason || "Документ недоступен для редактирования."}
+              </AlertDescription>
+            </div>
           </Alert>
         )}
 
@@ -286,53 +311,53 @@ export const EditNoteModal = ({
               )}
             />
           </div>
-
-          <div className="space-y-2">
-            <Label>
-              Раздел <span className="text-destructive">*</span>
-            </Label>
-            <Controller
-              name="section_id"
-              control={control}
-              render={({ field }) => (
-                <ReferenceSelect
-                  fetchFn={async (params) => {
-                    const response = await getSectionsSectionsGet({
-                      skip: params.skip,
-                      limit: params.limit,
-                      search: params.search,
-                    });
-                    const items = (response?.data?.items ?? []).map((item) => ({
-                      id: item.id,
-                      name: item.name,
-                    }));
-                    return { items, total: response?.data?.total ?? 0 };
-                  }}
-                  queryKey={["sections", "active"]}
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  placeholder="Выберите раздел..."
-                  selectedLabel={
-                    (
-                      initialData as
-                        | (NoteResponseSchema & { section_name?: string })
-                        | null
-                    )?.section_name ?? "Выберите раздел..."
-                  }
-                  heading="Разделы"
-                  limit={50}
-                  disabled={readOnly}
-                />
-              )}
-            />
-            {errors.section_id && (
-              <p className="text-xs text-destructive">
-                {errors.section_id.message}
-              </p>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>
+                Раздел <span className="text-destructive">*</span>
+              </Label>
+              <Controller
+                name="section_id"
+                control={control}
+                render={({ field }) => (
+                  <ReferenceSelect
+                    fetchFn={async (params) => {
+                      const response = await getSectionsSectionsGet({
+                        skip: params.skip,
+                        limit: params.limit,
+                        search: params.search,
+                      });
+                      const items = (response?.data?.items ?? []).map(
+                        (item) => ({
+                          id: item.id,
+                          name: item.name,
+                        }),
+                      );
+                      return { items, total: response?.data?.total ?? 0 };
+                    }}
+                    queryKey={["sections", "active"]}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    placeholder="Выберите раздел..."
+                    selectedLabel={
+                      (
+                        initialData as
+                          | (NoteResponseSchema & { section_name?: string })
+                          | null
+                      )?.section_name ?? "Выберите раздел..."
+                    }
+                    heading="Разделы"
+                    limit={50}
+                    disabled={readOnly}
+                  />
+                )}
+              />
+              {errors.section_id && (
+                <p className="text-xs text-destructive">
+                  {errors.section_id.message}
+                </p>
+              )}
+            </div>
             <div className="space-y-2">
               <Label htmlFor="doc_status">
                 Статус <span className="text-destructive">*</span>
@@ -346,10 +371,19 @@ export const EditNoteModal = ({
                     onValueChange={field.onChange}
                     disabled={readOnly}
                   >
-                    <SelectTrigger id="doc_status">
+                    <SelectTrigger id="doc_status" className="w-full">
+                      {" "}
+                      {/* Добавлена явная ширина */}
                       <SelectValue placeholder="Выберите статус" />
                     </SelectTrigger>
-                    <SelectContent>
+
+                    {/* position="popper" принудительно заставляет окно вести себя как дропдаун (снизу) */}
+                    <SelectContent
+                      position="popper"
+                      sideOffset={4}
+                      className="w-[var(--radix-select-trigger-width)] max-h-60"
+                      // w-[var(--radix-select-trigger-width)] делает ширину списка точно такой же, как у самого поля
+                    >
                       {Object.entries(DOC_STATUS_LABELS).map(
                         ([value, label]) => (
                           <SelectItem key={value} value={value}>
@@ -362,7 +396,8 @@ export const EditNoteModal = ({
                 )}
               />
             </div>
-
+          </div>
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="doc_number">Номер документа</Label>
               <Controller
@@ -385,23 +420,22 @@ export const EditNoteModal = ({
                 </p>
               )}
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="doc_date">Дата документа</Label>
-            <Controller
-              name="doc_date"
-              control={control}
-              render={({ field }) => (
-                <Input
-                  id="doc_date"
-                  type="date"
-                  {...field}
-                  value={field.value ?? ""}
-                  disabled={readOnly}
-                />
-              )}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="doc_date">Дата документа</Label>
+              <Controller
+                name="doc_date"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    id="doc_date"
+                    type="date"
+                    {...field}
+                    value={field.value ?? ""}
+                    disabled={readOnly}
+                  />
+                )}
+              />
+            </div>
           </div>
 
           <div className="space-y-2">

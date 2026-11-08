@@ -1165,8 +1165,9 @@ useEffect(() => {
 
 1.2. Обязательные CSS-классы ссылки:
 ```
-text-left text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-sm transition-colors
+text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:ring-link focus:outline-none focus:ring-2 focus:ring-offset-1 rounded-sm transition-colors
 ```
+примечание: Цвет ссылки задаётся переменными --link/--link-hover и адаптируется к активной тёмной палитре
 
 1.3. Обязательный атрибут `title={item.title}` для показа полного текста при обрезании.
 

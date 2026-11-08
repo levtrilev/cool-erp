@@ -1,3 +1,4 @@
+import { NoteUpdateSchemaDocStatus } from "@/api/generated/coolERP.schemas";
 import { z } from "zod";
 
 /**
@@ -13,13 +14,14 @@ export const noteFormSchema = z.object({
     .max(255, "Максимум 255 символов"),
   content: z.string().optional(),
   section_id: z.string().min(1, "Раздел обязателен"),
-  doc_status: z.enum([
-    "draft",
-    "pending",
-    "approved",
-    "active",
-    "archived",
-  ]),
+  // doc_status: z.enum([
+  //   "draft",
+  //   "pending",
+  //   "approved",
+  //   "active",
+  //   "archived",
+  // ]),
+  doc_status: z.nativeEnum(NoteUpdateSchemaDocStatus),
   doc_number: z.string().max(64).optional(),
   doc_date: z.string().optional(),
   or_tags: z
@@ -41,7 +43,7 @@ export const CREATE_DEFAULTS: NoteFormData = {
   title: "",
   content: "",
   section_id: "",
-  doc_status: "draft",
+  doc_status: NoteUpdateSchemaDocStatus.draft,
   doc_number: "",
   doc_date: "",
   or_tags: [],

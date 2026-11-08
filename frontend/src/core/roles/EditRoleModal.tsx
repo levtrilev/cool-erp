@@ -33,7 +33,7 @@ import {
   readTenantsTenantsGet,
   useReadTenantsTenantsGet,
 } from "@/api/generated/tenants/tenants";
-import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { RoleResponseSchema } from "@/api/generated/coolERP.schemas";
 import { PermissionsTab, type PermissionDraft } from "./PermissionsTab";
 import { UsersTab, type UserDraft } from "./UsersTab";
 import {
@@ -887,7 +887,7 @@ export function EditRoleModal({
                   users={usersDraft}
                   onUsersChange={setUsersDraft}
                   allUsers={
-                    allUsers as unknown as import("@/api/generated/fastAPI.schemas").UserResponseSchema[]
+                    allUsers as unknown as import("@/api/generated/coolERP.schemas").UserResponseSchema[]
                   }
                   initialUserIds={initialUserIds}
                 />

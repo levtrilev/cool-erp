@@ -18,6 +18,7 @@ import {
   useLogoutAuthLogoutPost,
 } from "@/api/generated/authentication/authentication";
 import { useQueryClient } from "@tanstack/react-query";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 // import { AUTH_USER_QUERY_OPTIONS } from "@/core/auth/authQueryOptions";
 
 type LayoutPosition = "left" | "top";
@@ -133,7 +134,7 @@ const UserOnLayout = () => {
       </div>
     );
   }
-
+// console.log("[diag] user =", JSON.stringify(user, null, 2));
   return (
     <div className="flex items-center gap-4">
       <DropdownMenu>
@@ -228,6 +229,7 @@ export const AppLayout = () => {
         <div className="border-b bg-card shadow-sm">
           <div className="container mx-auto px-4 h-12 flex items-center justify-between">
             <TopNav />
+            <ThemeToggle />
             <UserOnLayout />
           </div>
         </div>
@@ -254,6 +256,7 @@ export const AppLayout = () => {
       <div className="min-h-screen flex flex-col flex-1">
         <div className="border-b bg-card shadow-sm">
           <div className="container mx-auto px-4 h-12 flex items-center justify-end">
+            <ThemeToggle />
             <UserOnLayout />
           </div>
         </div>

@@ -43,7 +43,7 @@ import { ReferenceSelect, type ReferenceItem } from "@/lib/reusable/ReferenceSel
 import { EditUserModal } from "@/core/users/EditUserModal";
 import { CreateUserModal } from "@/core/users/CreateUserModal";
 // ✅ НОВОЕ: общий тип UserResponseSchema
-import type { UserResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { UserResponseSchema } from "@/api/generated/coolERP.schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
 
@@ -437,7 +437,7 @@ export const AdminUsersPage = () => {
                     <button
                       type="button"
                       onClick={() => handleEdit(user)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left font-medium"
+                      className="text-link hover:text-link-hover hover:underline cursor-pointer text-left font-medium"
                     >
                       {user.name}
                     </button>

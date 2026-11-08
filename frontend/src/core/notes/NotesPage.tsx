@@ -41,7 +41,7 @@ import {
   useAcquireNoteLockNotesNoteIdLockPost,
   useReleaseNoteLockNotesNoteIdLockDelete,
 } from "@/api/generated/notes/notes";
-import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/fastAPI.schemas";
+import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/coolERP.schemas";
 
 import { EditNoteModal } from "./EditNoteModal";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
@@ -511,7 +511,7 @@ export const NotesPage = () => {
                       <button
                         type="button"
                         onClick={() => openEdit(item)}
-                        className="text-left text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-sm transition-colors"
+                        className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
                         title={item.title}
                       >
                         {item.is_editing_locked && (

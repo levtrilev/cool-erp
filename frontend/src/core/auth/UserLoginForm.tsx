@@ -15,16 +15,16 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AxiosError } from "axios";
 
-import { loginAuthLoginPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
+import { LoginAuthLoginPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
 import { useLoginAuthLoginPost } from "@/api/generated/authentication/authentication";
 
-type UserLoginFormValues = z.infer<typeof loginAuthLoginPostBody>;
+type UserLoginFormValues = z.infer<typeof LoginAuthLoginPostBody>;
 
 export const UserLoginForm = () => {
   const navigate = useNavigate();
   
   const form = useForm<UserLoginFormValues>({
-    resolver: zodResolver(loginAuthLoginPostBody),
+    resolver: zodResolver(LoginAuthLoginPostBody),
     defaultValues: {
       email: "",
       password: "",

@@ -20,8 +20,9 @@ import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
 import { useEffect, useState } from "react";
 import { Plus, Tag, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { UserResponseSchema } from "@/api/generated/coolERP.schemas";
 import { useUpdateUserUsersUserIdPut } from "@/api/generated/users/users";
-import { readUsersUsersGetResponse } from "@/api/generated/zod/users/users.schema";
+// import { ReadUsersUsersGetResponse } from "@/api/generated/zod/users/users.schema";
 
 // ✅ Валидация формата тега (ТЗ §6.2.1–6.2.3)
 // Формат: <пространство>:<значение>, без пробелов, регистр значим
@@ -42,13 +43,16 @@ const editUserSchema = z.object({
 type EditUserFormData = z.infer<typeof editUserSchema>;
 
 // // ✅ Извлекаем тип из Zod-схемы (гарантированно работает)
-// type UserResponseSchema = z.infer<
-//   typeof readUsersUsersGetResponse
+// type UserResponseSchema = NonNullable<
+//   z.infer<typeof ReadUsersUsersGetResponse>["data"]
 // >["items"][number];
-type UserResponseSchema = NonNullable<
-  z.infer<typeof readUsersUsersGetResponse>["data"]
->["items"][number];
 
+// interface EditUserModalProps {
+//   open: boolean;
+//   onOpenChange: (open: boolean) => void;
+//   user: UserResponseSchema | null;
+//   onUserUpdated: (userId: string, userName: string) => Promise<void>;
+// }
 interface EditUserModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -65,12 +69,12 @@ export const EditUserModal = ({
   const { toast } = useToast();
   const updateUserMutation = useUpdateUserUsersUserIdPut();
 
-    // ✅ Определяем права текущего пользователя (ТЗ §6.3.2: теги назначает только Админ/Суперадмин)
+  // ✅ Определяем права текущего пользователя (ТЗ §6.3.2: теги назначает только Админ/Суперадмин)
   const { data: currentUserData } = useGetCurrentUserAuthUserGet();
   const canEditTags =
     currentUserData?.data?.is_admin === true ||
     currentUserData?.data?.is_superadmin === true;
-    
+
   const {
     register,
     handleSubmit,
@@ -102,8 +106,8 @@ export const EditUserModal = ({
       });
     }
   }, [open, user, reset]);
-  
-    // ✅ Добавление тега с валидацией формата (ТЗ §6.2)
+
+  // ✅ Добавление тега с валидацией формата (ТЗ §6.2)
   const handleAddTag = (
     currentTags: string[],
     onChange: (tags: string[]) => void,
@@ -130,7 +134,7 @@ export const EditUserModal = ({
     setTagError(null);
   };
 
-    // ✅ Удаление тега
+  // ✅ Удаление тега
   const handleRemoveTag = (
     tagToRemove: string,
     currentTags: string[],
@@ -273,7 +277,7 @@ export const EditUserModal = ({
             )}
           </div>
 
-         {/* ✅ НОВОЕ: Редактор тегов доступа (ТЗ §6.3) */}
+          {/* ✅ НОВОЕ: Редактор тегов доступа (ТЗ §6.3) */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-muted-foreground" />

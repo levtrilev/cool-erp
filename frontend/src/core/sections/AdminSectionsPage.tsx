@@ -34,7 +34,7 @@ import {
   useDeleteSectionSectionsSectionIdDelete,
 } from "@/api/generated/sections/sections";
 import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
-import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SectionResponseSchema } from "@/api/generated/coolERP.schemas";
 
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 import {
@@ -360,7 +360,7 @@ export function AdminSectionsPage() {
                       <button
                         type="button"
                         onClick={() => openEdit(section)}
-                        className="text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium w-full truncate block"
+                        className="text-left text-link hover:text-link-hover hover:underline cursor-pointer font-medium w-full truncate block"
                         title={section.name}
                       >
                         {section.name}

@@ -35,7 +35,7 @@ import {
   useDeleteDomainDomainsDomainIdDelete,
   getDomainsDomainsGet,
 } from "@/api/generated/domains/domains";
-import type { DomainResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { DomainResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditDomainModal } from "./EditDomainModal";
 
 export const DomainsPage = () => {
@@ -285,7 +285,7 @@ export const DomainsPage = () => {
                     <button
                       onClick={() => openEdit(item)}
                       title={item.name}
-                      className="block w-full text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium truncate"
+                      className="block w-full text-left text-link hover:text-link-hover hover:underline cursor-pointer font-medium truncate"
                     >
                       {item.name}
                     </button>

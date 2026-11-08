@@ -10,6 +10,13 @@ from sqlalchemy import select
 # Импорт обработчиков репликации для регистрации
 from app.modules import register_all_replication_handlers
 
+from app.core.events.replicator import replicator
+
+# Импорт модулей с обработчиками для регистрации
+# import app.operations.replica.handlers  # noqa: F401
+# import app.sales.replica.handlers       # noqa: F401
+# import app.business_partners.replica.handlers  # noqa: F401
+
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
 import app.core  # pyright: ignore[reportUnusedImport]
@@ -108,6 +115,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition"], 
 )
 
+
 # ==========================================
 # РЕГИСТРАЦИЯ РОУТЕРОВ
 # Версия API задаётся ТОЛЬКО здесь через prefix.
@@ -133,3 +141,5 @@ app.include_router(goods_router)
 app.include_router(companies_router)
 app.include_router(regions_router)
 app.include_router(bp_regions_replica_router)
+
+
