@@ -1,5 +1,7 @@
-import { useEffect } from "react";
-import type { CSSProperties } from "react";
+// import { useEffect } from "react";
+// import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -59,6 +61,63 @@ const NOTE_DIALOG_RESIZE_STYLE: CSSProperties = {
   maxHeight: "90vh",
 };
 
+// == типы и helper’ы для drag’а ====================
+type NoteDialogDragOffset = {
+  x: number;
+  y: number;
+};
+
+type NoteDialogDragOrigin = {
+  pointerX: number;
+  pointerY: number;
+  offset: NoteDialogDragOffset;
+};
+
+const NOTE_DIALOG_INITIAL_DRAG_OFFSET: NoteDialogDragOffset = {
+  x: 0,
+  y: 0,
+};
+
+const NOTE_DIALOG_DRAG_MARGIN_PX = 8;
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  const lower = Math.min(min, max);
+  const upper = Math.max(min, max);
+
+  return Math.min(Math.max(value, lower), upper);
+};
+
+const clampNoteDialogDragOffset = (
+  next: NoteDialogDragOffset,
+  current: NoteDialogDragOffset,
+  content: HTMLElement,
+): NoteDialogDragOffset => {
+  if (typeof window === "undefined") {
+    return next;
+  }
+
+  const rect = content.getBoundingClientRect();
+
+  /*
+   * Текущий rect уже включает смещение current.x / current.y.
+   * Поэтому baseLeft / baseTop — это положение окна без нашего drag-offset.
+   */
+  const baseLeft = rect.left - current.x;
+  const baseTop = rect.top - current.y;
+
+  const minLeft = NOTE_DIALOG_DRAG_MARGIN_PX;
+  const maxLeft = window.innerWidth - NOTE_DIALOG_DRAG_MARGIN_PX - rect.width;
+
+  const minTop = NOTE_DIALOG_DRAG_MARGIN_PX;
+  const maxTop = window.innerHeight - NOTE_DIALOG_DRAG_MARGIN_PX - rect.height;
+
+  return {
+    x: clampNumber(next.x, minLeft - baseLeft, maxLeft - baseLeft),
+    y: clampNumber(next.y, minTop - baseTop, maxTop - baseTop),
+  };
+};
+// == end == типы и helper’ы для drag’а ==============
+
 interface EditNoteModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,7 +149,6 @@ const mapDocStatusToCreate = (
   }
   return target;
 };
-
 
 export const EditNoteModal = ({
   open,
@@ -130,7 +188,9 @@ export const EditNoteModal = ({
           section_id: sourceNote.section_id,
           doc_number: isCopy ? undefined : (sourceNote.doc_number as string), // Копия — без номера
           doc_date: isCopy ? undefined : (sourceNote.doc_date as string),
-          doc_status: isCopy ? NoteUpdateSchemaDocStatus.draft : (sourceNote.doc_status as NoteUpdateSchemaDocStatus),
+          doc_status: isCopy
+            ? NoteUpdateSchemaDocStatus.draft
+            : (sourceNote.doc_status as NoteUpdateSchemaDocStatus),
           // doc_status: isCopy ? draft_status : sourceNote.doc_status,
           or_tags: sourceNote.or_tags ?? [],
           and_tags: sourceNote.and_tags ?? [],
@@ -140,6 +200,89 @@ export const EditNoteModal = ({
       }
     }
   }, [open, sourceNote, isCopy, reset]);
+
+  // ==== state и обработчики для drag ===========
+  const [dragOffset, setDragOffset] = useState<NoteDialogDragOffset>(
+    NOTE_DIALOG_INITIAL_DRAG_OFFSET,
+  );
+  const [previousOpen, setPreviousOpen] = useState<boolean>(open);
+
+  const dragOriginRef = useRef<NoteDialogDragOrigin | null>(null);
+  const dragHandleRef = useRef<HTMLDivElement | null>(null);
+
+  if (open !== previousOpen) {
+    setPreviousOpen(open);
+
+    if (open) {
+      setDragOffset(NOTE_DIALOG_INITIAL_DRAG_OFFSET);
+    }
+  }
+
+  const getNoteDialogContentElement = (): HTMLElement | null => {
+    const handle = dragHandleRef.current;
+
+    if (!handle) {
+      return null;
+    }
+
+    const content = handle.closest('[data-slot="dialog-content"]');
+
+    return content instanceof HTMLElement ? content : null;
+  };
+
+  const handleDragPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): void => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    dragOriginRef.current = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      offset: dragOffset,
+    };
+  };
+
+  const handleDragPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): void => {
+    const origin = dragOriginRef.current;
+
+    if (!origin) {
+      return;
+    }
+
+    const nextOffset: NoteDialogDragOffset = {
+      x: origin.offset.x + (event.clientX - origin.pointerX),
+      y: origin.offset.y + (event.clientY - origin.pointerY),
+    };
+
+    const content = getNoteDialogContentElement();
+
+    if (!content) {
+      setDragOffset(nextOffset);
+      return;
+    }
+
+    setDragOffset((currentOffset) =>
+      clampNoteDialogDragOffset(nextOffset, currentOffset, content),
+    );
+  };
+
+  const handleDragPointerEnd = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): void => {
+    dragOriginRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  // ==== end == state и обработчики для drag ====
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
@@ -239,7 +382,6 @@ export const EditNoteModal = ({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        // className="max-w-2xl max-h-[90vh] overflow-y-auto"
         className="max-h-[90vh] items-start pt-8"
         // style={{
         //   width: "500px",
@@ -247,9 +389,13 @@ export const EditNoteModal = ({
         //   minHeight: "600px",
         //   height: "auto",
         // }}
-        style={NOTE_DIALOG_RESIZE_STYLE}
+        // style={NOTE_DIALOG_RESIZE_STYLE}
+        style={{
+          ...NOTE_DIALOG_RESIZE_STYLE,
+          translate: `${dragOffset.x}px ${dragOffset.y}px`,
+        }}
       >
-        <DialogHeader>
+        {/* <DialogHeader>
           <DialogTitle>
             {readOnly
               ? "Просмотр заметки (только чтение)"
@@ -257,7 +403,25 @@ export const EditNoteModal = ({
                 ? "Редактировать заметку"
                 : "Новая заметка"}
           </DialogTitle>
-        </DialogHeader>
+        </DialogHeader> */}
+        <div
+          ref={dragHandleRef}
+          className="cursor-grab select-none touch-none active:cursor-grabbing"
+          onPointerDown={handleDragPointerDown}
+          onPointerMove={handleDragPointerMove}
+          onPointerUp={handleDragPointerEnd}
+          onPointerCancel={handleDragPointerEnd}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {readOnly
+                ? "Просмотр заметки (только чтение)"
+                : initialData
+                  ? "Редактировать заметку"
+                  : "Новая заметка"}
+            </DialogTitle>
+          </DialogHeader>
+        </div>
 
         {/* ✅ Предупреждение в режиме только чтения */}
         {readOnly && (
