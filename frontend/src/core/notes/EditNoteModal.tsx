@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { CSSProperties } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,6 +45,19 @@ import {
   DOC_STATUS_LABELS,
   type NoteFormData,
 } from "./schemas";
+
+const NOTE_DIALOG_RESIZE_STYLE: CSSProperties = {
+  resize: "both",
+  // resize: "vertical",
+  // resize: "horizontal",
+  overflow: "auto",
+  width: 580,
+  height: "auto",
+  minWidth: 480,
+  minHeight: 320,
+  maxWidth: "65vw",
+  maxHeight: "90vh",
+};
 
 interface EditNoteModalProps {
   open: boolean;
@@ -227,12 +241,13 @@ export const EditNoteModal = ({
       <DialogContent
         // className="max-w-2xl max-h-[90vh] overflow-y-auto"
         className="max-h-[90vh] items-start pt-8"
-        style={{
-          width: "500px",
-          maxWidth: "500px",
-          minHeight: "600px",
-          height: "auto",
-        }}
+        // style={{
+        //   width: "500px",
+        //   maxWidth: "500px",
+        //   minHeight: "600px",
+        //   height: "auto",
+        // }}
+        style={NOTE_DIALOG_RESIZE_STYLE}
       >
         <DialogHeader>
           <DialogTitle>
