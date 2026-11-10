@@ -1,11 +1,13 @@
 import { NoteUpdateSchemaDocStatus } from "@/api/generated/coolERP.schemas";
 import { z } from "zod";
-
+import {
+  tagsArraySchema, //  tagPattern,
+} from "@/lib/document-form/documentFormHelpers";
 /**
  * Zod-схема валидации формы заметки.
  * Формат тега (ТЗ §6.2): <пространство>:<значение>, без пробелов.
  */
-export const tagPattern = /^[^\s:]+:[^\s:]+$/;
+// export const tagPattern = /^[^\s:]+:[^\s:]+$/;
 
 export const noteFormSchema = z.object({
   title: z
@@ -24,16 +26,19 @@ export const noteFormSchema = z.object({
   doc_status: z.nativeEnum(NoteUpdateSchemaDocStatus),
   doc_number: z.string().max(64).optional(),
   doc_date: z.string().optional(),
-  or_tags: z
-    .array(
-      z.string().regex(tagPattern, "Формат тега: пространство:значение")
-    )
-    .optional(),
-  and_tags: z
-    .array(
-      z.string().regex(tagPattern, "Формат тега: пространство:значение")
-    )
-    .optional(),
+  // or_tags: z
+  //   .array(
+  //     z.string().regex(tagPattern, "Формат тега: пространство:значение")
+  //   )
+  //   .optional(),
+  // and_tags: z
+  //   .array(
+  //     z.string().regex(tagPattern, "Формат тега: пространство:значение")
+  //   )
+  //   .optional(),
+  // ✅ Используем переиспользуемый валидатор тегов из каркаса
+  or_tags: tagsArraySchema.optional(),
+  and_tags: tagsArraySchema.optional(),
   version: z.number().int().min(1).optional(),
 });
 
@@ -51,10 +56,16 @@ export const CREATE_DEFAULTS: NoteFormData = {
   version: undefined,
 };
 
-export const DOC_STATUS_LABELS: Record<string, string> = {
-  draft: "Черновик",
-  pending: "На утверждении",
-  approved: "Утверждён",
-  active: "Действует",
-  archived: "Архив",
-};
+// export const DOC_STATUS_LABELS: Record<string, string> = {
+//   draft: "Черновик",
+//   pending: "На утверждении",
+//   approved: "Утверждён",
+//   active: "Действует",
+//   archived: "Архив",
+// };
+
+// В конец notes/schemas.ts (реэкспорт для обратной совместимости с NotesPage)
+export {
+  DOC_STATUS_LABELS,
+  tagPattern,
+} from "@/lib/document-form/documentFormHelpers";

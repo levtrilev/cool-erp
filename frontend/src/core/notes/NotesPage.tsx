@@ -43,7 +43,8 @@ import {
 } from "@/api/generated/notes/notes";
 import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/coolERP.schemas";
 
-import { EditNoteModal } from "./EditNoteModal";
+// import { EditNoteModal } from "./EditNoteModal";
+import { EditNoteModal } from "./EditNoteModalLite";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 import { DOC_STATUS_LABELS } from "./schemas";
 import {

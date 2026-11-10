@@ -1,5 +1,3 @@
-// import { useEffect } from "react";
-// import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useForm, Controller } from "react-hook-form";
