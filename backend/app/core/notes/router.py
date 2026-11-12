@@ -5,6 +5,8 @@ from typing import cast as typing_cast
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.schemas import SortOrder
+
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.notes.crud import crud_note
@@ -21,7 +23,6 @@ from app.core.notes.schemas import (
     NoteResponseSchema,
     NoteUpdateSchema,
     NoteSortField,
-    SortOrder,
 )
 # from app.core.audit.utils import get_entity_name
 from app.core.schemas import ApiResponse, PaginatedResponse

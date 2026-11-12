@@ -63,6 +63,19 @@ export const MENU_CONFIG: MenuItem[] = [
     ],
   },
   {
+    id: "sales",
+    label: "Продажи",
+    icon: Database,
+    children: [
+      {
+        id: "orders",
+        label: "Заказы",
+        path: "/sales/orders",
+        icon: GlobeCheck,
+      },
+    ],
+  },
+  {
     id: "admin",
     label: "Администрирование",
     icon: Settings,

@@ -39,10 +39,12 @@ from app.modules.sales.regions.router import router as regions_router
 from app.modules.business_partners.regions_replica.router import (
     router as bp_regions_replica_router,
 )
+from app.modules.sales.orders.router import router as sales_orders_router
 
 from app.core.auth.router import router as auth_router
 from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
+from app.core.currencies.router import router as currencies_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -96,6 +98,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
+    title="coolERP",
     lifespan=lifespan,
 )
 # print("!!! УСПЕХ: FastAPI инициализирован с openapi_version=3.0.3 !!!")
@@ -141,5 +144,5 @@ app.include_router(goods_router)
 app.include_router(companies_router)
 app.include_router(regions_router)
 app.include_router(bp_regions_replica_router)
-
-
+app.include_router(sales_orders_router)
+app.include_router(currencies_router)

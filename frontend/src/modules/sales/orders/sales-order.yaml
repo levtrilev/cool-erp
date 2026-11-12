@@ -1,0 +1,434 @@
+# ════════════════════════════════════════════════════════════
+# ЗАДАНИЕ НА ФОРМУ: Заказ продажи (пилот сложной формы)
+# Формат: cool-erp-form v1.2
+# Назначение: пилот для проверки архитектуры
+#   document-form (DocumentFormShell + useDocumentSave)
+#   + form-blocks (FormTabs, FieldsGrid, FieldBlock, TableSection)
+# Все правила проекта подразумеваются и НЕ описываются здесь.
+# ════════════════════════════════════════════════════════════
+
+meta:
+  format_version: "1.2"
+  module: modules/sales/orders
+  component: EditSalesOrderModal
+  entity: sales_order
+  entity_type: SalesOrderResponseSchema
+  entity_kind: document
+  save_mutation: useSaveSalesOrderSalesOrdersSavePost
+
+  contract_overrides:
+    # Теги существуют в контракте, но не редактируются в пилотной форме
+    hide_tags_in_form: true
+    # Типовые поля документа (section_id, doc_status, doc_number, doc_date)
+    # рендерятся каркасом DocumentFormShell ДО вкладок.
+    # Для данной формы:
+    #   - doc_date ОБЯЗАТЕЛЬНА (Дата заказа)
+    #   - doc_number необязателен (Номер заказа)
+    #   - секция обязателен (стандартное поведение каркаса)
+    #   - статус обязателен (стандартное поведение каркаса)
+
+# Заголовки модалки для каждого режима
+titles:
+  create: "Новый заказ продажи"
+  edit: "Редактировать заказ: {entity.doc_number}"
+  copy: "Копирование заказа: {copy_source.doc_number}"
+  view: "Просмотр заказа (только чтение)"
+
+# Геометрия диалога (сложная форма с таблицей — шире стандартной)
+dialog:
+  width: 1000
+  min_height: 640
+  max_height: "90vh"
+
+# ════════════════════════════════════════════════════════════
+# РЕЖИМЫ РАБОТЫ ФОРМЫ
+# ════════════════════════════════════════════════════════════
+modes:
+  create: {}
+  edit: {}
+  copy:
+    source_prop: copyFromOrder
+    name_transform: "{doc_number} (копия)"
+    strip_ids_in: [order_lines]
+    reset_fields: [doc_number]
+    preserve_fields:
+      - supplier_id
+      - customer_id
+      - contact
+      - manager_id
+      - delivery_due_date
+      - payment_scheme
+      - currency_id
+      - delivery_address
+      - delivery_method
+    close_after_save: true
+  view:
+    trigger: "entity.is_editing_locked or http_423"
+
+# ════════════════════════════════════════════════════════════
+# ИСТОЧНИКИ ДАННЫХ (загружаются при открытии формы)
+# ════════════════════════════════════════════════════════════
+data_sources:
+  current_user:
+    endpoint: GET /auth/user
+    provides:
+      - current_tenant_id
+      - current_tenant_name
+      - current_user_name       # Для автозаполнения менеджера
+
+  companies:
+    endpoint: GET /companies
+    params: { limit: 50 }
+    provides: [companies_list]
+    # Используется для полей «Заказчик» и «Поставщик».
+    # В будущем: фильтр по признаку «наша компания» для «Поставщика».
+
+  employees:
+    endpoint: GET /employees
+    params: { limit: 1000 }
+    provides: [employees_list]
+    fallback_if_absent: |
+      Справочник сотрудников ещё не реализован. Временно использовать
+      GET /users как источник для поля manager_id. При реализации
+      справочника сотрудников заменить источник на GET /employees
+      и добавить поле user_name в карточку сотрудника.
+
+  currencies:
+    endpoint: GET /currencies
+    params: { limit: 100 }
+    provides: [currencies_list]
+
+  goods:
+    endpoint: GET /goods
+    params: { limit: 50 }
+    provides: [goods_list]
+    fallback_if_absent: |
+      Если модуль товаров ещё не реализован — поле goods_id в спецификации
+      временно не рендерить (не заменять текстовым полем).
+
+# ════════════════════════════════════════════════════════════
+# ВКЛАДКИ
+# Типовые поля документа (section_id, doc_status, doc_number, doc_date)
+# рендерятся каркасом DocumentFormShell ДО вкладок.
+# ════════════════════════════════════════════════════════════
+tabs:
+
+  # ──────────────────────────────────────────────────────────
+  # ВКЛАДКА 1: ЗАКАЗ (основные данные + спецификация)
+  # ──────────────────────────────────────────────────────────
+  - id: main
+    label: Заказ
+    dirty_indicators: [basics, order_lines]
+    fields:
+      # ── Поставщик (наша компания) ──
+      - name: supplier_id
+        label: Поставщик
+        type: reference_single
+        source: companies
+        required: true
+        placeholder: "Выберите поставщика..."
+        dialog_heading: "Компании"
+        limit: 50
+        # В будущем: фильтр по признаку «наша компания» в справочнике компаний
+
+      # ── Заказчик (справочник компаний) ──
+      - name: customer_id
+        label: Заказчик
+        type: reference_single
+        source: companies
+        required: true
+        placeholder: "Выберите заказчика..."
+        dialog_heading: "Компании"
+        limit: 50
+        # При выборе заказчика автозаполняются region и contact
+
+      # ── Регион (только отображение из данных заказчика) ──
+      - name: region
+        label: Регион
+        type: readonly_display
+        value: "{selected_company.region_name}"
+        # Не редактируется отдельно; берётся из справочника компаний
+
+      # ── Контакт (из заказчика, можно исправить) ──
+      - name: contact
+        label: Контактное лицо
+        type: text
+        placeholder: "Имя или телефон контакта"
+        required: true
+        # Автозаполняется из заказчика, но доступно для редактирования
+
+      # ── Менеджер (наш сотрудник) ──
+      - name: manager_id
+        label: Менеджер
+        type: reference_single
+        source: employees
+        required: true
+        placeholder: "Выберите менеджера..."
+        dialog_heading: "Сотрудники"
+        limit: 100
+        # Автозаполнение при создании: если найден сотрудник с
+        # user_name == current_user_name, подставляется автоматически.
+        # Иначе — поле пустое, пользователь выбирает вручную.
+
+      # ── Дата исполнения заказа ──
+      - name: delivery_due_date
+        label: Дата исполнения заказа
+        type: date
+        required: true
+
+      # ── Схема оплаты (свободный текст для пилота) ──
+      - name: payment_scheme
+        label: Схема оплаты
+        type: text
+        placeholder: "Например: 20% предоплата, 80% по факту отгрузки, 5 дней срок оплаты"
+        required: false
+        # В будущем: справочник схем оплаты (reference_single)
+
+      # ── Валюта заказа ──
+      - name: currency_id
+        label: Валюта заказа
+        type: reference_single
+        source: currencies
+        required: true
+        placeholder: "Выберите валюту..."
+        dialog_heading: "Валюты"
+        limit: 100
+
+      # ── Сумма заказа (вычисляемое из спецификации) ──
+      - name: total_amount
+        label: Сумма заказа
+        type: readonly_display
+        value: "{order_lines.computed_total}"
+        # Вычисляется через useMemo из черновика строк; не хранится в форме
+
+    # ── ЧАСТЬ: Спецификация заказа (таблица-черновик) ──
+    parts:
+      - type: draft_table
+        component: OrderLinesTable
+        draft_entity: order_lines
+        draft_flags:
+          deletion_flag: markedForDeletion
+          new_marker: "id == null"
+        columns:
+          - { field: line_no,              label: "№",              editable: false, width: 48 }
+          - { field: goods_id,             label: "Товар",          editable: true,  reference: goods, required: true }
+          - { field: quantity,             label: "Количество",     editable: true,  type: number, required: true }
+          - { field: price_with_vat,       label: "Цена с НДС",     editable: true,  type: number, required: true }
+          - { field: line_total,           label: "Сумма",          editable: false, computed: "quantity * price_with_vat" }
+          - { field: discount_percent,     label: "Скидка %",       editable: true,  type: number }
+          - { field: amount_with_discount, label: "Со скидкой",     editable: false, computed: "line_total * (1 - discount_percent / 100)" }
+          - { field: vat_rate_percent,     label: "НДС %",          editable: true,  type: number, required: true }
+          - { field: vat_amount,           label: "НДС",            editable: false, computed: "amount_with_discount * vat_rate_percent / (100 + vat_rate_percent)" }
+        footer_totals:
+          - { field: position_count, label: "Позиций",   computed: "count(rows)" }
+          - { field: total_gross,    label: "По прайсу",  computed: "sum(line_total)" }
+          - { field: total_discount, label: "Скидка",     computed: "sum(line_total - amount_with_discount)" }
+          - { field: total_net,      label: "Со скидкой", computed: "sum(amount_with_discount)" }
+          - { field: total_vat,      label: "НДС",        computed: "sum(vat_amount)" }
+        pass_props:
+          - { name: lines,    value: "{order_lines_draft}" }
+          - { name: readOnly, value: "{readOnly}" }
+          - { name: onChange, value: "setOrderLinesDraft" }
+
+  # ──────────────────────────────────────────────────────────
+  # ВКЛАДКА 2: ДОСТАВКА
+  # ──────────────────────────────────────────────────────────
+  - id: delivery
+    label: Доставка
+    dirty_indicators: [delivery]
+    fields:
+      - name: delivery_address
+        label: Адрес доставки
+        type: textarea
+        placeholder: "Введите адрес доставки..."
+        rows: 3
+        required: false
+
+      - name: delivery_method
+        label: Способ доставки
+        type: select
+        required: false
+        options:
+          - { value: "pickup",        label: "Самовывоз" }
+          - { value: "own_transport", label: "Транспорт поставщика" }
+          - { value: "third_party",   label: "Транспортная компания" }
+
+# ════════════════════════════════════════════════════════════
+# КНОПКИ-ДЕЙСТВИЯ
+# ════════════════════════════════════════════════════════════
+actions:
+  - id: save
+    label: Сохранить
+    type: submit
+    icon: check
+    hidden_when: "read_only"
+    disabled_when: "not has_any_changes and mode != 'copy'"
+    loading_icon: spinner
+
+  - id: cancel
+    type: close
+    icon: none
+    label_rules:
+      when: "has_any_changes or mode == 'copy'"
+      then: "Отмена"
+      else: "Закрыть"
+    min_width: 96px
+
+# ════════════════════════════════════════════════════════════
+# ИНДИКАТОРЫ ИЗМЕНЕНИЙ
+# ════════════════════════════════════════════════════════════
+change_indicators:
+  basics:
+    watch:
+      - supplier_id
+      - customer_id
+      - contact
+      - manager_id
+      - delivery_due_date
+      - payment_scheme
+      - currency_id
+    compare_with:
+      supplier_id: source_entity.supplier_id
+      customer_id: source_entity.customer_id
+      contact: source_entity.contact
+      manager_id: source_entity.manager_id
+      delivery_due_date: source_entity.delivery_due_date
+      payment_scheme: source_entity.payment_scheme
+      currency_id: source_entity.currency_id
+    mode: field_by_field
+
+  order_lines:
+    watch: [order_lines_draft]
+    compare_with: order_lines_snapshot
+    mode: json_snapshot
+
+  delivery:
+    watch: [delivery_address, delivery_method]
+    compare_with:
+      delivery_address: source_entity.delivery_address
+      delivery_method: source_entity.delivery_method
+    mode: field_by_field
+
+  has_any_changes:
+    formula: "basics or order_lines or delivery"
+
+# ════════════════════════════════════════════════════════════
+# СОБЫТИЯ ЖИЗНЕННОГО ЦИКЛА ФОРМЫ
+# ════════════════════════════════════════════════════════════
+events:
+  on_open:
+    - reset_all_state
+    - increment_session_key
+    - init_form_from_source
+    - init_order_lines_draft
+    # Автозаполнение менеджера при создании
+    - auto_fill_manager:
+        when: mode == 'create'
+        logic: |
+          Найти в employees_list сотрудника, у которого
+          user_name == current_user_name.
+          Если найден — установить manager_id = найденный.id.
+          Если не найден — оставить поле пустым.
+
+  on_save_before:
+    - check: "doc_date != ''"
+      on_fail:
+        toast_error: "Укажите дату документа"
+        abort: true
+    - check: "supplier_id != ''"        
+      on_fail:
+        toast_error: "Выберите поставщика"
+        abort: true    
+    - check: "customer_id != ''"
+      on_fail:
+        toast_error: "Выберите заказчика"
+        abort: true
+    - check: "contact != ''"
+      on_fail:
+        toast_error: "Укажите контактное лицо"
+        abort: true
+    - check: "manager_id != ''"
+      on_fail:
+        toast_error: "Выберите менеджера"
+        abort: true
+    - check: "delivery_due_date != ''"
+      on_fail:
+        toast_error: "Укажите дату исполнения заказа"
+        abort: true
+    - check: "currency_id != ''"
+      on_fail:
+        toast_error: "Выберите валюту заказа"
+        abort: true
+
+  on_save_success:
+    - invalidate_cache: ["sales-orders"]
+    - invalidate_cache_detail:
+        when: mode == 'edit'
+        keys:
+          - ["sales-order", "{entity.id}"]
+    - update_source_of_truth
+    - sync_order_lines_draft_from_response
+    - call_parent: onSaved
+    - if: mode == 'copy'
+      then: close_modal
+    - toast:
+        when: "mode == 'copy'"
+        text: "Копия заказа создана"
+        else: "Заказ сохранён"
+
+  on_save_error:
+    - when: "status == 409"
+      toast_error: "Заказ изменён другим пользователем. Обновите данные."
+    - when: "status == 423"
+      toast_error: "Заказ редактируется другим пользователем."
+    - otherwise:
+        toast_error: "{error.detail || 'Не удалось сохранить заказ'}"
+
+  on_close:
+    - reset_form_to_defaults
+    - clear_source_of_truth
+    - clear_all_drafts
+
+# ════════════════════════════════════════════════════════════
+# СТРУКТУРА ПОЛЕЗНОЙ НАГРУЗКИ ПРИ СОХРАНЕНИИ
+# ════════════════════════════════════════════════════════════
+payload:
+  # Типовые поля документа (из формы, заполняются каркасом)
+  section_id: "{form.section_id}"
+  doc_status: "{form.doc_status}"
+  doc_number: "{form.doc_number || null}"
+  doc_date: "{form.doc_date}"
+  # Бизнес-поля
+  supplier_id: "{form.supplier_id}"
+  customer_id: "{form.customer_id}"
+  contact: "{form.contact}"
+  manager_id: "{form.manager_id}"
+  delivery_due_date: "{form.delivery_due_date}"
+  payment_scheme: "{form.payment_scheme || null}"
+  currency_id: "{form.currency_id}"
+  delivery_address: "{form.delivery_address || null}"
+  delivery_method: "{form.delivery_method || null}"
+  total_amount: "{order_lines.computed_total}"
+  # Спецификация (черновик без помеченных на удаление)
+  order_lines:
+    source: order_lines_draft
+    filter: "!markedForDeletion"
+    map:
+      line_no: "{item.line_no}"
+      goods_id: "{item.goods_id}"
+      quantity: "{item.quantity}"
+      price_with_vat: "{item.price_with_vat}"
+      discount_percent: "{item.discount_percent || 0}"
+      vat_rate_percent: "{item.vat_rate_percent || 0}"
+      id: "{item.id if exists else omit}"
+
+# Параметры мутации в зависимости от режима
+mutation_params:
+  create:
+    data: "{payload}"
+  edit:
+    data: "{payload}"
+    params: { order_id: "{entity.id}" }
+    version: "{entity.version}"
+  copy:
+    data: "{payload}"

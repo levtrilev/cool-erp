@@ -22,6 +22,7 @@ import { DomainsPage } from "@/core/domains/DomainsPage";
 import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
 import { TagsPage } from "./core/tags/TagsPage";
 import { GoodsPage } from "./modules/sales/goods/GoodsPage";
+import { OrdersPage } from "./modules/sales/orders/OrdersPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
@@ -59,6 +60,7 @@ function App() {
             <Route element={<AppLayout />}>
               <Route path="/notes" element={<NotesPage />} />
               <Route path="/sales/goods" element={<GoodsPage />} />
+              <Route path="/sales/orders" element={<OrdersPage />} />
               <Route
                 path="/inventory/warehouses"
                 element={<WarehousesPage />}

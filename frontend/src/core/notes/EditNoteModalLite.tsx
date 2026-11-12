@@ -8,10 +8,21 @@ import {
   NoteUpdateSchemaDocStatus,
 } from "@/api/generated/coolERP.schemas";
 import { useDocumentSave, mapStatusForCreate } from "@/lib/document-form/useDocumentSave";
-import { DocumentFormShell } from "@/lib/document-form/DocumentFormShell";
-import { NoteCustomFields } from "./NoteCustomFields";
+import {
+  DocumentFormShell,
+  type DocumentDialogSize,
+} from "@/lib/document-form/DocumentFormShell";import { NoteCustomFields } from "./NoteCustomFields";
 import { noteFormSchema, CREATE_DEFAULTS, type NoteFormData } from "./schemas";
 import { mapEnumByValue } from "@/lib/document-form/documentFormHelpers";
+
+// Константа геометрии этого типа документа (вне компонента):
+const NOTE_DIALOG_SIZE: DocumentDialogSize = {
+  width: 720,
+  minWidth: 560,
+  minHeight: 420,
+  maxWidth: "92vw",
+  maxHeight: "90vh",
+};
 
 interface EditNoteModalProps {
   open: boolean;
@@ -108,6 +119,7 @@ export const EditNoteModal = ({
     <DocumentFormShell
       docForm={docForm}
       open={open}
+      dialogSize={NOTE_DIALOG_SIZE}
       titleCreate="Новая заметка"
       titleEdit="Редактировать заметку"
       titleView="Просмотр заметки (только чтение)"
