@@ -32,7 +32,7 @@ export function Combobox<T>({ value, onValueChange, options, getOptionLabel, get
           className={`w-[200px] justify-between ${className}`}
         >
           {value
-            ? options.find((option) => getOptionValue(option) === value)?.label
+            ? getOptionLabel(options.find((option) => getOptionValue(option) === value)!)
             : placeholder || 'Select...'}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

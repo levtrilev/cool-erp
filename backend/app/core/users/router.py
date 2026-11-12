@@ -360,9 +360,9 @@ async def update_user(
             detail="Назначение ролей доступно только администратору или суперадмину",
         )
 
-    old_values = {}
+    old_values: dict[str, uuid.UUID | str | bool | None] = {}
     if db_user:
-        for field in user_changes.model_fields:
+        for field in UserUpdateSchema.model_fields:
             if field in user_changes.model_dump(exclude_unset=True):
                 old_values[field] = getattr(db_user, field, None)
 
@@ -389,13 +389,21 @@ async def update_user(
     # ✅ АУДИТ
     try:
         from app.core.audit.models import DataAuditLog
-        changes = {}
+        changes: dict[str, dict[str, str]] = {}
         dump = user_changes.model_dump(exclude_unset=True)
         for field, new_value in dump.items():
             if field in old_values and old_values[field] != new_value:
                 if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
+                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
+                    if old_entity_id:
+                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
+                    else:
+                        old_name = ""
+                    if new_entity_id:
+                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
+                    else:
+                        new_name = ""
                     changes[field] = {
                         "old": old_name if old_name else str(old_values[field]),
                         "new": new_name if new_name else str(new_value)
