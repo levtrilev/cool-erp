@@ -8,23 +8,6 @@
     <script>
       (function () {
         try {
-          var pairs = document.cookie.split("; ");
-          function cookie(name) {
-            for (var i = 0; i < pairs.length; i++) {
-              if (pairs[i].indexOf(name + "=") === 0) {
-                return decodeURIComponent(pairs[i].slice(name.length + 1));
-              }
-            }
-            return null;
-          }
-          // Миграция: пока cookie не заведены, берём прежний выбор из localStorage.
-          function legacy(name) {
-            try {
-              return window.localStorage.getItem(name);
-            } catch (e) {
-              return null;
-            }
-          }
           var PALETTES = [
             "sepia",
             "onedark",
@@ -33,23 +16,62 @@
             "catppuccin",
             "solarized",
           ];
-          var theme = cookie("cool-erp-theme") || legacy("cool-erp-theme");
-          var lightPalette =
-            cookie("cool-erp-light-palette") ||
-            legacy("cool-erp-light-palette");
-          var darkPalette =
-            cookie("cool-erp-dark-palette") ||
-            legacy("cool-erp-dark-palette") ||
-            legacy("cool-erp-palette");
-          var dark;
-          if (theme === "dark") dark = true;
-          else if (theme === "light") dark = false;
-          else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var LEGACY_KEYS = [
+            "cool-erp-theme",
+            "cool-erp-light-palette",
+            "cool-erp-dark-palette",
+            "cool-erp-palette",
+            "layout-position",
+          ];
+          function cookie(name) {
+            var pairs = document.cookie.split("; ");
+            for (var i = 0; i < pairs.length; i++) {
+              if (pairs[i].indexOf(name + "=") === 0) {
+                return decodeURIComponent(pairs[i].slice(name.length + 1));
+              }
+            }
+            return null;
+          }
+          function legacy(name) {
+            try {
+              return window.localStorage.getItem(name);
+            } catch (e) {
+              return null;
+            }
+          }
+          function clearLegacy() {
+            for (var i = 0; i < LEGACY_KEYS.length; i++) {
+              try {
+                window.localStorage.removeItem(LEGACY_KEYS[i]);
+              } catch (e) {}
+            }
+          }
+          var theme = cookie("cool-erp-theme");
+          var lightPalette = cookie("cool-erp-light-palette");
+          var darkPalette = cookie("cool-erp-dark-palette");
+          if (theme === null) {
+            // Одноразовая миграция прежнего локального выбора.
+            var legacyTheme = legacy("cool-erp-theme");
+            var dark0 =
+              legacyTheme === "dark"
+                ? true
+                : legacyTheme === "light"
+                  ? false
+                  : window.matchMedia("(prefers-color-scheme: dark)").matches;
+            theme = dark0 ? "dark" : "light";
+            lightPalette = lightPalette || legacy("cool-erp-light-palette");
+            darkPalette =
+              darkPalette ||
+              legacy("cool-erp-dark-palette") ||
+              legacy("cool-erp-palette");
+            clearLegacy();
+          }
+          var dark = theme === "dark";
           var palette = dark ? darkPalette : lightPalette;
           var root = document.documentElement;
           root.classList.toggle("dark", dark);
-          for (var i = 0; i < PALETTES.length; i++) {
-            root.classList.remove("palette-" + PALETTES[i]);
+          for (var p = 0; p < PALETTES.length; p++) {
+            root.classList.remove("palette-" + PALETTES[p]);
           }
           if (
             palette &&

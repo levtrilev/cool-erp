@@ -27,7 +27,6 @@ import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
 import { RegisterPage } from "./core/users/RegisterPage";
-import { ThemeProvider } from "@/components/theme/ThemeProvider";
 // import { AuditPage } from "@/modules/audit/AuditPage";
 
 const queryClient = new QueryClient({

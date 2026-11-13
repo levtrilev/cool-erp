@@ -1,19 +1,8 @@
 // frontend/src/lib/ui-preferences/browserAppearance.ts
-import {
-  NavigationPreferenceSchemaLayout,
-  ThemePreferenceSchemaMode,
-} from "@/api/generated/coolERP.schemas";
-import {
-  DARK_PALETTES,
-  LIGHT_PALETTES,
-  getInitialDarkPalette,
-  getInitialLightPalette,
-  getInitialTheme,
-} from "@/components/theme/theme-context";
+import { ThemePreferenceSchemaMode } from "@/api/generated/coolERP.schemas";
 import {
   normalizeDarkPalette,
   normalizeLightPalette,
-  toApiThemeMode,
   type UiThemePreference,
 } from "./themePalettes";
 import type { NavigationLayout } from "./types";
@@ -29,14 +18,15 @@ export const NAV_LAYOUT_COOKIE = "cool-erp-nav-layout";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 const PALETTE_CLASS_PREFIX = "palette-";
 
-/**
- * Все классы палитр проекта — из единственного источника theme-context.ts.
- * Нужны, чтобы снимать чужие/устаревшие классы перед установкой активного.
- */
-const KNOWN_PALETTE_CLASSES: ReadonlySet<string> = new Set<string>([
-  ...LIGHT_PALETTES.map((p) => PALETTE_CLASS_PREFIX + p.id),
-  ...DARK_PALETTES.map((p) => PALETTE_CLASS_PREFIX + p.id),
-]);
+/** Классы палитр, известные проекту; снимаются перед установкой активного. */
+const KNOWN_PALETTE_CLASSES: readonly string[] = [
+  "palette-sepia",
+  "palette-onedark",
+  "palette-nord",
+  "palette-ghdimmed",
+  "palette-catppuccin",
+  "palette-solarized",
+];
 
 /** Разрешение режима в конкретную тему. Чистая функция, без обращения к DOM. */
 export const resolveTheme = (
@@ -67,12 +57,9 @@ const readCookie = (name: string): string | null => {
  * Визуальный контракт палитр в index.css — КЛАССЫ:
  *   светлая: .palette-sepia
  *   тёмная:  .dark.palette-nord / .dark.palette-onedark / …
- * Поэтому applyTheme снимает все известные классы палитр и ставит активный,
- * иначе чужой класс (например, palette-sepia из старого скрипта) перекрывает
- * переменные тёмной темы и цвета не меняются.
- *
- * Data-атрибуты дублируют состояние машиночитаемо (отладка, будущие селекторы),
- * но на цвета они не влияют.
+ * Поэтому снимаются все известные классы палитр и ставится активный.
+ * Data-атрибуты — машиночитаемое дублирование состояния (отладка, будущие
+ * селекторы), на цвета они не влияют.
  */
 export const applyTheme = (
   theme: UiThemePreference,
@@ -85,8 +72,9 @@ export const applyTheme = (
   const root: HTMLElement = document.documentElement;
   root.classList.toggle("dark", resolved === "dark");
 
-  // ✅ Снимаем устаревшие классы палитр, ставим активный (контракт index.css).
-  KNOWN_PALETTE_CLASSES.forEach((cls) => root.classList.remove(cls));
+  for (const paletteClass of KNOWN_PALETTE_CLASSES) {
+    root.classList.remove(paletteClass);
+  }
   if (activePalette !== "default") {
     root.classList.add(PALETTE_CLASS_PREFIX + activePalette);
   }
@@ -108,29 +96,22 @@ export const applyNavigationLayout = (layout: NavigationLayout): void => {
 
 /**
  * Оформление для первого кадра, до ответа сервера.
- * Приоритет: cookie (последнее применённое) → прежний выбор из localStorage.
- * Второй источник сохраняет выбор пользователей, сделанный до перехода
- * на серверные настройки; запись на сервер выполняется при первом действии.
+ * Читает ТОЛЬКО cookie: миграция из legacy-localStorage выполняется один раз
+ * inline-скриптом в index.html, который затем очищает старые ключи.
  */
 export const readInitialAppearance = (): UiThemePreference => {
   const storedTheme: string | null = readCookie(THEME_COOKIE);
-  const storedLight: string | null = readCookie(LIGHT_PALETTE_COOKIE);
-  const storedDark: string | null = readCookie(DARK_PALETTE_COOKIE);
-
-  if (storedTheme === "light" || storedTheme === "dark") {
-    return {
-      mode: toApiThemeMode(storedTheme),
-      lightPalette: normalizeLightPalette(
-        storedLight ?? getInitialLightPalette(),
-      ),
-      darkPalette: normalizeDarkPalette(storedDark ?? getInitialDarkPalette()),
-    };
-  }
+  const mode =
+    storedTheme === "dark"
+      ? ThemePreferenceSchemaMode.dark
+      : storedTheme === "light"
+        ? ThemePreferenceSchemaMode.light
+        : ThemePreferenceSchemaMode.system;
 
   return {
-    mode: toApiThemeMode(getInitialTheme()),
-    lightPalette: getInitialLightPalette(),
-    darkPalette: getInitialDarkPalette(),
+    mode,
+    lightPalette: normalizeLightPalette(readCookie(LIGHT_PALETTE_COOKIE)),
+    darkPalette: normalizeDarkPalette(readCookie(DARK_PALETTE_COOKIE)),
   };
 };
 
@@ -138,8 +119,5 @@ export const readInitialAppearance = (): UiThemePreference => {
 export const readNavigationLayoutCookie = (): NavigationLayout | null => {
   const raw: string | null = readCookie(NAV_LAYOUT_COOKIE);
   if (raw === null) return null;
-  const allowed: readonly string[] = Object.values(
-    NavigationPreferenceSchemaLayout,
-  );
-  return allowed.includes(raw) ? (raw as NavigationLayout) : null;
+  return raw === "topbar" ? (raw as NavigationLayout) : raw === "sidebar" ? (raw as NavigationLayout) : null;
 };

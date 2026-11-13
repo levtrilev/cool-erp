@@ -1,10 +1,11 @@
-import { createContext } from "react";
-
-// ============================================================
-// ТИПЫ
-// ============================================================
-export type Theme = "light" | "dark" | "system";
-export type ResolvedTheme = "light" | "dark";
+// frontend/src/components/theme/theme-context.ts
+/**
+ * Каталог палитр темы — единственный источник истины для идентификаторов,
+ * подписей и пояснений.
+ * ThemeContext, ThemeProvider, useTheme и localStorage-хелперы старой
+ * локальной схемы удалены: настройки темы живут в user_ui_preferences (БД),
+ * кэш первого кадра — в cookie (см. browserAppearance.ts и index.html).
+ */
 
 /** Палитры светлой темы. "default" — базовый :root без переопределений. */
 export type LightPalette = "default" | "sepia";
@@ -17,25 +18,6 @@ export type DarkPalette =
   | "ghdimmed"
   | "catppuccin"
   | "solarized";
-
-export interface ThemeContextValue {
-  theme: Theme;
-  resolvedTheme: ResolvedTheme;
-  lightPalette: LightPalette;
-  darkPalette: DarkPalette;
-  setTheme: (theme: Theme) => void;
-  setLightPalette: (palette: LightPalette) => void;
-  setDarkPalette: (palette: DarkPalette) => void;
-}
-
-// ============================================================
-// КОНСТАНТЫ И ХЕЛПЕРЫ (без компонентов — безопасно для Fast Refresh)
-// ============================================================
-export const THEME_STORAGE_KEY = "cool-erp-theme";
-export const LIGHT_PALETTE_STORAGE_KEY = "cool-erp-light-palette";
-export const DARK_PALETTE_STORAGE_KEY = "cool-erp-dark-palette";
-/** Старый ключ тёмной палитры — читаем для миграции существующего выбора. */
-const LEGACY_DARK_PALETTE_KEY = "cool-erp-palette";
 
 export const LIGHT_PALETTES: ReadonlyArray<{
   id: LightPalette;
@@ -58,33 +40,3 @@ export const DARK_PALETTES: ReadonlyArray<{
   { id: "catppuccin", label: "Catppuccin Mocha", hint: "Тёплая пастельная" },
   { id: "solarized", label: "Solarized", hint: "Низкий контраст, мягкая" },
 ];
-
-export const getSystemTheme = (): ResolvedTheme =>
-  window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-
-export const getInitialTheme = (): Theme => {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark" || stored === "system") {
-    return stored;
-  }
-  return "system";
-};
-
-export const getInitialLightPalette = (): LightPalette => {
-  const stored = localStorage.getItem(LIGHT_PALETTE_STORAGE_KEY);
-  const found = LIGHT_PALETTES.find((p) => p.id === stored);
-  return found ? found.id : "default";
-};
-
-export const getInitialDarkPalette = (): DarkPalette => {
-  // ✅ Миграция: если нового ключа нет, берём старый выбор тёмной палитры
-  const stored =
-    localStorage.getItem(DARK_PALETTE_STORAGE_KEY) ??
-    localStorage.getItem(LEGACY_DARK_PALETTE_KEY);
-  const found = DARK_PALETTES.find((p) => p.id === stored);
-  return found ? found.id : "default";
-};
-
-export const ThemeContext = createContext<ThemeContextValue | undefined>(
-  undefined,
-);
