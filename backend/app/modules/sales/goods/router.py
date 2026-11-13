@@ -3,7 +3,6 @@
 import logging
 from typing import cast
 import uuid
-from typing import cast
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -45,7 +44,7 @@ async def list_goods(
         db,
         user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        is_superadmin=bool(session.is_superadmin),
         skip=skip,
         limit=limit,
         search=search,
@@ -78,9 +77,9 @@ async def create_goods(
             db,
             obj_in=data,
             user=cast(UserProtocol, session),
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
@@ -129,7 +128,7 @@ async def get_goods(
         goods_id=goods_id,
         user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        is_superadmin=bool(session.is_superadmin),
     )
 
     if goods is None:
@@ -156,9 +155,9 @@ async def update_goods(
     try:
         # ✅ Сохраняем текущие значения полей перед обновлением
         goods_before = await crud_goods.get(db, id=goods_id)
-        old_values = {}
+        old_values: dict[str, uuid.UUID | str | None] = {}
         if goods_before:
-            for field in data.model_fields:
+            for field in SalesGoodsUpdateSchema.model_fields:
                 if field in data.model_dump(exclude_unset=True):
                     old_values[field] = getattr(goods_before, field, None)
 
@@ -167,9 +166,9 @@ async def update_goods(
             goods_id=goods_id,
             obj_in=data,
             user=cast(UserProtocol, session),
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except GoodsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -191,8 +190,16 @@ async def update_goods(
         for field, new_value in dump.items():
             if field in old_values and old_values[field] != new_value:
                 if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
+                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
+                    if old_entity_id:
+                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
+                    else:
+                        old_name = ""
+                    if new_entity_id:
+                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
+                    else:
+                        new_name = ""
                     changes[field] = {
                         "old": old_name if old_name else str(old_values[field]),
                         "new": new_name if new_name else str(new_value)
@@ -238,9 +245,9 @@ async def delete_goods(
             db,
             goods_id=goods_id,
             user=cast(UserProtocol, session),
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except GoodsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -291,8 +298,8 @@ async def acquire_goods_lock(
             goods_id=goods_id,
             user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user_id=session.id,
+            is_superadmin=bool(session.is_superadmin),
         )
     except GoodsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -325,8 +332,8 @@ async def release_goods_lock(
             goods_id=goods_id,
             user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user_id=session.id,
+            is_superadmin=bool(session.is_superadmin),
         )
     except GoodsNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
