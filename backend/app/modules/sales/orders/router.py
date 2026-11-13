@@ -35,8 +35,27 @@ from app.modules.sales.orders.schemas import (
     SalesOrderSortField,
     SalesOrderUpdateSchema,
 )
+from decimal import Decimal, InvalidOperation
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
+
+def _parse_amount_filter(value: str | None) -> Decimal | None:
+    """
+    Разбор числового фильтра суммы.
+    Запятая принимается как десятичный разделитель (ru-RU ввод).
+    Некорректное значение отклоняется явно (400), а не игнорируется:
+    молчаливое игнорирование скрыло бы ошибку ввода от пользователя.
+    """
+    if value is None or value.strip() == "":
+        return None
+    normalized = value.strip().replace(",", ".")
+    try:
+        return Decimal(normalized)
+    except InvalidOperation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Некорректное числовое значение фильтра суммы",
+        ) from exc
 
 
 @router.get(
@@ -57,6 +76,7 @@ async def get_sales_orders(
     filter_supplier_name: str | None = None,
     filter_doc_status: str | None = None,
     filter_updated_at: date | None = None,
+    filter_total_amount: str | None = None,
 ) -> ApiResponse[PaginatedResponse[SalesOrderResponseSchema]]:
     """Список заказов с контролем доступа, сортировкой и фильтрацией."""
     items, total = await crud_sales_order.get_multi(
@@ -75,8 +95,8 @@ async def get_sales_orders(
         filter_supplier_name=filter_supplier_name,
         filter_doc_status=filter_doc_status,
         filter_updated_at=filter_updated_at,
+        filter_total_amount=_parse_amount_filter(filter_total_amount),
     )
-
     paginated = PaginatedResponse[SalesOrderResponseSchema](
         items=[SalesOrderResponseSchema.model_validate(item) for item in items],
         total=total,
@@ -88,7 +108,6 @@ async def get_sales_orders(
         message="Заказы получены",
         data=paginated,
     )
-
 
 @router.get(
     "/{order_id}", response_model=ApiResponse[SalesOrderResponseSchema]

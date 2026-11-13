@@ -162,6 +162,7 @@ class CRUDSalesOrder(
         filter_supplier_name: str | None = None,
         filter_doc_status: str | None = None,
         filter_updated_at: date | None = None,
+        filter_total_amount: Decimal | None = None,
     ) -> tuple[list[SalesOrderModel], int]:
         """
         Список заказов с контролем доступа, сортировкой и фильтрацией.
@@ -256,7 +257,14 @@ class CRUDSalesOrder(
             )
             stmt = stmt.where(cond)
             count_stmt = count_stmt.where(cond)
-
+        # ✅ Числовой фильтр: точное сравнение NUMERIC.
+        # Масштаб не влияет на равенство (100 == 100.00), поэтому
+        # пользователь может ввести значение без копеек.
+        if filter_total_amount is not None:
+            cond = model.total_amount == filter_total_amount
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+            
         total: int = (await db.execute(count_stmt)).scalar_one() or 0
 
         # ── СОРТИРОВКА (whitelist через Enum) ───────────────────────
