@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.modules import register_all_replication_handlers
 
 from app.core.events.replicator import replicator
+import app.core.user_preferences.models  # pyright: ignore[reportUnusedImport] # регистрация модели
 
 # Импорт модулей с обработчиками для регистрации
 # import app.operations.replica.handlers  # noqa: F401
@@ -45,6 +46,7 @@ from app.core.auth.router import router as auth_router
 from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
 from app.core.currencies.router import router as currencies_router
+from app.core.user_preferences.router import router as user_preferences_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -129,6 +131,7 @@ app.add_middleware(
 # ==========================================
 
 # , prefix="/api/v1") - добавить позднее, когда в путях добавятся префиксы
+app.include_router(user_preferences_router)
 app.include_router(tenant_router)
 app.include_router(auth_router)
 app.include_router(audit_router)

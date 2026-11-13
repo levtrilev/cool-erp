@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+// frontend/src/components/layout/AppLayout.tsx
+import { useEffect, useMemo } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { TopNav } from "./TopNav";
@@ -18,47 +19,35 @@ import {
   useLogoutAuthLogoutPost,
 } from "@/api/generated/authentication/authentication";
 import { useQueryClient } from "@tanstack/react-query";
+import { NavigationPreferenceSchemaLayout } from "@/api/generated/coolERP.schemas";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-// import { AUTH_USER_QUERY_OPTIONS } from "@/core/auth/authQueryOptions";
+import { UiPreferencesProvider } from "@/lib/ui-preferences/UiPreferencesProvider";
+import { useNavigationPreference } from "@/lib/ui-preferences/useNavigationPreference";
+import { readNavigationLayoutCookie } from "@/lib/ui-preferences/browserAppearance";
+import type { NavigationLayout } from "@/lib/ui-preferences/types";
 
-type LayoutPosition = "left" | "top";
-
-const STORAGE_KEY = "layout-position";
-
-/**
- * Ленивая инициализация позиции макета из localStorage.
- * Выполняется только один раз при первом рендере компонента.
- */
-const getInitialPosition = (): LayoutPosition => {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY) as LayoutPosition | null;
-    if (saved === "left" || saved === "top") {
-      return saved;
-    }
-  } catch {
-    // Игнорируем ошибки доступа к localStorage
-  }
-  return "left";
-};
-
-/**
- * Компонент переключения макета.
- * Вынесен за пределы AppLayout, чтобы избежать создания компонента во время рендера.
- */
 interface PositionSwitcherProps {
-  current: LayoutPosition;
-  onChange: (position: LayoutPosition) => void;
+  current: NavigationLayout;
+  onChange: (layout: NavigationLayout) => void;
+  disabled: boolean;
 }
 
-const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
+/** Переключатель раскладки меню. Пишет в серверные настройки пользователя. */
+const PositionSwitcher = ({
+  current,
+  onChange,
+  disabled,
+}: PositionSwitcherProps) => (
   <div className="fixed bottom-4 right-4 bg-background border border-border rounded-lg shadow-lg p-2 z-50">
     <div className="flex items-center gap-2">
       <span className="text-xs text-muted-foreground mr-1">Меню:</span>
       <button
-        onClick={() => onChange("left")}
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(NavigationPreferenceSchemaLayout.sidebar)}
         className={cn(
-          "px-2 py-1 text-xs rounded transition-colors",
-          current === "left"
+          "px-2 py-1 text-xs rounded transition-colors disabled:opacity-50 disabled:pointer-events-none",
+          current === NavigationPreferenceSchemaLayout.sidebar
             ? "bg-primary text-primary-foreground"
             : "hover:bg-accent",
         )}
@@ -66,10 +55,12 @@ const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
         Слева
       </button>
       <button
-        onClick={() => onChange("top")}
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange(NavigationPreferenceSchemaLayout.topbar)}
         className={cn(
-          "px-2 py-1 text-xs rounded transition-colors",
-          current === "top"
+          "px-2 py-1 text-xs rounded transition-colors disabled:opacity-50 disabled:pointer-events-none",
+          current === NavigationPreferenceSchemaLayout.topbar
             ? "bg-primary text-primary-foreground"
             : "hover:bg-accent",
         )}
@@ -80,52 +71,29 @@ const PositionSwitcher = ({ current, onChange }: PositionSwitcherProps) => (
   </div>
 );
 
-/**
- * Компонент профиля пользователя с выходом.
- * Вынесен отдельно для переиспользования в разных макетах.
- */
+/** Профиль пользователя с выходом. */
 const UserOnLayout = () => {
   const { data: user, isLoading } = useGetCurrentUserAuthUserGet();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const logoutMutation = useLogoutAuthLogoutPost();
 
-  // const handleLogout = () => {
-  //   logoutMutation.mutate(undefined, {
-  //     onSuccess: async () => {
-  //       // ✅ ПОЛНОСТЬЮ очищаем весь кэш React Query
-  //       queryClient.clear();
-  //       await new Promise((resolve) => setTimeout(resolve, 50));
-  //       navigate("/", { replace: true });
-  //     },
-  //     onError: async () => {
-  //       // Даже если бэкенд упал, очищаем кэш
-  //       queryClient.clear();
-  //       await new Promise((resolve) => setTimeout(resolve, 50));
-  //       navigate("/", { replace: true });
-  //     },
-  //   });
-  // };
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
       onSuccess: async () => {
-        // ✅ Полностью очищаем кэш
+        // Настройки интерфейса НЕ удаляются: они хранятся в БД за пользователем.
         queryClient.clear();
         await new Promise((resolve) => setTimeout(resolve, 50));
-        // ✅ Редирект сразу на логин, а не на "/"
         navigate("/auth/login", { replace: true });
-        // navigate("/", { replace: true });
       },
       onError: async () => {
         queryClient.clear();
         await new Promise((resolve) => setTimeout(resolve, 50));
         navigate("/auth/login", { replace: true });
-        // navigate("/", { replace: true });
       },
     });
   };
 
-  // ✅ Показываем загрузку, пока получаем данные пользователя
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 px-3">
@@ -134,7 +102,7 @@ const UserOnLayout = () => {
       </div>
     );
   }
-// console.log("[diag] user =", JSON.stringify(user, null, 2));
+
   return (
     <div className="flex items-center gap-4">
       <DropdownMenu>
@@ -180,37 +148,32 @@ const UserOnLayout = () => {
   );
 };
 
-export const AppLayout = () => {
+/**
+ * Внутренний макет. Находится ВНУТРИ провайдера, поэтому и шапка
+ * (ThemeToggle, PositionSwitcher), и страницы видят одни настройки.
+ */
+const AppLayoutInner = () => {
   const navigate = useNavigate();
-  // const queryClient = useQueryClient();
-
-  // ✅ Ленивая инициализация позиции макета
-  const [layoutPosition, setLayoutPosition] =
-    useState<LayoutPosition>(getInitialPosition);
-
-  // ✅ Auth Guard: проверка сессии пользователя
-  // const { data: user, isError: isAuthError, isLoading: isAuthLoading } =
   const { isError: isAuthError, isLoading: isAuthLoading } =
     useGetCurrentUserAuthUserGet();
+  const { layout, setLayout, isRestored } = useNavigationPreference();
 
-  // ✅ Редирект на homePage (логин) при ошибке авторизации (401)
+  // До ответа сервера — последнее известное значение из cookie,
+  // чтобы раскладка не «прыгала» при перезагрузке страницы.
+  const cookieLayout: NavigationLayout | null = useMemo(
+    () => readNavigationLayoutCookie(),
+    [],
+  );
+  const effectiveLayout: NavigationLayout = isRestored
+    ? layout
+    : (cookieLayout ?? NavigationPreferenceSchemaLayout.sidebar);
+
   useEffect(() => {
     if (isAuthError) {
       navigate("/", { replace: true });
-      // navigate("/auth/login", { replace: true });
     }
   }, [isAuthError, navigate]);
 
-  const handlePositionChange = (position: LayoutPosition) => {
-    setLayoutPosition(position);
-    try {
-      localStorage.setItem(STORAGE_KEY, position);
-    } catch {
-      // Игнорируем ошибки записи
-    }
-  };
-
-  // ✅ Показываем загрузку, пока проверяем авторизацию
   if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -222,8 +185,15 @@ export const AppLayout = () => {
     );
   }
 
-  // ✅ В этом блоке TypeScript знает, что layoutPosition === "top"
-  if (layoutPosition === "top") {
+  const footer = (
+    <footer className="border-t bg-background py-3 mt-auto">
+      <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
+        © 2026 Cool ERP. Все права защищены.
+      </div>
+    </footer>
+  );
+
+  if (effectiveLayout === NavigationPreferenceSchemaLayout.topbar) {
     return (
       <div className="min-h-screen flex flex-col">
         <div className="border-b bg-card shadow-sm">
@@ -237,19 +207,15 @@ export const AppLayout = () => {
           <Outlet />
         </main>
         <PositionSwitcher
-          current={layoutPosition}
-          onChange={handlePositionChange}
+          current={effectiveLayout}
+          onChange={setLayout}
+          disabled={!isRestored}
         />
-        <footer className="border-t bg-background py-3 mt-auto">
-          <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
-            © 2026 Cool ERP. Все права защищены.
-          </div>
-        </footer>
+        {footer}
       </div>
     );
   }
 
-  // ✅ В этом блоке TypeScript автоматически сужает тип layoutPosition до "left"
   return (
     <div className="min-h-screen flex">
       <Sidebar />
@@ -264,15 +230,23 @@ export const AppLayout = () => {
           <Outlet />
         </main>
         <PositionSwitcher
-          current={layoutPosition}
-          onChange={handlePositionChange}
+          current={effectiveLayout}
+          onChange={setLayout}
+          disabled={!isRestored}
         />
-        <footer className="border-t bg-background py-3 mt-auto">
-          <div className="container mx-auto px-4 text-center text-xs text-muted-foreground">
-            © 2026 Cool ERP. Все права защищены.
-          </div>
-        </footer>
+        {footer}
       </div>
     </div>
   );
 };
+
+/**
+ * Провайдер настроек — ЕДИНСТВЕННЫЙ экземпляр над всем макетом.
+ * Раньше он оборачивал только <Outlet />, поэтому ThemeToggle в шапке
+ * работал от отдельного источника и смена темы не сохранялась в БД.
+ */
+export const AppLayout = () => (
+  <UiPreferencesProvider>
+    <AppLayoutInner />
+  </UiPreferencesProvider>
+);

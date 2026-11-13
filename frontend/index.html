@@ -8,26 +8,57 @@
     <script>
       (function () {
         try {
-          var theme = localStorage.getItem("cool-erp-theme");
-          var lightPalette = localStorage.getItem("cool-erp-light-palette");
+          var pairs = document.cookie.split("; ");
+          function cookie(name) {
+            for (var i = 0; i < pairs.length; i++) {
+              if (pairs[i].indexOf(name + "=") === 0) {
+                return decodeURIComponent(pairs[i].slice(name.length + 1));
+              }
+            }
+            return null;
+          }
+          // Миграция: пока cookie не заведены, берём прежний выбор из localStorage.
+          function legacy(name) {
+            try {
+              return window.localStorage.getItem(name);
+            } catch (e) {
+              return null;
+            }
+          }
+          var PALETTES = [
+            "sepia",
+            "onedark",
+            "nord",
+            "ghdimmed",
+            "catppuccin",
+            "solarized",
+          ];
+          var theme = cookie("cool-erp-theme") || legacy("cool-erp-theme");
+          var lightPalette =
+            cookie("cool-erp-light-palette") ||
+            legacy("cool-erp-light-palette");
           var darkPalette =
-            localStorage.getItem("cool-erp-dark-palette") ||
-            localStorage.getItem("cool-erp-palette");
-
+            cookie("cool-erp-dark-palette") ||
+            legacy("cool-erp-dark-palette") ||
+            legacy("cool-erp-palette");
           var dark;
           if (theme === "dark") dark = true;
           else if (theme === "light") dark = false;
           else dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-
+          var palette = dark ? darkPalette : lightPalette;
           var root = document.documentElement;
-          if (dark) {
-            root.classList.add("dark");
-            if (darkPalette && darkPalette !== "default") {
-              root.classList.add("palette-" + darkPalette);
-            }
-          } else if (lightPalette && lightPalette !== "default") {
-            root.classList.add("palette-" + lightPalette);
+          root.classList.toggle("dark", dark);
+          for (var i = 0; i < PALETTES.length; i++) {
+            root.classList.remove("palette-" + PALETTES[i]);
           }
+          if (
+            palette &&
+            palette !== "default" &&
+            PALETTES.indexOf(palette) !== -1
+          ) {
+            root.classList.add("palette-" + palette);
+          }
+          root.style.colorScheme = dark ? "dark" : "light";
         } catch (e) {}
       })();
     </script>

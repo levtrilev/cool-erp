@@ -1,5 +1,6 @@
+// frontend/src/core/notes/NotesPage.tsx
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Plus,
   Trash2,
@@ -41,9 +42,11 @@ import {
   useAcquireNoteLockNotesNoteIdLockPost,
   useReleaseNoteLockNotesNoteIdLockDelete,
 } from "@/api/generated/notes/notes";
-import { NoteResponseSchema, NoteSortField, SortOrder } from "@/api/generated/coolERP.schemas";
-
-// import { EditNoteModal } from "./EditNoteModal";
+import {
+  NoteResponseSchema,
+  NoteSortField,
+  SortOrder,
+} from "@/api/generated/coolERP.schemas";
 import { EditNoteModal } from "./EditNoteModalLite";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 import { DOC_STATUS_LABELS } from "./schemas";
@@ -54,8 +57,59 @@ import {
   type ColumnStates,
 } from "./ColumnHeaderMenu";
 
+/** Параметры спискового запроса берутся из Orval-функции, имя не угадывается. */
+type NotesListParams = NonNullable<Parameters<typeof getNotesNotesGet>[0]>;
+
+/** Всё, что определяет состав и ПОРЯДОК выборки, кроме пагинации. */
+type NotesQueryFilters = Omit<NotesListParams, "skip" | "limit">;
+
+/** Размер чанка при поиске позиции записи в полном списке. */
+const LOCATE_CHUNK_SIZE = 500;
+
+/** Предохранитель от бесконечного сканирования. */
+const LOCATE_MAX_RECORDS = 20000;
+
+type RecordLocation = { page: number; position: number };
+
+/**
+ * Позиция записи в списке с ТЕМИ ЖЕ фильтрами и сортировкой, что на экране.
+ * Без sort_by/sort_order сервер отдаёт порядок по умолчанию, и номер страницы
+ * вычисляется по другой последовательности — именно это давало неверный переход.
+ * Список обходится чанками, поэтому запись находится и за пределами первой 1000.
+ */
+const locateRecord = async (
+  id: string,
+  filters: NotesQueryFilters,
+  pageSize: number,
+): Promise<RecordLocation | null> => {
+  let skip = 0;
+  let total: number = Number.POSITIVE_INFINITY;
+
+  while (skip < Math.min(total, LOCATE_MAX_RECORDS)) {
+    const response = await getNotesNotesGet({
+      ...filters,
+      skip,
+      limit: LOCATE_CHUNK_SIZE,
+    });
+    const payload = response?.data;
+    const chunk: NoteResponseSchema[] = payload?.items ?? [];
+    total = payload?.total ?? chunk.length;
+
+    const index: number = chunk.findIndex((item) => item.id === id);
+    if (index !== -1) {
+      const absoluteIndex: number = skip + index;
+      return {
+        page: Math.floor(absoluteIndex / pageSize) + 1,
+        position: absoluteIndex + 1,
+      };
+    }
+    if (chunk.length < LOCATE_CHUNK_SIZE) break;
+    skip += chunk.length;
+  }
+  return null;
+};
+
 // ✅ Типобезопасная карта: id колонки меню → enum-значение query-параметра.
-// Исключает касты: ключи ограничены перечислением колонок.
 const SORT_FIELD_BY_COLUMN: Record<string, NoteSortField> = {
   title: NoteSortField.title,
   doc_number: NoteSortField.doc_number,
@@ -103,10 +157,12 @@ const buildInitialColumnStates = (): ColumnStates =>
 export const NotesPage = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
   const [page, setPage] = useState(1);
   const [limit] = useState(15);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteResponseSchema | null>(
     null,
@@ -118,7 +174,7 @@ export const NotesPage = () => {
   const [readOnly, setReadOnly] = useState(false);
   const [readOnlyReason, setReadOnlyReason] = useState<string>("");
 
-  // ✅ Копирование (по образцу AdminRolesPage)
+  // ✅ Копирование
   const [copyingNote, setCopyingNote] = useState<NoteResponseSchema | null>(
     null,
   );
@@ -141,16 +197,13 @@ export const NotesPage = () => {
       null,
     [columnStates],
   );
-  const sortDirection = sortColumnId
-    ? columnStates[sortColumnId].sort
-    : null;
+
+  const sortDirection = sortColumnId ? columnStates[sortColumnId].sort : null;
 
   const strFilter = useCallback(
     (columnId: string): string | undefined => {
       const value = columnStates[columnId]?.filter;
-      return typeof value === "string" && value.length > 0
-        ? value
-        : undefined;
+      return typeof value === "string" && value.length > 0 ? value : undefined;
     },
     [columnStates],
   );
@@ -164,32 +217,50 @@ export const NotesPage = () => {
     [columnStates, sortColumnId],
   );
 
-  // ✅ Все параметры сортировки/фильтрации уходят на сервер
-  const { data, isLoading, refetch } = useGetNotesNotesGet({
-    skip: (page - 1) * limit,
-    limit,
-    search: search || undefined,
-    // ✅ Enum-значения вместо строковых литералов
-    sort_by: sortColumnId ? SORT_FIELD_BY_COLUMN[sortColumnId] : undefined,
-    sort_order: sortColumnId
-      ? sortDirection === "desc"
-        ? SortOrder.desc
-        : SortOrder.asc
-      : undefined,
-    filter_title: strFilter("title"),
-    filter_doc_number: strFilter("doc_number"),
-    filter_doc_date: strFilter("doc_date"),
-    filter_doc_status: strFilter("doc_status"),
-    filter_section_name: strFilter("section_name"),
-    filter_updated_at: strFilter("updated_at"),
-  });
+  // ✅ ЕДИНЫЙ набор условий выборки. Используется и списком, и поиском позиции
+  // после сохранения — иначе порядок записей в них различается и номер
+  // страницы вычисляется неверно.
+  const queryFilters: NotesQueryFilters = useMemo(
+    () => ({
+      search: search || undefined,
+      sort_by: sortColumnId ? SORT_FIELD_BY_COLUMN[sortColumnId] : undefined,
+      sort_order: sortColumnId
+        ? sortDirection === "desc"
+          ? SortOrder.desc
+          : SortOrder.asc
+        : undefined,
+      filter_title: strFilter("title"),
+      filter_doc_number: strFilter("doc_number"),
+      filter_doc_date: strFilter("doc_date"),
+      filter_doc_status: strFilter("doc_status"),
+      filter_section_name: strFilter("section_name"),
+      filter_updated_at: strFilter("updated_at"),
+    }),
+    [search, sortColumnId, sortDirection, strFilter],
+  );
+
+  // keepPreviousData удерживает строки на время запроса новой страницы:
+  // переход к сохранённой записи не мигает пустой таблицей.
+  const { data, isLoading, refetch } = useGetNotesNotesGet(
+    {
+      skip: (page - 1) * limit,
+      limit,
+      ...queryFilters,
+    },
+    { query: { placeholderData: keepPreviousData } },
+  );
+
   const deleteMutation = useDeleteNoteNotesNoteIdDelete();
   const acquireLockMutation = useAcquireNoteLockNotesNoteIdLockPost();
   const releaseLockMutation = useReleaseNoteLockNotesNoteIdLockDelete();
 
-  const items = data?.data?.items ?? [];
-  const total = data?.data?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
+  // ✅ Правило №46, п. 2.3: ссылка на список стабильна для зависимостей эффекта.
+  const items: NoteResponseSchema[] = useMemo(
+    () => data?.data?.items ?? [],
+    [data?.data?.items],
+  );
+  const total: number = data?.data?.total ?? 0;
+  const totalPages: number = Math.max(1, Math.ceil(total / limit));
 
   // ✅ Обработчик меню колонки: одна сортировка на таблицу + сброс страницы
   const handleColumnChange = useCallback(
@@ -200,7 +271,6 @@ export const NotesPage = () => {
           [columnId]: { ...prev[columnId], ...patch },
         };
         if (patch.sort !== undefined && patch.sort !== null) {
-          // Сортировка только по одной колонке одновременно
           for (const key of Object.keys(next)) {
             if (key !== columnId) {
               next[key] = { ...next[key], sort: null };
@@ -220,51 +290,85 @@ export const NotesPage = () => {
   }, []);
 
   // ============================================================
-  // ОБРАБОТЧИКИ (сохранение, удаление, блокировки, копирование)
+  // СОХРАНЕНИЕ: определение фактической страницы записи
   // ============================================================
   const handleSaved = useCallback(
-    async (id: string, title?: string) => {
+    async (id: string, title?: string): Promise<void> => {
+      // 1. Инвалидация кэша до любых переходов (Правило №24)
       await queryClient.invalidateQueries({ queryKey: ["notes"] });
-      await refetch();
-      const currentItems = data?.data?.items ?? [];
+
+      // 2. ✅ Состав страницы берётся из результата refetch(), а НЕ из data
+      //    в замыкании: там снимок ДО сохранения, где запись ещё на месте.
+      const refreshed = await refetch();
+      const currentItems: NoteResponseSchema[] =
+        refreshed.data?.data?.items ?? [];
+
       if (currentItems.some((item) => item.id === id)) {
         setHighlightedNoteId(id);
-        setTimeout(() => setHighlightedNoteId(null), 3000);
         toast({ title: "Успешно сохранено" });
-      } else {
-        try {
-          const fullList = await getNotesNotesGet({
-            limit: 1000,
-            skip: 0,
-            search: search || undefined,
-          });
-          const foundIndex = (fullList?.data?.items ?? []).findIndex(
-            (item) => item.id === id,
-          );
-          if (foundIndex !== -1) {
-            const targetPage = Math.ceil((foundIndex + 1) / limit);
-            setPage(targetPage);
-            setHighlightedNoteId(id);
-            setTimeout(() => setHighlightedNoteId(null), 3000);
-            toast({
-              title: "Сохранено",
-              description: `Запись «${title ?? ""}» на странице ${targetPage}`,
-            });
-          }
-        } catch (error: unknown) {
-          const err = error as { response?: { data?: { detail?: string } } };
+        return;
+      }
+
+      // 3. Записи на текущей странице нет — ищем её позицию в том же
+      //    порядке и с теми же фильтрами, которые видит пользователь.
+      try {
+        const location: RecordLocation | null = await locateRecord(
+          id,
+          queryFilters,
+          limit,
+        );
+
+        if (location === null) {
+          // После правки запись могла выпасть из фильтра/поиска или стать
+          // невидимой по правам — пользователь должен получить обратную связь.
           toast({
-            variant: "destructive",
-            title: "Ошибка навигации",
-            description:
-              err?.response?.data?.detail || "Не удалось найти запись",
+            title: "Сохранено",
+            description: hasActiveFiltersOrSort
+              ? "Запись не отображается в текущем списке: она не подходит под активные фильтры или условия поиска."
+              : "Запись не найдена в списке. Обновите страницу.",
           });
+          return;
         }
+
+        const targetPage: number = location.page;
+        toast({
+          title: "Сохранено",
+          description: `Запись «${title ?? ""}» теперь на странице ${targetPage} (позиция ${location.position}).`,
+          action: (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPage(targetPage);
+                setHighlightedNoteId(id);
+              }}
+            >
+              Перейти
+            </Button>
+          ),
+        });
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { detail?: string } } };
+        toast({
+          variant: "destructive",
+          title: "Ошибка навигации",
+          description:
+            err?.response?.data?.detail ||
+            "Не удалось определить страницу записи",
+        });
       }
     },
-    [data, limit, search, toast, refetch, queryClient],
+    [
+      queryClient,
+      refetch,
+      queryFilters,
+      limit,
+      toast,
+      hasActiveFiltersOrSort,
+    ],
   );
 
+  // ✅ Правило №25: refetch после удаления + безопасная обработка ошибок
   const handleDelete = async () => {
     if (!deleteNoteId) return;
     try {
@@ -284,6 +388,7 @@ export const NotesPage = () => {
 
   const openEdit = async (item: NoteResponseSchema) => {
     setEditingNote(item);
+
     if (item.is_editing_locked) {
       setReadOnly(true);
       setReadOnlyReason(
@@ -292,6 +397,7 @@ export const NotesPage = () => {
       setIsModalOpen(true);
       return;
     }
+
     try {
       await acquireLockMutation.mutateAsync({ noteId: item.id });
       setReadOnly(false);
@@ -302,6 +408,7 @@ export const NotesPage = () => {
         response?: { status?: number; data?: { detail?: string } };
       };
       const status = err?.response?.status;
+
       if (status === 403) {
         setReadOnly(true);
         setReadOnlyReason(
@@ -358,15 +465,17 @@ export const NotesPage = () => {
     }
   };
 
+  // ✅ Правило №17: единственный таймер подсветки. Ручные setTimeout удалены —
+  // они дублировали этот эффект и сбрасывали подсветку до загрузки новой страницы.
   useEffect(() => {
     if (
       highlightedNoteId &&
-      data?.data?.items?.some((i) => i.id === highlightedNoteId)
+      items.some((item) => item.id === highlightedNoteId)
     ) {
       const timer = setTimeout(() => setHighlightedNoteId(null), 3000);
       return () => clearTimeout(timer);
     }
-  }, [data, highlightedNoteId]);
+  }, [items, highlightedNoteId]);
 
   const openCreate = () => {
     setEditingNote(null);
@@ -417,7 +526,7 @@ export const NotesPage = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Заметки</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
             Всего: {total}
           </p>
         </div>
@@ -547,7 +656,9 @@ export const NotesPage = () => {
                     >
                       <div className="truncate">
                         {(
-                          item as NoteResponseSchema & { section_name?: string }
+                          item as NoteResponseSchema & {
+                            section_name?: string;
+                          }
                         ).section_name ?? "—"}
                       </div>
                     </TableCell>
@@ -590,7 +701,7 @@ export const NotesPage = () => {
         </div>
       )}
 
-      {/* ✅ Пагинация по образцу AdminRolesPage (Правило №15) */}
+      {/* ✅ Пагинация */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 mt-3">
           <Button
@@ -599,6 +710,7 @@ export const NotesPage = () => {
             className="h-8 w-8 p-0"
             disabled={page === 1}
             onClick={() => setPage(1)}
+            aria-label="Первая страница"
           >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
@@ -608,6 +720,7 @@ export const NotesPage = () => {
             className="h-8 w-8 p-0"
             disabled={page === 1}
             onClick={() => setPage(page - 1)}
+            aria-label="Предыдущая страница"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -620,8 +733,9 @@ export const NotesPage = () => {
                 key={pageNum}
                 size="sm"
                 variant={page === pageNum ? "default" : "outline"}
-                className="h-8 w-8 p-0"
+                className="h-8 w-8 p-0 tabular-nums"
                 onClick={() => setPage(pageNum)}
+                aria-current={page === pageNum ? "page" : undefined}
               >
                 {pageNum}
               </Button>
@@ -633,6 +747,7 @@ export const NotesPage = () => {
             className="h-8 w-8 p-0"
             disabled={page === totalPages}
             onClick={() => setPage(page + 1)}
+            aria-label="Следующая страница"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -642,6 +757,7 @@ export const NotesPage = () => {
             className="h-8 w-8 p-0"
             disabled={page === totalPages}
             onClick={() => setPage(totalPages)}
+            aria-label="Последняя страница"
           >
             <ChevronsRight className="h-4 w-4" />
           </Button>
@@ -657,7 +773,7 @@ export const NotesPage = () => {
         readOnlyReason={readOnlyReason}
       />
 
-      {/* ✅ Модалка копирования (по образцу AdminRolesPage) */}
+      {/* ✅ Модалка копирования */}
       {isCopyOpen && copyingNote && (
         <EditNoteModal
           key={`copy-${copyingNote.id}`}
