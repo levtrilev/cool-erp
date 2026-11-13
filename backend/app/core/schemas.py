@@ -1,5 +1,6 @@
 from typing import TypeVar, Generic, List, Optional
 from pydantic import BaseModel, ConfigDict
+from enum import Enum
 
 T = TypeVar('T')
 
@@ -21,3 +22,7 @@ class ApiResponse(BaseModel, Generic[T]):
     data: Optional[T] = None
     
     model_config = ConfigDict(from_attributes=True)
+
+class SortOrder(str, Enum):
+    ASC = "asc"
+    DESC = "desc"

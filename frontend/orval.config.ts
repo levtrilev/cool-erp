@@ -1,38 +1,33 @@
 import { defineConfig } from "orval";
 
 export default defineConfig({
-  // 1. Генерация HTTP-клиентов и типов (React Query)
+  // 1. HTTP-клиенты и типы (React Query)
   api: {
-    input: './openapi.json',
-    // input: {
-    //   target: "http://localhost:8000/openapi.json", // ✅ ЖИВОЙ СЕРВЕР
-    // },
+    input: "./openapi.json",
     output: {
       mode: "tags-split",
       target: "./src/api/generated",
       client: "react-query",
+      httpClient: "axios", // ✅ Пункт 2 миграции: согласуем с axios-мутатором
       override: {
         mutator: {
           path: "./src/api/custom-instance.ts",
           name: "customInstance",
         },
-        useNativeEnums: true,
-        useTypeOverInterfaces: true, // ✅ Помогает со сложными вложенными типами. Добавьте useTypeOverInterfaces: true в блок api (и apiZod, если нужно)
+        enumGenerationType: "enum", // ✅ Пункт 6: замена удалённого useNativeEnums (внутри override)
+        useTypeOverInterfaces: true,
       },
     },
   },
 
-  // 2. Генерация Zod-схем (ОТДЕЛЬНЫЙ блок!)
+  // 2. Zod-схемы (отдельный блок)
   apiZod: {
     input: "./openapi.json",
-    // input: {
-    //   target: "http://localhost:8000/openapi.json", // ✅ ЖИВОЙ СЕРВЕР
-    // },
     output: {
       mode: "tags-split",
-      client: "zod", // <-- КРИТИЧЕСКИ ВАЖНО: говорим генерировать именно Zod
+      client: "zod",
       target: "./src/api/generated/zod",
-      fileExtension: ".schema.ts", // Чтобы файлы не конфликтовали с обычными типами
+      fileExtension: ".schema.ts",
     },
   },
 });

@@ -22,7 +22,7 @@ import {
   useUpdateSectionSectionsSectionIdPut,
 } from "@/api/generated/sections/sections";
 import { readTenantsTenantsGet } from "@/api/generated/tenants/tenants";
-import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SectionResponseSchema } from "@/api/generated/coolERP.schemas";
 
 import { ReferenceSelect } from "@/lib/reusable/ReferenceSelect";
 import {

@@ -23,7 +23,7 @@ import {
 } from "@/api/generated/sales-goods/sales-goods";
 import { getSectionsSectionsGet } from "@/api/generated/sections/sections";
 import { useGetCurrentUserAuthUserGet } from "@/api/generated/authentication/authentication";
-import type { SalesGoodsResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SalesGoodsResponseSchema } from "@/api/generated/coolERP.schemas";
 import {
   ReferenceSelect,
   type ReferenceItem,

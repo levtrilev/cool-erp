@@ -38,7 +38,7 @@ import { EditDoctypeModal } from "@/core/doctypes/EditDoctypeModal";
 import {
   DoctypeResponseSchema,
   DomainResponseSchema,
-} from "@/api/generated/fastAPI.schemas";
+} from "@/api/generated/coolERP.schemas";
 
 // ✅ Правило №41: Zod-схема валидации
 const domainFormSchema = z.object({

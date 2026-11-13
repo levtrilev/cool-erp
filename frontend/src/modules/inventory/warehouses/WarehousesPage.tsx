@@ -43,7 +43,7 @@ import {
   useReleaseWarehouseLockInventoryWarehousesWarehouseIdLockDelete,
   listWarehousesInventoryWarehousesGet,
 } from "@/api/generated/inventory-warehouses/inventory-warehouses";
-import type { InvWarehouseResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { InvWarehouseResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditWarehouseModal } from "./EditWarehouseModal";
 
 export function WarehousesPage() {
@@ -388,7 +388,7 @@ export function WarehousesPage() {
                     <button
                       type="button"
                       onClick={() => openEdit(item)}
-                      className="text-left text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-sm transition-colors"
+                      className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
                       title={item.name}
                     >
                       {/* ✅ Иконка замка при блокировке */}

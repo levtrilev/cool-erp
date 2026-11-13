@@ -9,7 +9,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    
+    "skipLibCheck": true,
     "noEmit": false,
     "emitDeclarationOnly": true,
     "declaration": true,
@@ -19,8 +19,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

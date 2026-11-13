@@ -40,7 +40,7 @@ import {
   useDeleteRoleRolesRoleIdDelete,
   getRolesRolesGet,
 } from "@/api/generated/roles/roles";
-import type { RoleResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { RoleResponseSchema } from "@/api/generated/coolERP.schemas";
 
 import { EditRoleModal } from "@/core/roles/EditRoleModal";
 import { useResizableColumns } from "@/components/hooks/useResizableColumns";
@@ -355,7 +355,7 @@ export function AdminRolesPage() {
                       type="button"
                       onClick={() => handleEdit(role)}
                       title={role.name}
-                      className="block w-full text-left text-blue-600 hover:text-blue-800 hover:underline cursor-pointer font-medium truncate"
+                      className="block w-full text-left text-link hover:text-link-hover focus:ring-link hover:underline cursor-pointer font-medium truncate"
                     >
                       {role.name}
                     </button>

@@ -22,6 +22,7 @@ import { DomainsPage } from "@/core/domains/DomainsPage";
 import { DoctypesPage } from "@/core/doctypes/DoctypesPage";
 import { TagsPage } from "./core/tags/TagsPage";
 import { GoodsPage } from "./modules/sales/goods/GoodsPage";
+import { OrdersPage } from "./modules/sales/orders/OrdersPage";
 import { WarehousesPage } from "./modules/inventory/warehouses/WarehousesPage";
 import { CompaniesPage } from "./modules/business_partners/CompaniesPage";
 import { RegionsPage } from "./modules/sales/regions/RegionsPage";
@@ -34,8 +35,8 @@ const queryClient = new QueryClient({
       // ✅ Умная логика retry: 401/403 — сразу отказ без повторных попыток
       retry: (failureCount, error) => {
         console.log("🔍 Retry check:", { failureCount, error });
-        const status = (error as { response?: { status?: number } })
-          ?.response?.status;
+        const status = (error as { response?: { status?: number } })?.response
+          ?.status;
         if (status === 401 || status === 403) {
           return false; // Мгновенный отказ при потере авторизации
         }
@@ -51,12 +52,14 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
+    // <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/sales/goods" element={<GoodsPage />} />
+            <Route path="/sales/orders" element={<OrdersPage />} />
             <Route path="/inventory/warehouses" element={<WarehousesPage />} />
             <Route
               path="/business-partners/companies"
@@ -144,14 +147,16 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route
-              path="/admin/audit"
-              element={
-                <ProtectedRoute requiredRole="admin">
-                  <AuditPage />
-                </ProtectedRoute>
-              }
-            />
+            {
+              <Route
+                path="/admin/audit"
+                element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AuditPage />
+                  </ProtectedRoute>
+                }
+              />
+            }
             {/* Супер-админ: только для superadmin */}
             <Route
               path="/superadmin"
@@ -169,6 +174,7 @@ function App() {
       </BrowserRouter>
       <Toaster />
     </QueryClientProvider>
+    // </ThemeProvider>
   );
 }
 

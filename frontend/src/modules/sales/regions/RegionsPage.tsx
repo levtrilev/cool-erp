@@ -44,7 +44,7 @@ import {
   useReleaseRegionLockSalesRegionsRegionIdLockDelete,
   listRegionsSalesRegionsGet,
 } from "@/api/generated/sales-regions/sales-regions";
-import type { SalesRegionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SalesRegionResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditRegionModal } from "./EditRegionModal";
 
 export function RegionsPage() {
@@ -444,7 +444,7 @@ export function RegionsPage() {
                     <button
                       type="button"
                       onClick={() => openEdit(item)}
-                      className="text-left text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-sm transition-colors"
+                      className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
                       title={item.name}
                     >
                       {item.is_editing_locked && (

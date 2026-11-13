@@ -13,7 +13,7 @@
 // import { Label } from "@/components/ui/label";
 // import { useToast } from "@/components/ui/use-toast";
 // import { useUpdateSectionSectionsSectionIdPut } from "@/api/generated/sections/sections";
-// import type { SectionResponseSchema } from "@/api/generated/fastAPI.schemas";
+// import type { SectionResponseSchema } from "@/api/generated/coolERP.schemas";
 // // import { Textarea } from "@/components/ui/textarea";
 
 // const sectionSchema = z.object({

@@ -21,7 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
-import type { UserResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { UserResponseSchema } from "@/api/generated/coolERP.schemas";
 
 /**
  * Черновик пользователя (edit-состояние).

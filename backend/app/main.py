@@ -9,6 +9,14 @@ from sqlalchemy import select
 # Импорт обработчиков репликации для регистрации
 from app.modules import register_all_replication_handlers
 
+from app.core.events.replicator import replicator
+import app.core.user_preferences.models  # pyright: ignore[reportUnusedImport] # регистрация модели
+
+# Импорт модулей с обработчиками для регистрации
+# import app.operations.replica.handlers  # noqa: F401
+# import app.sales.replica.handlers       # noqa: F401
+# import app.business_partners.replica.handlers  # noqa: F401
+
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
 import app.core  # pyright: ignore[reportUnusedImport]  # импорт для инициализации моделей (обязательно для Alembic)
@@ -32,7 +40,10 @@ from app.modules.sales.regions.router import router as regions_router
 from app.modules.business_partners.regions_replica.router import (
     router as bp_regions_replica_router,
 )
+from app.modules.sales.orders.router import router as sales_orders_router
 from app.core.events.replicator import replicator
+from app.core.currencies.router import router as currencies_router
+from app.core.user_preferences.router import router as user_preferences_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, dict[str, str | int | bool]] = {}
@@ -86,6 +97,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
+    title="coolERP",
     lifespan=lifespan,
 )
 # print("!!! УСПЕХ: FastAPI инициализирован с openapi_version=3.0.3 !!!")
@@ -105,6 +117,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition"], 
 )
 
+
 # ==========================================
 # РЕГИСТРАЦИЯ РОУТЕРОВ
 # Версия API задаётся ТОЛЬКО здесь через prefix.
@@ -115,6 +128,7 @@ app.add_middleware(
 # ==========================================
 
 # , prefix="/api/v1") - добавить позднее, когда в путях добавятся префиксы
+app.include_router(user_preferences_router)
 app.include_router(tenant_router)
 app.include_router(auth_router)
 app.include_router(audit_router)
@@ -130,3 +144,5 @@ app.include_router(goods_router)
 app.include_router(companies_router)
 app.include_router(regions_router)
 app.include_router(bp_regions_replica_router)
+app.include_router(sales_orders_router)
+app.include_router(currencies_router)

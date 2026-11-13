@@ -16,13 +16,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AxiosError } from "axios";
 
 // Импортируем КОНСТАНТУ Zod-схемы (проверьте точное имя файла в папке zod!)
-import { registerUsersRegisterPostBody } from "@/api/generated/zod/users/users.schema"; 
+import { RegisterUsersRegisterPostBody } from "@/api/generated/zod/users/users.schema";
 
 // Импортируем хук мутации
 import { useRegisterUsersRegisterPost } from "@/api/generated/users/users";
 
 // Выводим тип TypeScript напрямую из Zod-схемы
-type UserRegisterFormValues = z.infer<typeof registerUsersRegisterPostBody>;
+type UserRegisterFormValues = z.input<typeof RegisterUsersRegisterPostBody>;
+type UserRegisterSubmitValues = z.output<typeof RegisterUsersRegisterPostBody>;
 
 // Тип для ошибки от FastAPI
 interface FastAPIValidationError {
@@ -35,37 +36,28 @@ interface FastAPIValidationError {
 
 export const UserRegisterForm = () => {
   const navigate = useNavigate(); // Хук для редиректа
-  
-  const form = useForm<UserRegisterFormValues>({
-    resolver: zodResolver(registerUsersRegisterPostBody),
-    defaultValues: {
-      name: "",
-      email: "",
-      password: "",
-      tenant_id: "",
-    },
-  });
 
+  // const form = useForm<UserRegisterFormValues>({
+  //   resolver: zodResolver(RegisterUsersRegisterPostBody),
+  //   defaultValues: {
+  //     name: "",
+  //     email: "",
+  //     password: "",
+  //     tenant_id: "",
+  //   },
+  // });
+const form = useForm<UserRegisterFormValues, unknown, UserRegisterSubmitValues>({
+  resolver: zodResolver(RegisterUsersRegisterPostBody),
+  defaultValues: {
+    name: "",
+    email: "",
+    tenant_id: "",
+    password: "",
+  },
+});
   const registerMutation = useRegisterUsersRegisterPost();
 
-  // const onSubmit = (data: UserRegisterFormValues) => {
-  //   registerMutation.mutate(
-  //     { data },
-  //     {
-  //       onSuccess: () => {
-  //         console.log("Успешная регистрация!", data);
-  //         form.reset();
-  //         // Редирект на главную страницу после успешной регистрации
-  //         navigate("/");
-  //       },
-  //       onError: (error) => {
-  //         console.error("Ошибка регистрации:", error);
-  //       },
-  //     }
-  //   );
-  // };
-
-  const onSubmit = (data: UserRegisterFormValues) => {
+  const onSubmit = (data: UserRegisterSubmitValues) => {
     registerMutation.mutate(
       { data },
       {
@@ -78,7 +70,7 @@ export const UserRegisterForm = () => {
           // Проверяем, что это ошибка от axios со статусом 422
           if (error instanceof AxiosError && error.response?.status === 422) {
             const errorData = error.response.data as FastAPIValidationError;
-            
+
             // Список всех возможных полей нашей формы для строгой типизации
             const validFieldNames: (keyof UserRegisterFormValues)[] = [
               "name",
@@ -86,14 +78,14 @@ export const UserRegisterForm = () => {
               "password",
               "tenant_id",
             ];
-            
+
             // Проходим по всем ошибкам от бэкенда
             errorData.detail?.forEach((err) => {
               // err.loc обычно выглядит как ["body", "имя_поля"]
               // Нас интересуют только ошибки тела запроса (body)
               if (err.loc[0] === "body") {
                 const fieldName = err.loc[1] as keyof UserRegisterFormValues;
-                
+
                 // Проверяем, что это поле действительно существует в нашей форме
                 if (validFieldNames.includes(fieldName)) {
                   form.setError(fieldName, {
@@ -112,7 +104,7 @@ export const UserRegisterForm = () => {
             });
           }
         },
-      }
+      },
     );
   };
 
@@ -124,7 +116,6 @@ export const UserRegisterForm = () => {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            
             <FormField
               control={form.control}
               name="name"
@@ -146,7 +137,11 @@ export const UserRegisterForm = () => {
                 <FormItem>
                   <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input type="email" placeholder="you@example.com" {...field} />
+                    <Input
+                      type="email"
+                      placeholder="you@example.com"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -174,17 +169,25 @@ export const UserRegisterForm = () => {
                 <FormItem>
                   <FormLabel>Tenant ID (UUID)</FormLabel>
                   <FormControl>
-                    <Input placeholder="123e4567-e89b-12d3-a456-426614174000" {...field} />
+                    <Input
+                      placeholder="123e4567-e89b-12d3-a456-426614174000"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
-            <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
-              {registerMutation.isPending ? "Регистрация..." : "Зарегистрироваться"}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={registerMutation.isPending}
+            >
+              {registerMutation.isPending
+                ? "Регистрация..."
+                : "Зарегистрироваться"}
             </Button>
-            
           </form>
         </Form>
       </CardContent>
@@ -207,7 +210,7 @@ export const UserRegisterForm = () => {
 // import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // // 1. Импортируем КОНСТАНТУ Zod-схемы (проверьте точное имя файла в папке zod!)
-// import { registerAuthRegisterPostBody } from "@/api/generated/zod/authentication/authentication.schema"; 
+// import { registerAuthRegisterPostBody } from "@/api/generated/zod/authentication/authentication.schema";
 
 // // 2. Импортируем хук мутации
 // import { useRegisterAuthRegisterPost } from "@/api/generated/authentication/authentication";
@@ -253,7 +256,7 @@ export const UserRegisterForm = () => {
 //       <CardContent>
 //         <Form {...form}>
 //           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            
+
 //             <FormField
 //               control={form.control}
 //               name="name"
@@ -313,7 +316,7 @@ export const UserRegisterForm = () => {
 //             <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
 //               {registerMutation.isPending ? "Регистрация..." : "Зарегистрироваться"}
 //             </Button>
-            
+
 //           </form>
 //         </Form>
 //       </CardContent>

@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { getDoctypesDoctypesGet } from "@/api/generated/doctypes/doctypes";
-import type { DoctypeResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { DoctypeResponseSchema } from "@/api/generated/coolERP.schemas";
 
 /**
  * Черновик permission (edit-состояние).

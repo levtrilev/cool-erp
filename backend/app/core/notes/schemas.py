@@ -96,8 +96,8 @@ class NoteSortField(str, Enum):
     UPDATED_AT = "updated_at"
 
 
-class SortOrder(str, Enum):
-    """Направление сортировки."""
+# class SortOrder(str, Enum):
+#     """Направление сортировки."""
 
-    ASC = "asc"
-    DESC = "desc"
+#     ASC = "asc"
+#     DESC = "desc"

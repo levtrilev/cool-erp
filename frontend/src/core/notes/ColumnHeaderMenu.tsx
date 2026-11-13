@@ -266,7 +266,7 @@ const FilterInput = ({ column, value, onChange }: FilterInputProps) => {
         <SelectTrigger>
           <SelectValue placeholder="Выберите..." />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent position="popper">
           <SelectItem value="any">Любое</SelectItem>
           {column.options.map((opt) => (
             <SelectItem key={opt.value} value={opt.value}>

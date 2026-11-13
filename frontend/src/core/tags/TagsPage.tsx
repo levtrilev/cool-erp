@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 // import { useQuery } from "@tanstack/react-query";
 import { Loader2, Tag, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,16 +14,22 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/use-toast";
 import { EditUserModal } from "@/core/users/EditUserModal";
-import { TagWithUsersResponseSchema } from "@/api/generated/fastAPI.schemas";
-import { useGetTagsWithUsersUsersTagsGet } from "@/api/generated/users/users";
-import type { UserResponseSchema } from "@/api/generated/fastAPI.schemas";
-import type { TagUserResponseSchema } from "@/api/generated/fastAPI.schemas";
+import { TagWithUsersResponseSchema } from "@/api/generated/coolERP.schemas";
+import {
+  readUserUsersUserIdGet,
+  useGetTagsWithUsersUsersTagsGet,
+} from "@/api/generated/users/users";
+import type { UserResponseSchema } from "@/api/generated/coolERP.schemas";
+import type { TagUserResponseSchema } from "@/api/generated/coolERP.schemas";
 
 export const TagsPage = () => {
   const { toast } = useToast();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [editUser, setEditUser] = useState<TagUserResponseSchema | null>(null);
+  // const [editUser, setEditUser] = useState<TagUserResponseSchema | null>(null);
+  const [editUser, setEditUser] = useState<UserResponseSchema | null>(null);
+  const [isPreparingEditUser, setIsPreparingEditUser] = useState(false);
+
   const [editModalOpen, setEditModalOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useGetTagsWithUsersUsersTagsGet(
@@ -59,6 +65,41 @@ export const TagsPage = () => {
     setEditModalOpen(false);
     setEditUser(null);
   };
+
+  const openEditUser = useCallback(
+    async (tagUser: TagUserResponseSchema) => {
+      setIsPreparingEditUser(true);
+
+      try {
+        const response = await readUserUsersUserIdGet(tagUser.id);
+        const fullUser = response.data;
+
+        if (!fullUser) {
+          throw new Error("Пользователь не найден");
+        }
+
+        setEditUser(fullUser);
+      } catch (error: unknown) {
+        const err = error as {
+          response?: {
+            status?: number;
+            data?: {
+              detail?: string;
+            };
+          };
+        };
+
+        toast({
+          variant: "destructive",
+          title: "Не удалось загрузить пользователя",
+          description:
+            err?.response?.data?.detail ??
+            "Проверьте права доступа или попробуйте позже",
+        });
+      }
+    },
+    [toast],
+  );
 
   return (
     <div className="container mx-auto px-4 py-3">
@@ -135,8 +176,10 @@ export const TagsPage = () => {
                           <button
                             key={user.id}
                             type="button"
+                            disabled={isPreparingEditUser}
                             onClick={() => {
-                              setEditUser(user);
+                              // setEditUser(user);
+                              void openEditUser(user);
                               setEditModalOpen(true);
                             }}
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors cursor-pointer"
@@ -172,7 +215,7 @@ export const TagsPage = () => {
             setEditModalOpen(open);
             if (!open) setEditUser(null);
           }}
-          user={editUser as unknown as UserResponseSchema}
+          user={editUser}
           onUserUpdated={handleUserSaved}
         />
       )}

@@ -28,7 +28,7 @@ import {
   useCreateRegionSalesRegionsPost,
   useUpdateRegionSalesRegionsRegionIdPut,
 } from "@/api/generated/sales-regions/sales-regions";
-import type { SalesRegionResponseSchema } from "@/api/generated/fastAPI.schemas";
+import type { SalesRegionResponseSchema } from "@/api/generated/coolERP.schemas";
 
 // ==================================================================
 // ✅ Спецификация: business_rules.fixed_tenant_and_section

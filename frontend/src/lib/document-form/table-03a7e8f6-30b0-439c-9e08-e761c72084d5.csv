@@ -1,0 +1,6 @@
+﻿До рефакторинга,После рефакторинга
+EditNoteModal.tsx ~450 строк,~120 строк
+Типовые поля прямо в модалке,В DocumentFormShell
+Логика сохранения в onSubmit,В useDocumentSave
+parseTags/joinTags/mapDocStatus локально,В documentFormHelpers
+Бизнес-поля перемешаны с типовыми,NoteCustomFields отдельно

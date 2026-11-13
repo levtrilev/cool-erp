@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, status
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import DBSession, CurrentUser
 from app.core.schemas import ApiResponse, PaginatedResponse
-# from app.core.users.models import UserModel
 from app.modules.inventory.warehouses.crud import (
     crud_warehouse,
     WarehouseNotFoundError,
@@ -43,7 +42,7 @@ async def list_warehouses(
     """Список складов с контролем доступа через AccessService (все 5 слоёв)."""
     items, total = await crud_warehouse.get_multi(
         db,
-        user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+        user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
         is_superadmin=bool(session.is_superadmin),
         skip=skip,
@@ -76,7 +75,7 @@ async def create_warehouse(
         warehouse = await warehouse_service.create(
             db,
             obj_in=data,
-            user=cast(UserProtocol, session),  # ✅ НОВОЕ: для установки author_id
+            user=cast(UserProtocol, session),
             user_id=session.id,
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
@@ -125,7 +124,7 @@ async def get_warehouse(
     warehouse = await crud_warehouse.get_for_user(
         db,
         warehouse_id=warehouse_id,
-        user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+        user=cast(UserProtocol, session),
         tenant_id=session.tenant_id,
         is_superadmin=bool(session.is_superadmin),
     )
@@ -162,7 +161,7 @@ async def update_warehouse(
             db,
             warehouse_id=warehouse_id,
             obj_in=data,
-            user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+            user=cast(UserProtocol, session),
             user_id=session.id,
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
@@ -240,7 +239,7 @@ async def delete_warehouse(
         warehouse = await warehouse_service.delete(
             db,
             warehouse_id=warehouse_id,
-            user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+            user=cast(UserProtocol, session),
             user_id=session.id,
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
@@ -298,7 +297,7 @@ async def acquire_warehouse_lock(
         warehouse = await crud_warehouse.acquire_editing_lock(
             db,
             warehouse_id=warehouse_id,
-            user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+            user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
             user_id=session.id,
             is_superadmin=bool(session.is_superadmin),
@@ -332,7 +331,7 @@ async def release_warehouse_lock(
         warehouse = await crud_warehouse.release_editing_lock(
             db,
             warehouse_id=warehouse_id,
-            user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
+            user=cast(UserProtocol, session),
             tenant_id=session.tenant_id,
             user_id=session.id,
             is_superadmin=bool(session.is_superadmin),

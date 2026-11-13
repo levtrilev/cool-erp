@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 from typing import cast as typing_cast
 
+from app.core.schemas import SortOrder
+
 from app.core.access.service import AccessService, DocumentProtocol
 from app.core.access.schemas import AccessResult, UserProtocol
 from app.core.crud.base import CRUDBase
@@ -24,7 +26,7 @@ from app.core.sections.models import SectionModel, SectionType
 
 from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import and_
-from app.core.notes.schemas import NoteSortField, SortOrder
+from app.core.notes.schemas import NoteSortField
 
 # if TYPE_CHECKING:
 #     from app.core.users.models import UserModel
@@ -53,57 +55,6 @@ class CRUDNote(CRUDBase[NotesModel, NoteCreateSchema, NoteUpdateSchema]):
         access = await access_service.resolve_access(user, note_doc)
         if not access.visible:
             raise NoteNotFoundError("Заметка не найдена")
-
-    # ==================================================================
-    # СПИСОК (ТЗ §2.6 — RLS-семантика: скрытые записи не возвращаются)
-    # ==================================================================
-    # async def get_multi(
-    #     self,
-    #     db: AsyncSession,
-    #     *,
-    #     user: UserProtocol,
-    #     tenant_id: uuid.UUID,
-    #     is_superadmin: bool = False,
-    #     skip: int = 0,
-    #     limit: int = 100,
-    #     search: str | None = None,
-    # ) -> tuple[list[NotesModel], int]:
-    #     """
-    #     Список заметок с контролем доступа через AccessService.
-    #     Фильтр включает ВСЕ 5 слоёв ТЗ RBAC/ABAC §3:
-    #       Слой 1 (тенант) + Слой 2 (разделы роли) + Слой 3 (doctype/permission)
-    #       + Слой 4 (теги) + Слой 5 (уровень ≥ 1 для видимости).
-    #     """
-    #     model = self.model
-    #     base_where = model.deleted_at.is_(None)
-
-    #     # ✅ КРИТИЧНО: SQL-фильтр видимости через AccessService
-    #     access_service = AccessService(db)
-    #     access_filter = await access_service.build_access_filter(user, model)
-    #     if access_filter is None:
-    #         return [], 0
-
-    #     stmt = select(model).where(base_where, access_filter)
-    #     count_stmt = (
-    #         select(func.count())
-    #         .select_from(model)
-    #         .where(base_where, access_filter)
-    #     )
-
-    #     # Поиск по тексту (применяется поверх фильтра доступа)
-    #     if search:
-    #         pattern: str = f"%{search}%"
-    #         search_cond = or_(
-    #             model.title.ilike(pattern),
-    #             model.content.ilike(pattern),
-    #         )
-    #         stmt = stmt.where(search_cond)
-    #         count_stmt = count_stmt.where(search_cond)
-
-    #     total: int = (await db.execute(count_stmt)).scalar_one() or 0
-    #     stmt = stmt.order_by(model.created_at.desc(), model.id.desc()).offset(skip).limit(limit)
-    #     items: list[NotesModel] = list((await db.execute(stmt)).scalars().all())
-    #     return items, total
 
     # ==================================================================
     # СПИСОК (ТЗ §2.6 — RLS-семантика) + СОРТИРОВКА + ФИЛЬТРЫ (SQL-уровень)

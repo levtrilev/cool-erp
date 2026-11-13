@@ -5,6 +5,7 @@ from typing import cast as typing_cast
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.schemas import SortOrder, ApiResponse, PaginatedResponse
 from app.core.access.schemas import UserProtocol
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.notes.crud import crud_note
@@ -21,10 +22,8 @@ from app.core.notes.schemas import (
     NoteResponseSchema,
     NoteUpdateSchema,
     NoteSortField,
-    SortOrder,
 )
 from app.core.audit.utils import get_entity_name
-from app.core.schemas import ApiResponse, PaginatedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +78,7 @@ async def get_notes(
         message="Заметки получены",
         data=paginated,
     )
+
 
 @router.get("/{note_id}", response_model=ApiResponse[NoteResponseSchema])
 async def get_note(

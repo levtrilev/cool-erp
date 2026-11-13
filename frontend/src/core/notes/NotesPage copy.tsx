@@ -1,6 +1,18 @@
-// import { useState, useEffect, useCallback } from "react";
-// import { useQueryClient } from "@tanstack/react-query";
-// import { Plus, Trash2, Search, Loader2, Lock } from "lucide-react";
+// // frontend/src/core/notes/NotesPage.tsx
+// import { useState, useEffect, useCallback, useMemo } from "react";
+// import { useQueryClient, keepPreviousData } from "@tanstack/react-query";
+// import {
+//   Plus,
+//   Trash2,
+//   Search,
+//   Loader2,
+//   Lock,
+//   Copy,
+//   ChevronLeft,
+//   ChevronRight,
+//   ChevronsLeft,
+//   ChevronsRight,
+// } from "lucide-react";
 // import { Button } from "@/components/ui/button";
 // import { Input } from "@/components/ui/input";
 // import {
@@ -23,7 +35,6 @@
 // } from "@/components/ui/alert-dialog";
 // import { Badge } from "@/components/ui/badge";
 // import { useToast } from "@/components/ui/use-toast";
-
 // import {
 //   useGetNotesNotesGet,
 //   useDeleteNoteNotesNoteIdDelete,
@@ -31,11 +42,102 @@
 //   useAcquireNoteLockNotesNoteIdLockPost,
 //   useReleaseNoteLockNotesNoteIdLockDelete,
 // } from "@/api/generated/notes/notes";
-// import type { NoteResponseSchema } from "@/api/generated/fastAPI.schemas";
-
-// import { EditNoteModal } from "./EditNoteModal";
+// import {
+//   NoteResponseSchema,
+//   NoteSortField,
+//   SortOrder,
+// } from "@/api/generated/coolERP.schemas";
+// import { EditNoteModal } from "./EditNoteModalLite";
 // import { useResizableColumns } from "@/components/hooks/useResizableColumns";
 // import { DOC_STATUS_LABELS } from "./schemas";
+// import {
+//   ColumnHeaderMenu,
+//   type ColumnDef,
+//   type ColumnState,
+//   type ColumnStates,
+// } from "./ColumnHeaderMenu";
+
+// /** Параметры спискового запроса берутся из Orval-функции, имя не угадывается. */
+// type NotesListParams = NonNullable<Parameters<typeof getNotesNotesGet>[0]>;
+
+// /** Всё, что определяет состав и ПОРЯДОК выборки, кроме пагинации. */
+// type NotesQueryFilters = Omit<NotesListParams, "skip" | "limit">;
+
+// /** Размер чанка при поиске позиции записи в полном списке. */
+// const LOCATE_CHUNK_SIZE = 500;
+
+// /** Предохранитель от бесконечного сканирования. */
+// const LOCATE_MAX_RECORDS = 20000;
+
+// type RecordLocation = { page: number; position: number };
+
+// /**
+//  * Позиция записи в списке с ТЕМИ ЖЕ фильтрами и сортировкой, что на экране.
+//  * Без sort_by/sort_order сервер отдаёт порядок по умолчанию, и номер страницы
+//  * вычисляется по другой последовательности — именно это давало неверный переход.
+//  * Список обходится чанками, поэтому запись находится и за пределами первой 1000.
+//  */
+// const locateRecord = async (
+//   id: string,
+//   filters: NotesQueryFilters,
+//   pageSize: number,
+// ): Promise<RecordLocation | null> => {
+//   let skip = 0;
+//   let total: number = Number.POSITIVE_INFINITY;
+
+//   while (skip < Math.min(total, LOCATE_MAX_RECORDS)) {
+//     const response = await getNotesNotesGet({
+//       ...filters,
+//       skip,
+//       limit: LOCATE_CHUNK_SIZE,
+//     });
+//     const payload = response?.data;
+//     const chunk: NoteResponseSchema[] = payload?.items ?? [];
+//     total = payload?.total ?? chunk.length;
+
+//     const index: number = chunk.findIndex((item) => item.id === id);
+//     if (index !== -1) {
+//       const absoluteIndex: number = skip + index;
+//       return {
+//         page: Math.floor(absoluteIndex / pageSize) + 1,
+//         position: absoluteIndex + 1,
+//       };
+//     }
+//     if (chunk.length < LOCATE_CHUNK_SIZE) break;
+//     skip += chunk.length;
+//   }
+//   return null;
+// };
+
+// // ✅ Типобезопасная карта: id колонки меню → enum-значение query-параметра.
+// const SORT_FIELD_BY_COLUMN: Record<string, NoteSortField> = {
+//   title: NoteSortField.title,
+//   doc_number: NoteSortField.doc_number,
+//   doc_date: NoteSortField.doc_date,
+//   doc_status: NoteSortField.doc_status,
+//   section_name: NoteSortField.section_name,
+//   updated_at: NoteSortField.updated_at,
+// };
+
+// // ============================================================
+// // КОНФИГУРАЦИЯ КОЛОНОК МЕНЮ (сортировка/фильтрация на сервере)
+// // ============================================================
+// const SORT_FILTER_COLUMNS: ColumnDef[] = [
+//   { id: NoteSortField.title, label: "Название", type: "string" },
+//   { id: NoteSortField.doc_number, label: "Номер", type: "string" },
+//   { id: NoteSortField.doc_date, label: "Дата", type: "date" },
+//   {
+//     id: NoteSortField.doc_status,
+//     label: "Статус",
+//     type: "select",
+//     options: Object.entries(DOC_STATUS_LABELS).map(([value, label]) => ({
+//       value,
+//       label,
+//     })),
+//   },
+//   { id: NoteSortField.section_name, label: "Раздел", type: "string" },
+//   { id: NoteSortField.updated_at, label: "Обновлено", type: "date" },
+// ];
 
 // const COLUMNS = [
 //   { id: "title", initialWidth: 250, minWidth: 150 },
@@ -44,8 +146,13 @@
 //   { id: "doc_status", initialWidth: 130, minWidth: 100 },
 //   { id: "section_name", initialWidth: 150, minWidth: 100 },
 //   { id: "updated_at", initialWidth: 160, minWidth: 120 },
-//   { id: "actions", initialWidth: 80, minWidth: 60 },
+//   { id: "actions", initialWidth: 100, minWidth: 80 },
 // ];
+
+// const buildInitialColumnStates = (): ColumnStates =>
+//   Object.fromEntries(
+//     SORT_FILTER_COLUMNS.map((c) => [c.id, { sort: null, filter: null }]),
+//   );
 
 // export const NotesPage = () => {
 //   const { toast } = useToast();
@@ -55,6 +162,7 @@
 //   const [limit] = useState(15);
 //   const [searchInput, setSearchInput] = useState("");
 //   const [search, setSearch] = useState("");
+
 //   const [isModalOpen, setIsModalOpen] = useState(false);
 //   const [editingNote, setEditingNote] = useState<NoteResponseSchema | null>(
 //     null,
@@ -63,73 +171,204 @@
 //   const [highlightedNoteId, setHighlightedNoteId] = useState<string | null>(
 //     null,
 //   );
-// // ✅ Состояние для режима только чтения и причины
-// const [readOnly, setReadOnly] = useState(false);
-// const [readOnlyReason, setReadOnlyReason] = useState<string>("");
+//   const [readOnly, setReadOnly] = useState(false);
+//   const [readOnlyReason, setReadOnlyReason] = useState<string>("");
+
+//   // ✅ Копирование
+//   const [copyingNote, setCopyingNote] = useState<NoteResponseSchema | null>(
+//     null,
+//   );
+//   const [isCopyOpen, setIsCopyOpen] = useState(false);
+
+//   // ✅ Состояния меню колонок (сортировка/фильтры уходят на сервер)
+//   const [columnStates, setColumnStates] = useState<ColumnStates>(
+//     buildInitialColumnStates,
+//   );
 
 //   const { widths, handleMouseDown, resetWidths } = useResizableColumns(
 //     COLUMNS,
 //     "notes-table-widths",
 //   );
 
-//   const { data, isLoading, refetch } = useGetNotesNotesGet({
-//     skip: (page - 1) * limit,
-//     limit,
-//     search: search || undefined,
-//   });
+//   // ✅ Производные значения через useMemo (Правило №46)
+//   const sortColumnId = useMemo(
+//     () =>
+//       Object.keys(columnStates).find((id) => columnStates[id].sort !== null) ??
+//       null,
+//     [columnStates],
+//   );
+
+//   const sortDirection = sortColumnId ? columnStates[sortColumnId].sort : null;
+
+//   const strFilter = useCallback(
+//     (columnId: string): string | undefined => {
+//       const value = columnStates[columnId]?.filter;
+//       return typeof value === "string" && value.length > 0 ? value : undefined;
+//     },
+//     [columnStates],
+//   );
+
+//   const hasActiveFiltersOrSort = useMemo(
+//     () =>
+//       sortColumnId !== null ||
+//       Object.values(columnStates).some(
+//         (s) => s.filter !== null && s.filter !== "",
+//       ),
+//     [columnStates, sortColumnId],
+//   );
+
+//   // ✅ ЕДИНЫЙ набор условий выборки. Используется и списком, и поиском позиции
+//   // после сохранения — иначе порядок записей в них различается и номер
+//   // страницы вычисляется неверно.
+//   const queryFilters: NotesQueryFilters = useMemo(
+//     () => ({
+//       search: search || undefined,
+//       sort_by: sortColumnId ? SORT_FIELD_BY_COLUMN[sortColumnId] : undefined,
+//       sort_order: sortColumnId
+//         ? sortDirection === "desc"
+//           ? SortOrder.desc
+//           : SortOrder.asc
+//         : undefined,
+//       filter_title: strFilter("title"),
+//       filter_doc_number: strFilter("doc_number"),
+//       filter_doc_date: strFilter("doc_date"),
+//       filter_doc_status: strFilter("doc_status"),
+//       filter_section_name: strFilter("section_name"),
+//       filter_updated_at: strFilter("updated_at"),
+//     }),
+//     [search, sortColumnId, sortDirection, strFilter],
+//   );
+
+//   // keepPreviousData удерживает строки на время запроса новой страницы:
+//   // переход к сохранённой записи не мигает пустой таблицей.
+//   const { data, isLoading, refetch } = useGetNotesNotesGet(
+//     {
+//       skip: (page - 1) * limit,
+//       limit,
+//       ...queryFilters,
+//     },
+//     { query: { placeholderData: keepPreviousData } },
+//   );
 
 //   const deleteMutation = useDeleteNoteNotesNoteIdDelete();
 //   const acquireLockMutation = useAcquireNoteLockNotesNoteIdLockPost();
 //   const releaseLockMutation = useReleaseNoteLockNotesNoteIdLockDelete();
 
-//   const items = data?.data?.items ?? [];
-//   const total = data?.data?.total ?? 0;
-//   const totalPages = Math.max(1, Math.ceil(total / limit));
+//   // ✅ Правило №46, п. 2.3: ссылка на список стабильна для зависимостей эффекта.
+//   const items: NoteResponseSchema[] = useMemo(
+//     () => data?.data?.items ?? [],
+//     [data?.data?.items],
+//   );
+//   const total: number = data?.data?.total ?? 0;
+//   const totalPages: number = Math.max(1, Math.ceil(total / limit));
 
-//   const handleSaved = useCallback(
-//     async (id: string, title?: string) => {
-//       await queryClient.invalidateQueries({ queryKey: ["notes"] });
-//       await refetch();
-
-//       const currentItems = data?.data?.items ?? [];
-//       if (currentItems.some((item) => item.id === id)) {
-//         setHighlightedNoteId(id);
-//         setTimeout(() => setHighlightedNoteId(null), 3000);
-//         toast({ title: "Успешно сохранено" });
-//       } else {
-//         try {
-//           const fullList = await getNotesNotesGet({
-//             limit: 1000,
-//             skip: 0,
-//             search: search || undefined,
-//           });
-//           const foundIndex = (fullList?.data?.items ?? []).findIndex(
-//             (item) => item.id === id,
-//           );
-//           if (foundIndex !== -1) {
-//             const targetPage = Math.ceil((foundIndex + 1) / limit);
-//             setPage(targetPage);
-//             setHighlightedNoteId(id);
-//             setTimeout(() => setHighlightedNoteId(null), 3000);
-//             toast({
-//               title: "Сохранено",
-//               description: `Запись «${title ?? ""}» на странице ${targetPage}`,
-//             });
+//   // ✅ Обработчик меню колонки: одна сортировка на таблицу + сброс страницы
+//   const handleColumnChange = useCallback(
+//     (columnId: string, patch: Partial<ColumnState>) => {
+//       setColumnStates((prev) => {
+//         const next: ColumnStates = {
+//           ...prev,
+//           [columnId]: { ...prev[columnId], ...patch },
+//         };
+//         if (patch.sort !== undefined && patch.sort !== null) {
+//           for (const key of Object.keys(next)) {
+//             if (key !== columnId) {
+//               next[key] = { ...next[key], sort: null };
+//             }
 //           }
-//         } catch (error: unknown) {
-//           const err = error as { response?: { data?: { detail?: string } } };
-//           toast({
-//             variant: "destructive",
-//             title: "Ошибка навигации",
-//             description:
-//               err?.response?.data?.detail || "Не удалось найти запись",
-//           });
 //         }
-//       }
+//         return next;
+//       });
+//       setPage(1);
 //     },
-//     [data, limit, search, toast, refetch, queryClient],
+//     [],
 //   );
 
+//   const resetFiltersAndSort = useCallback(() => {
+//     setColumnStates(buildInitialColumnStates());
+//     setPage(1);
+//   }, []);
+
+//   // ============================================================
+//   // СОХРАНЕНИЕ: определение фактической страницы записи
+//   // ============================================================
+//   const handleSaved = useCallback(
+//     async (id: string, title?: string): Promise<void> => {
+//       // 1. Инвалидация кэша до любых переходов (Правило №24)
+//       await queryClient.invalidateQueries({ queryKey: ["notes"] });
+
+//       // 2. ✅ Состав страницы берётся из результата refetch(), а НЕ из data
+//       //    в замыкании: там снимок ДО сохранения, где запись ещё на месте.
+//       const refreshed = await refetch();
+//       const currentItems: NoteResponseSchema[] =
+//         refreshed.data?.data?.items ?? [];
+
+//       if (currentItems.some((item) => item.id === id)) {
+//         setHighlightedNoteId(id);
+//         toast({ title: "Успешно сохранено" });
+//         return;
+//       }
+
+//       // 3. Записи на текущей странице нет — ищем её позицию в том же
+//       //    порядке и с теми же фильтрами, которые видит пользователь.
+//       try {
+//         const location: RecordLocation | null = await locateRecord(
+//           id,
+//           queryFilters,
+//           limit,
+//         );
+
+//         if (location === null) {
+//           // После правки запись могла выпасть из фильтра/поиска или стать
+//           // невидимой по правам — пользователь должен получить обратную связь.
+//           toast({
+//             title: "Сохранено",
+//             description: hasActiveFiltersOrSort
+//               ? "Запись не отображается в текущем списке: она не подходит под активные фильтры или условия поиска."
+//               : "Запись не найдена в списке. Обновите страницу.",
+//           });
+//           return;
+//         }
+
+//         const targetPage: number = location.page;
+//         toast({
+//           title: "Сохранено",
+//           description: `Запись «${title ?? ""}» теперь на странице ${targetPage} (позиция ${location.position}).`,
+//           action: (
+//             <Button
+//               variant="outline"
+//               size="sm"
+//               onClick={() => {
+//                 setPage(targetPage);
+//                 setHighlightedNoteId(id);
+//               }}
+//             >
+//               Перейти
+//             </Button>
+//           ),
+//         });
+//       } catch (error: unknown) {
+//         const err = error as { response?: { data?: { detail?: string } } };
+//         toast({
+//           variant: "destructive",
+//           title: "Ошибка навигации",
+//           description:
+//             err?.response?.data?.detail ||
+//             "Не удалось определить страницу записи",
+//         });
+//       }
+//     },
+//     [
+//       queryClient,
+//       refetch,
+//       queryFilters,
+//       limit,
+//       toast,
+//       hasActiveFiltersOrSort,
+//     ],
+//   );
+
+//   // ✅ Правило №25: refetch после удаления + безопасная обработка ошибок
 //   const handleDelete = async () => {
 //     if (!deleteNoteId) return;
 //     try {
@@ -147,22 +386,18 @@
 //     }
 //   };
 
-//   // ✅ Открытие модалки с попыткой захвата блокировки
-//   // ✅ Открытие модалки с попыткой захвата блокировки
 //   const openEdit = async (item: NoteResponseSchema) => {
 //     setEditingNote(item);
 
-//     // ✅ Если документ уже заблокирован — сразу открываем в readOnly
 //     if (item.is_editing_locked) {
 //       setReadOnly(true);
 //       setReadOnlyReason(
-//         "Документ редактируется другим пользователем. Вы можете только просматривать данные."
+//         "Документ редактируется другим пользователем. Вы можете только просматривать данные.",
 //       );
 //       setIsModalOpen(true);
 //       return;
 //     }
 
-//     // ✅ Документ свободен — пытаемся захватить блокировку
 //     try {
 //       await acquireLockMutation.mutateAsync({ noteId: item.id });
 //       setReadOnly(false);
@@ -175,17 +410,15 @@
 //       const status = err?.response?.status;
 
 //       if (status === 403) {
-//         // ✅ Нет прав на изменение (уровень < 2 или раздел «Общий» для не-Суперадмина)
 //         setReadOnly(true);
 //         setReadOnlyReason(
-//           "У вас нет прав на изменение этого документа. Доступен только просмотр."
+//           "У вас нет прав на изменение этого документа. Доступен только просмотр.",
 //         );
 //         setIsModalOpen(true);
 //       } else if (status === 423) {
-//         // ✅ Блокировка захвачена между проверкой и вызовом — открываем в readOnly
 //         setReadOnly(true);
 //         setReadOnlyReason(
-//           "Документ редактируется другим пользователем. Открыт в режиме только для чтения."
+//           "Документ редактируется другим пользователем. Открыт в режиме только для чтения.",
 //         );
 //         setIsModalOpen(true);
 //         toast({
@@ -194,21 +427,30 @@
 //           description: "Документ редактируется другим пользователем.",
 //         });
 //       } else {
-//         // ✅ Иные ошибки — показываем ошибку, модалку не открываем
 //         toast({
 //           variant: "destructive",
 //           title: "Ошибка блокировки",
-//           description: err?.response?.data?.detail || "Не удалось открыть документ",
+//           description:
+//             err?.response?.data?.detail || "Не удалось открыть документ",
 //         });
 //       }
 //     }
 //   };
 
+//   const openCopy = (item: NoteResponseSchema) => {
+//     setCopyingNote(item);
+//     setIsCopyOpen(true);
+//   };
 
-//   // ✅ Освобождение блокировки при закрытии модалки
+//   const handleCopyModalOpenChange = (open: boolean) => {
+//     setIsCopyOpen(open);
+//     if (!open) {
+//       setCopyingNote(null);
+//     }
+//   };
+
 //   const handleModalClose = async (open: boolean) => {
 //     if (!open && editingNote && !readOnly) {
-//       // Освобождаем блокировку только если она была захвачена (не readOnly)
 //       try {
 //         await releaseLockMutation.mutateAsync({ noteId: editingNote.id });
 //       } catch {
@@ -223,15 +465,17 @@
 //     }
 //   };
 
+//   // ✅ Правило №17: единственный таймер подсветки. Ручные setTimeout удалены —
+//   // они дублировали этот эффект и сбрасывали подсветку до загрузки новой страницы.
 //   useEffect(() => {
 //     if (
 //       highlightedNoteId &&
-//       data?.data?.items?.some((i) => i.id === highlightedNoteId)
+//       items.some((item) => item.id === highlightedNoteId)
 //     ) {
 //       const timer = setTimeout(() => setHighlightedNoteId(null), 3000);
 //       return () => clearTimeout(timer);
 //     }
-//   }, [data, highlightedNoteId]);
+//   }, [items, highlightedNoteId]);
 
 //   const openCreate = () => {
 //     setEditingNote(null);
@@ -255,13 +499,48 @@
 //     return new Date(iso).toLocaleDateString("ru-RU");
 //   };
 
+//   // ✅ Рендер заголовка колонки с меню сортировки/фильтра
+//   const renderSortableHeader = (columnId: string) => {
+//     const col = SORT_FILTER_COLUMNS.find((c) => c.id === columnId);
+//     if (!col) return null;
+//     return (
+//       <TableHead
+//         style={{ width: widths[columnId as keyof typeof widths] }}
+//         className="relative"
+//       >
+//         <ColumnHeaderMenu
+//           column={col}
+//           state={columnStates[columnId]}
+//           onChange={handleColumnChange}
+//         />
+//         <div
+//           className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+//           onMouseDown={(e) => handleMouseDown(columnId, e)}
+//         />
+//       </TableHead>
+//     );
+//   };
+
 //   return (
 //     <div className="p-6 space-y-4">
 //       <div className="flex items-center justify-between">
-//         <h1 className="text-2xl font-bold">Заметки</h1>
+//         <div>
+//           <h1 className="text-2xl font-bold">Заметки</h1>
+//           <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+//             Всего: {total}
+//           </p>
+//         </div>
 //         <div className="flex gap-2">
 //           <Button variant="outline" size="sm" onClick={resetWidths}>
 //             Сбросить ширину
+//           </Button>
+//           <Button
+//             variant="outline"
+//             size="sm"
+//             onClick={resetFiltersAndSort}
+//             disabled={!hasActiveFiltersOrSort}
+//           >
+//             Сбросить фильтры/сортировку
 //           </Button>
 //           <Button onClick={openCreate}>
 //             <Plus className="h-4 w-4 mr-2" />
@@ -299,63 +578,12 @@
 //           <Table className="table-fixed w-full">
 //             <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
 //               <TableRow className="h-10 hover:bg-transparent">
-//                 <TableHead style={{ width: widths.title }} className="relative">
-//                   Название
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("title", e)}
-//                   />
-//                 </TableHead>
-//                 <TableHead
-//                   style={{ width: widths.doc_number }}
-//                   className="relative"
-//                 >
-//                   Номер
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("doc_number", e)}
-//                   />
-//                 </TableHead>
-//                 <TableHead
-//                   style={{ width: widths.doc_date }}
-//                   className="relative"
-//                 >
-//                   Дата
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("doc_date", e)}
-//                   />
-//                 </TableHead>
-//                 <TableHead
-//                   style={{ width: widths.doc_status }}
-//                   className="relative"
-//                 >
-//                   Статус
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("doc_status", e)}
-//                   />
-//                 </TableHead>
-//                 <TableHead
-//                   style={{ width: widths.section_name }}
-//                   className="relative"
-//                 >
-//                   Раздел
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("section_name", e)}
-//                   />
-//                 </TableHead>
-//                 <TableHead
-//                   style={{ width: widths.updated_at }}
-//                   className="relative"
-//                 >
-//                   Обновлено
-//                   <div
-//                     className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
-//                     onMouseDown={(e) => handleMouseDown("updated_at", e)}
-//                   />
-//                 </TableHead>
+//                 {renderSortableHeader("title")}
+//                 {renderSortableHeader("doc_number")}
+//                 {renderSortableHeader("doc_date")}
+//                 {renderSortableHeader("doc_status")}
+//                 {renderSortableHeader("section_name")}
+//                 {renderSortableHeader("updated_at")}
 //                 <TableHead
 //                   style={{ width: widths.actions }}
 //                   className="relative"
@@ -371,7 +599,9 @@
 //                     colSpan={7}
 //                     className="text-center py-8 text-muted-foreground"
 //                   >
-//                     Заметки не найдены
+//                     {hasActiveFiltersOrSort || search
+//                       ? "Нет записей, соответствующих условиям"
+//                       : "Заметки не найдены"}
 //                   </TableCell>
 //                 </TableRow>
 //               ) : (
@@ -388,11 +618,10 @@
 //                       style={{ width: widths.title }}
 //                       className="py-1 align-top overflow-hidden"
 //                     >
-//                       {/* ✅ Название как кликабельная ссылка с явным "ссылочным" стилем */}
 //                       <button
 //                         type="button"
 //                         onClick={() => openEdit(item)}
-//                         className="text-left text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded-sm transition-colors"
+//                         className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
 //                         title={item.title}
 //                       >
 //                         {item.is_editing_locked && (
@@ -427,7 +656,9 @@
 //                     >
 //                       <div className="truncate">
 //                         {(
-//                           item as NoteResponseSchema & { section_name?: string }
+//                           item as NoteResponseSchema & {
+//                             section_name?: string;
+//                           }
 //                         ).section_name ?? "—"}
 //                       </div>
 //                     </TableCell>
@@ -442,6 +673,15 @@
 //                       className="py-1 align-top"
 //                     >
 //                       <div className="flex gap-1">
+//                         <Button
+//                           variant="ghost"
+//                           size="icon"
+//                           className="h-7 w-7"
+//                           onClick={() => openCopy(item)}
+//                           title="Копировать"
+//                         >
+//                           <Copy className="h-4 w-4" />
+//                         </Button>
 //                         <Button
 //                           variant="ghost"
 //                           size="icon"
@@ -461,29 +701,66 @@
 //         </div>
 //       )}
 
+//       {/* ✅ Пагинация */}
 //       {totalPages > 1 && (
-//         <div className="flex items-center justify-between">
-//           <span className="text-sm text-muted-foreground">
-//             Всего: {total}. Страница {page} из {totalPages}
-//           </span>
-//           <div className="flex gap-2">
-//             <Button
-//               variant="outline"
-//               size="sm"
-//               disabled={page === 1}
-//               onClick={() => setPage((p) => Math.max(1, p - 1))}
-//             >
-//               Назад
-//             </Button>
-//             <Button
-//               variant="outline"
-//               size="sm"
-//               disabled={page === totalPages}
-//               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-//             >
-//               Вперёд
-//             </Button>
-//           </div>
+//         <div className="flex items-center justify-center gap-1 mt-3">
+//           <Button
+//             size="sm"
+//             variant="outline"
+//             className="h-8 w-8 p-0"
+//             disabled={page === 1}
+//             onClick={() => setPage(1)}
+//             aria-label="Первая страница"
+//           >
+//             <ChevronsLeft className="h-4 w-4" />
+//           </Button>
+//           <Button
+//             size="sm"
+//             variant="outline"
+//             className="h-8 w-8 p-0"
+//             disabled={page === 1}
+//             onClick={() => setPage(page - 1)}
+//             aria-label="Предыдущая страница"
+//           >
+//             <ChevronLeft className="h-4 w-4" />
+//           </Button>
+//           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+//             let pageNum = i + 1;
+//             if (totalPages > 5 && page > 3) pageNum = page - 2 + i;
+//             if (pageNum > totalPages) return null;
+//             return (
+//               <Button
+//                 key={pageNum}
+//                 size="sm"
+//                 variant={page === pageNum ? "default" : "outline"}
+//                 className="h-8 w-8 p-0 tabular-nums"
+//                 onClick={() => setPage(pageNum)}
+//                 aria-current={page === pageNum ? "page" : undefined}
+//               >
+//                 {pageNum}
+//               </Button>
+//             );
+//           })}
+//           <Button
+//             size="sm"
+//             variant="outline"
+//             className="h-8 w-8 p-0"
+//             disabled={page === totalPages}
+//             onClick={() => setPage(page + 1)}
+//             aria-label="Следующая страница"
+//           >
+//             <ChevronRight className="h-4 w-4" />
+//           </Button>
+//           <Button
+//             size="sm"
+//             variant="outline"
+//             className="h-8 w-8 p-0"
+//             disabled={page === totalPages}
+//             onClick={() => setPage(totalPages)}
+//             aria-label="Последняя страница"
+//           >
+//             <ChevronsRight className="h-4 w-4" />
+//           </Button>
 //         </div>
 //       )}
 
@@ -495,6 +772,18 @@
 //         readOnly={readOnly}
 //         readOnlyReason={readOnlyReason}
 //       />
+
+//       {/* ✅ Модалка копирования */}
+//       {isCopyOpen && copyingNote && (
+//         <EditNoteModal
+//           key={`copy-${copyingNote.id}`}
+//           open={isCopyOpen}
+//           onOpenChange={handleCopyModalOpenChange}
+//           initialData={null}
+//           copyFromNote={copyingNote}
+//           onSaved={handleSaved}
+//         />
+//       )}
 
 //       <AlertDialog
 //         open={!!deleteNoteId}
