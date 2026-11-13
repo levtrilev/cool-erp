@@ -47,6 +47,13 @@ import {
 import type { SalesRegionResponseSchema } from "@/api/generated/coolERP.schemas";
 import { EditRegionModal } from "./EditRegionModal";
 
+/** ✅ ТЗ §4.3.3, §5.4: в разделе «Общий» все кроме суперадмина — только чтение. */
+const READ_ONLY_NO_PERMISSION_REASON =
+  "У вас нет прав на редактирование региона. Доступен только просмотр.";
+/** ✅ Правило №39: регион захвачен другим пользователем. */
+const READ_ONLY_LOCKED_REASON =
+  "Регион редактируется другим пользователем. Вы можете только просматривать данные.";
+
 export function RegionsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -62,7 +69,8 @@ export function RegionsPage() {
   const [editingRegion, setEditingRegion] =
     useState<SalesRegionResponseSchema | null>(null);
   const [readOnly, setReadOnly] = useState(false);
-
+  // Причина режима только чтения: нет прав (403) или занят другим пользователем (423).
+  const [readOnlyReason, setReadOnlyReason] = useState<string>("");
   // --- Модалка копирования (без блокировки) ---
   const [copyFromData, setCopyFromData] =
     useState<SalesRegionResponseSchema | null>(null);
@@ -115,13 +123,63 @@ export function RegionsPage() {
     setIsModalOpen(true);
   };
 
-  // ✅ Правило №39: открытие редактирования с проверкой и захватом блокировки
+  // // ✅ Правило №39: открытие редактирования с проверкой и захватом блокировки
+  // const openEdit = async (item: SalesRegionResponseSchema) => {
+  //   setEditingRegion(item);
+
+  //   // 1. Уже заблокирован → открываем в режиме только чтения
+  //   if (item.is_editing_locked) {
+  //     setReadOnly(true);
+  //     setIsModalOpen(true);
+  //     toast({
+  //       variant: "destructive",
+  //       title: "Регион занят",
+  //       description:
+  //         "Регион редактируется другим пользователем. Открыт в режиме только для чтения.",
+  //     });
+  //     return;
+  //   }
+
+  //   // 2. Свободен → захватываем блокировку
+  //   try {
+  //     await acquireLockMutation.mutateAsync({ regionId: item.id });
+  //     setReadOnly(false);
+  //     setIsModalOpen(true);
+  //   } catch (error: unknown) {
+  //     // ✅ Правило №36
+  //     const err = error as {
+  //       response?: { status?: number; data?: { detail?: string } };
+  //     };
+
+  //     if (err?.response?.status === 423) {
+  //       setReadOnly(true);
+  //       setIsModalOpen(true);
+  //       toast({
+  //         variant: "destructive",
+  //         title: "Регион занят",
+  //         description:
+  //           "Регион редактируется другим пользователем. Открыт в режиме только для чтения.",
+  //       });
+  //     } else {
+  //       toast({
+  //         variant: "destructive",
+  //         title: "Ошибка блокировки",
+  //         description:
+  //           err?.response?.data?.detail || "Не удалось открыть регион",
+  //       });
+  //     }
+  //   }
+  // };
+
+  // ✅ Правило №39: открытие редактирования с проверкой и захватом блокировки.
+  // Контракт статусов: 403 — нет права на редактирование (ТЗ §5.4: режим
+  // «только чтение»), 423 — регион заблокирован другим пользователем.
   const openEdit = async (item: SalesRegionResponseSchema) => {
     setEditingRegion(item);
-
     // 1. Уже заблокирован → открываем в режиме только чтения
     if (item.is_editing_locked) {
       setReadOnly(true);
+      setReadOnlyReason(READ_ONLY_LOCKED_REASON);
       setIsModalOpen(true);
       toast({
         variant: "destructive",
@@ -131,20 +189,28 @@ export function RegionsPage() {
       });
       return;
     }
-
     // 2. Свободен → захватываем блокировку
     try {
       await acquireLockMutation.mutateAsync({ regionId: item.id });
       setReadOnly(false);
+      setReadOnlyReason("");
       setIsModalOpen(true);
     } catch (error: unknown) {
       // ✅ Правило №36
       const err = error as {
         response?: { status?: number; data?: { detail?: string } };
       };
-
-      if (err?.response?.status === 423) {
+      const status = err?.response?.status;
+      if (status === 403) {
+        // ✅ ТЗ §4.3.3: в разделе «Общий» все кроме суперадмина — только чтение.
+        // Открываем форму на просмотр без тоста «занят»: причину показывает
+        // алерт внутри модалки, а не сообщение о блокировке.
         setReadOnly(true);
+        setReadOnlyReason(READ_ONLY_NO_PERMISSION_REASON);
+        setIsModalOpen(true);
+      } else if (status === 423) {
+        setReadOnly(true);
+        setReadOnlyReason(READ_ONLY_LOCKED_REASON);
         setIsModalOpen(true);
         toast({
           variant: "destructive",
@@ -164,6 +230,23 @@ export function RegionsPage() {
   };
 
   // ✅ Правило №39: освобождение блокировки при закрытии модалки редактирования
+  // const handleModalClose = async (open: boolean) => {
+  //   if (!open && editingRegion && !readOnly) {
+  //     try {
+  //       await releaseLockMutation.mutateAsync({ regionId: editingRegion.id });
+  //     } catch {
+  //       // Ошибки освобождения игнорируются (таймаут 30 минут снимет блокировку)
+  //     }
+  //   }
+
+  //   setIsModalOpen(open);
+  //   if (!open) {
+  //     setEditingRegion(null);
+  //     setReadOnly(false);
+  //   }
+  // };
+
+  // ✅ Правило №39: освобождение блокировки при закрытии модалки редактирования
   const handleModalClose = async (open: boolean) => {
     if (!open && editingRegion && !readOnly) {
       try {
@@ -172,11 +255,11 @@ export function RegionsPage() {
         // Ошибки освобождения игнорируются (таймаут 30 минут снимет блокировку)
       }
     }
-
     setIsModalOpen(open);
     if (!open) {
       setEditingRegion(null);
       setReadOnly(false);
+      setReadOnlyReason("");
     }
   };
 
@@ -217,9 +300,7 @@ export function RegionsPage() {
         skip: 0,
       });
       const allItems: SalesRegionResponseSchema[] = allData?.data?.items ?? [];
-      const itemIndex: number = allItems.findIndex(
-        (item) => item.id === newId,
-      );
+      const itemIndex: number = allItems.findIndex((item) => item.id === newId);
 
       if (itemIndex < 0) {
         toast({
@@ -270,17 +351,22 @@ export function RegionsPage() {
           setDeleteRegionId(null);
         },
         onError: (error: unknown) => {
+          // ✅ Правило №36: безопасная обработка ошибок через unknown
           const err = error as {
             response?: { status?: number; data?: { detail?: string } };
           };
-          let message: string =
-            err?.response?.data?.detail || "Не удалось удалить регион";
-
-          if (err?.response?.status === 423) {
-            message =
-              "Регион заблокирован другим пользователем и не может быть удалён";
-          }
-
+          const status = err?.response?.status;
+          const detail = err?.response?.data?.detail;
+          // ✅ Контракт статусов: 403 — нет права на удаление,
+          // 423 — регион занят другим пользователем. Сообщения больше не смешиваются:
+          // серверный detail приоритетен, локальные тексты — страховка без ответа.
+          const message: string =
+            detail ??
+            (status === 403
+              ? "У вас нет прав на удаление региона."
+              : status === 423
+                ? "Регион редактируется другим пользователем и не может быть удалён."
+                : "Не удалось удалить регион");
           toast({
             variant: "destructive",
             title: "Ошибка удаления",
@@ -315,9 +401,7 @@ export function RegionsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-2">
         <div>
           <h1 className="text-xl font-bold">Регионы</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Всего: {total}
-          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">Всего: {total}</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <form
@@ -541,10 +625,22 @@ export function RegionsPage() {
       {/* Пагинация */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 mt-3">
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(1)}
+          >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(page - 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -563,10 +659,22 @@ export function RegionsPage() {
               </Button>
             );
           })}
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(page + 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(page + 1)}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(totalPages)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(totalPages)}
+          >
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
@@ -579,6 +687,7 @@ export function RegionsPage() {
         initialData={editingRegion}
         onSaved={handleRegionSaved}
         readOnly={readOnly}
+        readOnlyReason={readOnlyReason}
       />
 
       {/* Модалка копирования (без блокировки) */}
