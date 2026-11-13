@@ -13,7 +13,11 @@ from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.auth.models import UserSession
 from app.core.schemas import ApiResponse
 from app.core.users.crud import crud_user
-from app.core.users.schemas import UserLoginSchema, UserResponseSchema
+from app.core.users.schemas import (
+    LogoutResponseSchema,
+    UserLoginSchema,
+    UserResponseSchema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,14 +119,14 @@ async def login(
 # ==================================================================
 @router.post(
     "/logout",
-    response_model=ApiResponse[dict[str, str]],
+    response_model=ApiResponse[LogoutResponseSchema],
 )
 async def logout(
     request: Request,
     response: Response,
     db: DBSession,
     session: CurrentUser,
-) -> ApiResponse[dict[str, str]]:
+) -> ApiResponse[LogoutResponseSchema]:
     """Выход из системы: удаляет сессию из БД, очищает cookie и пишет в аудит."""
     session_token = request.cookies.get("session_token")
 
@@ -157,7 +161,7 @@ async def logout(
     return ApiResponse(
         success=True,
         message="Успешный выход",
-        data={"status": "ok"},
+        data=LogoutResponseSchema(),
     )
 
 

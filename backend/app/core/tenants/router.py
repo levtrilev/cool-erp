@@ -12,6 +12,7 @@ from app.core.tenants.schemas import (
     TenantResponseSchema,
     TenantUpdateSchema,
 )
+from app.core.users.schemas import DeleteTenantResponseSchema
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -45,7 +46,7 @@ async def read_tenants(
         limit=limit,
         search=search,
         active_only=active_only,
-        user_is_superadmin=session.is_superadmin,
+        user_is_superadmin=bool(session.is_superadmin),
     )
 
     return ApiResponse(
@@ -239,13 +240,13 @@ async def update_tenant(
 @router.delete(
     "/{tenant_id}",
     status_code=status.HTTP_200_OK,
-    response_model=ApiResponse[dict[str, str]],
+    response_model=ApiResponse[DeleteTenantResponseSchema],
 )
 async def delete_tenant(
     tenant_id: uuid.UUID,
     db: DBSession,
     session: CurrentUser,  # ✅ НОВОЕ: аутентификация обязательна
-) -> ApiResponse[dict[str, str]]:
+) -> ApiResponse[DeleteTenantResponseSchema]:
     """
     Удаление организации (только если в ней нет пользователей).
 
@@ -279,5 +280,5 @@ async def delete_tenant(
     return ApiResponse(
         success=True,
         message=f"Организация {deleted_tenant.name} успешно удалена",
-        data={"deleted_tenant_name": deleted_tenant.name},
+        data=DeleteTenantResponseSchema(deleted_tenant_name=deleted_tenant.name),
     )

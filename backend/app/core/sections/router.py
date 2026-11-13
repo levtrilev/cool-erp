@@ -1,7 +1,5 @@
 import logging
 import uuid
-from typing import cast as typing_cast
-
 from fastapi import APIRouter, HTTPException
 
 from app.core.auth.dependencies import CurrentUser, DBSession
@@ -11,7 +9,6 @@ from app.core.sections.exceptions import (
     SectionHasDocumentsError,
     SectionNotAdminError,
     SectionNotFoundError,
-    SectionNotInTenantError,  # pyright: ignore[reportUnusedImport]
     SectionProtectedError,
 )
 from app.core.sections.schemas import (
@@ -19,10 +16,7 @@ from app.core.sections.schemas import (
     SectionResponseSchema,
     SectionUpdateSchema,
 )
-from app.core.access.schemas import UserProtocol
-
 from app.core.audit.utils import get_entity_name
-from app.core.access.schemas import UserProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +36,7 @@ async def get_sections(
     items, total = await crud_section.list_for_user(
         db,
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
         target_tenant_id=target_tenant_id,  # ✅ Передаём параметр
         skip=skip,
         limit=limit,
@@ -73,7 +67,7 @@ async def create_section(
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
             is_admin=current_session.is_admin,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SectionNotAdminError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -118,7 +112,7 @@ async def get_section(
         db,
         section_id=section_id,
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
     )
 
     if section is None:
@@ -139,18 +133,17 @@ async def update_section(
     db: DBSession,
 ) -> ApiResponse[SectionResponseSchema]:
     """Переименование произвольного раздела."""
-    # ✅ Сохраняем старые значения перед обновлением
+    # ✅ Сохраняем старые значения перед обновлением (через getattr, а не model_dump)
     section_before = await crud_section.get_for_user(
         db,
         section_id=section_id,
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
     )
-    old_values = {}
+    old_values: dict[str, uuid.UUID | str | None] = {}
     if section_before:
-        for field in obj_in.model_fields:
-            if field in obj_in.model_dump(exclude_unset=True):
-                old_values[field] = getattr(section_before, field, None)
+        for f in SectionUpdateSchema.model_fields:
+            old_values[f] = getattr(section_before, f, None)
 
     try:
         section = await crud_section.update_custom(
@@ -160,7 +153,7 @@ async def update_section(
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
             is_admin=current_session.is_admin,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SectionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -176,14 +169,24 @@ async def update_section(
     try:
         from app.core.audit.models import DataAuditLog
 
-        # Формируем словарь изменений
-        changes = {}
-        dump = obj_in.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
+        # Формируем словарь изменений (через getattr)
+        changes: dict[str, dict[str, str]] = {}
+        for field in SectionUpdateSchema.model_fields:
+            if field not in obj_in.__pydantic_fields_set__:
+                continue
+            new_value = getattr(obj_in, field, None)
             if field in old_values and old_values[field] != new_value:
                 if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
+                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
+                    if old_entity_id:
+                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
+                    else:
+                        old_name = ""
+                    if new_entity_id:
+                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
+                    else:
+                        new_name = ""
                     changes[field] = {
                         "old": old_name if old_name else str(old_values[field]),
                         "new": new_name if new_name else str(new_value)
@@ -228,7 +231,7 @@ async def delete_section(
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
             is_admin=current_session.is_admin,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SectionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

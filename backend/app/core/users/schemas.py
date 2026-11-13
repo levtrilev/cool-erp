@@ -103,3 +103,25 @@ class TagWithUsersResponseSchema(BaseModel):
 
     tag: str
     users: list[TagUserResponseSchema]
+
+
+# ==========================================
+# СХЕМЫ ОТВЕТА ДЛЯ АВТОРИЗАЦИИ
+# ==========================================
+class LogoutResponseSchema(BaseModel):
+    """Схема ответа при выходе из системы"""
+    status: str = "ok"
+    message: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ==========================================
+# СХЕМЫ ОТВЕТА ДЛЯ УДАЛЕНИЯ ТЕНАНТОВ
+# ==========================================
+class DeleteTenantResponseSchema(BaseModel):
+    """Схема ответа при удалении организации"""
+    deleted_tenant_name: str
+    message: Optional[str] = None
+
+    model_config = {"from_attributes": True}

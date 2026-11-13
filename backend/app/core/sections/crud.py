@@ -10,7 +10,6 @@ from app.core.sections.exceptions import (
     SectionHasDocumentsError,
     SectionNotAdminError,
     SectionNotFoundError,
-    SectionNotInTenantError, # pyright: ignore[reportUnusedImport]
     SectionProtectedError,
 )
 from app.core.sections.models import (

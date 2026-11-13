@@ -55,7 +55,7 @@ async def get_notes(
         db,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
         skip=skip,
         limit=limit,
         search=search,
@@ -92,7 +92,7 @@ async def get_note(
         note_id=note_id,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
     )
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заметка не найдена")
@@ -116,7 +116,7 @@ async def create_note(
             obj_in=obj_in,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SectionNotInTenantError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -160,13 +160,9 @@ async def update_note(
 ) -> ApiResponse[NoteResponseSchema]:
     """Сохранение с проверкой доступа, версии и блокировки."""
     try:
-        # ✅ Сохраняем текущие значения полей перед обновлением
+        # ✅ Сохраняем текущие значения полей перед обновлением (через getattr, а не model_dump)
         note_before = await crud_note.get(db, id=note_id)
-        old_values = {}
-        if note_before:
-            for field in NoteUpdateSchema.model_fields:
-                if field in obj_in.model_dump(exclude_unset=True):
-                    old_values[field] = getattr(note_before, field, None)
+        old_values = {f: getattr(note_before, f, None) for f in NoteUpdateSchema.model_fields}
 
         note = await crud_note.save_with_version(
             db,
@@ -174,8 +170,8 @@ async def update_note(
             obj_in=obj_in,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except NoteNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -196,14 +192,24 @@ async def update_note(
     try:
         from app.core.audit.models import DataAuditLog
 
-        # Формируем словарь изменений
+        # Формируем словарь изменений (через getattr + __pydantic_fields_set__)
         changes = {}
-        dump = obj_in.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
+        for field in NoteUpdateSchema.model_fields:
+            if field not in obj_in.__pydantic_fields_set__:
+                continue
+            new_value = getattr(obj_in, field, None)
             if field in old_values and old_values[field] != new_value:
                 if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
+                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
+                    if old_entity_id:
+                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
+                    else:
+                        old_name = ""
+                    if new_entity_id:
+                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
+                    else:
+                        new_name = ""
                     changes[field] = {
                         "old": old_name if old_name else str(old_values[field]),
                         "new": new_name if new_name else str(new_value)
@@ -247,8 +253,8 @@ async def delete_note(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except NoteNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -297,8 +303,8 @@ async def acquire_note_lock(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except NoteNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -330,8 +336,8 @@ async def release_note_lock(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except NoteNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

@@ -45,7 +45,7 @@ async def list_warehouses(
         db,
         user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
         tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        is_superadmin=bool(session.is_superadmin),
         skip=skip,
         limit=limit,
         search=search,
@@ -77,9 +77,9 @@ async def create_warehouse(
             db,
             obj_in=data,
             user=cast(UserProtocol, session),  # ✅ НОВОЕ: для установки author_id
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
@@ -127,7 +127,7 @@ async def get_warehouse(
         warehouse_id=warehouse_id,
         user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
         tenant_id=session.tenant_id,
-        is_superadmin=session.is_superadmin,
+        is_superadmin=bool(session.is_superadmin),
     )
     if warehouse is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Склад не найден")
@@ -152,9 +152,9 @@ async def update_warehouse(
     try:
         # ✅ Сохраняем текущие значения полей перед обновлением
         warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
-        old_values = {}
+        old_values: dict[str, uuid.UUID | str | None] = {}
         if warehouse_before:
-            for field in data.model_fields:
+            for field in InvWarehouseUpdateSchema.model_fields:
                 if field in data.model_dump(exclude_unset=True):
                     old_values[field] = getattr(warehouse_before, field, None)
 
@@ -163,9 +163,9 @@ async def update_warehouse(
             warehouse_id=warehouse_id,
             obj_in=data,
             user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except WarehouseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -186,8 +186,16 @@ async def update_warehouse(
         for field, new_value in dump.items():
             if field in old_values and old_values[field] != new_value:
                 if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
+                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
+                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
+                    if old_entity_id:
+                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
+                    else:
+                        old_name = ""
+                    if new_entity_id:
+                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
+                    else:
+                        new_name = ""
                     changes[field] = {
                         "old": old_name if old_name else str(old_values[field]),
                         "new": new_name if new_name else str(new_value)
@@ -233,9 +241,9 @@ async def delete_warehouse(
             db,
             warehouse_id=warehouse_id,
             user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
-            user_id=cast(UserProtocol, session).id,
+            user_id=session.id,
             current_tenant_id=session.tenant_id,
-            is_superadmin=session.is_superadmin,
+            is_superadmin=bool(session.is_superadmin),
         )
     except WarehouseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -292,8 +300,8 @@ async def acquire_warehouse_lock(
             warehouse_id=warehouse_id,
             user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
             tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user_id=session.id,
+            is_superadmin=bool(session.is_superadmin),
         )
     except WarehouseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -326,8 +334,8 @@ async def release_warehouse_lock(
             warehouse_id=warehouse_id,
             user=cast(UserProtocol, session),  # ✅ НОВОЕ: контроль доступа
             tenant_id=session.tenant_id,
-            user_id=cast(UserProtocol, session).id,
-            is_superadmin=session.is_superadmin,
+            user_id=session.id,
+            is_superadmin=bool(session.is_superadmin),
         )
     except WarehouseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
