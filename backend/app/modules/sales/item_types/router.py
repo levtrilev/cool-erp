@@ -73,7 +73,7 @@ async def get_sales_item_types(
         db,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
         skip=skip,
         limit=limit,
         search=search,
@@ -107,7 +107,7 @@ async def get_sales_item_type(
         item_type_id=item_type_id,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
     )
     if row is None:
         raise HTTPException(
@@ -136,7 +136,7 @@ async def create_sales_item_type(
             obj_in=obj_in,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SectionNotInTenantError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -168,7 +168,7 @@ async def update_sales_item_type(
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
             user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SalesItemTypeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -204,7 +204,7 @@ async def delete_sales_item_type(
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
             user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SalesItemTypeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -233,7 +233,7 @@ async def acquire_sales_item_type_lock(
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
             user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SalesItemTypeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -265,7 +265,7 @@ async def release_sales_item_type_lock(
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
             user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
     except SalesItemTypeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

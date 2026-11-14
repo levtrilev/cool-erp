@@ -1,13 +1,13 @@
+"""backend/app/core/notes/router.py"""
 import logging
 import uuid
 from datetime import date
 from typing import cast as typing_cast
 
-from fastapi import APIRouter, HTTPException, status
-
-from app.core.schemas import SortOrder
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.access.schemas import UserProtocol
+from app.core.audit import service as audit_service
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.notes.crud import crud_note
 from app.core.notes.exceptions import (
@@ -24,8 +24,7 @@ from app.core.notes.schemas import (
     NoteUpdateSchema,
     NoteSortField,
 )
-# from app.core.audit.utils import get_entity_name
-from app.core.schemas import ApiResponse, PaginatedResponse
+from app.core.schemas import SortOrder, ApiResponse, PaginatedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,8 @@ router = APIRouter(prefix="/notes", tags=["Notes"])
 async def get_notes(
     current_session: CurrentUser,
     db: DBSession,
-    skip: int = 0,
-    limit: int = 15,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(15, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
     search: str | None = None,
     sort_by: NoteSortField | None = None,
     sort_order: SortOrder = SortOrder.ASC,
@@ -56,7 +55,7 @@ async def get_notes(
         db,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
         skip=skip,
         limit=limit,
         search=search,
@@ -81,6 +80,7 @@ async def get_notes(
         data=paginated,
     )
 
+
 @router.get("/{note_id}", response_model=ApiResponse[NoteResponseSchema])
 async def get_note(
     note_id: uuid.UUID,
@@ -93,7 +93,7 @@ async def get_note(
         note_id=note_id,
         user=typing_cast(UserProtocol, current_session),
         tenant_id=current_session.tenant_id,
-        is_superadmin=current_session.is_superadmin,
+        is_superadmin=bool(current_session.is_superadmin),
     )
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Заметка не найдена")
@@ -117,33 +117,36 @@ async def create_note(
             obj_in=obj_in,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            is_superadmin=current_session.is_superadmin,
+            is_superadmin=bool(current_session.is_superadmin),
         )
+
+        # ✅ Аудит создания — в той же транзакции, через сервис
+        await audit_service.log_data_create(
+            db,
+            tenant_id=note.tenant_id,
+            user_id=current_session.id,
+            entity_type="note",
+            entity_id=note.id,
+            entity_name=note.title,
+            changes=obj_in.model_dump(mode="json"),
+        )
+ 
+
+        await db.commit()
+        await db.refresh(note)
     except SectionNotInTenantError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except NotePermissionError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(note)
-
-    # ✅ ЗАПИСЬ В АУДИТ: создание заметки
-    # try:
-    #     from app.core.audit.models import DataAuditLog
-
-    #     audit_log = DataAuditLog(
-    #         id=uuid.uuid4(),
-    #         tenant_id=current_session.tenant_id,
-    #         user_id=current_session.id,
-    #         entity_type="note",
-    #         entity_id=note.id,
-    #         entity_name=note.title,
-    #         action="create",
-    #         changes=None,
-    #     )
-    #     db.add(audit_log)
-    #     await db.commit()
-    # except Exception as e:
-    #     logger.warning(f"Could not write data audit: {e}")
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка создания заметки: %s", str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка создания заметки",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -160,73 +163,66 @@ async def update_note(
     db: DBSession,
 ) -> ApiResponse[NoteResponseSchema]:
     """Сохранение с проверкой доступа, версии и блокировки."""
-    try:
-        # ✅ Сохраняем текущие значения полей перед обновлением
-        # note_before = await crud_note.get(db, id=note_id)
-        # old_values = {}
-        # if note_before:
-        #     for field in NoteUpdateSchema.model_fields:
-        #         if field in obj_in.model_dump(exclude_unset=True):
-        #             old_values[field] = getattr(note_before, field, None)
+    # ✅ old_values собираем ДО crud.save_with_version — иначе diff будет old == new
+    note_before = await crud_note.get(db, id=note_id)
+    old_values: dict[str, uuid.UUID | str | None] = {}
+    if note_before is not None:
+        dump = obj_in.model_dump(exclude_unset=True)
+        for field in NoteUpdateSchema.model_fields:
+            if field in dump:
+                old_values[field] = getattr(note_before, field, None)
 
+    try:
         note = await crud_note.save_with_version(
             db,
             note_id=note_id,
             obj_in=obj_in,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
+
+        # ✅ Аудит обновления — в той же транзакции, через сервис
+        await audit_service.log_data_update(
+            db,
+            tenant_id=note.tenant_id,
+            user_id=current_session.id,
+            entity_type="note",
+            entity_id=note.id,
+            entity_name=note.title,
+            old_values=old_values,
+            new_values=obj_in.model_dump(exclude_unset=True),
+        )
+
+
+        await db.commit()
+        await db.refresh(note)
     except NoteNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteVersionConflictError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except NotePermissionError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except SectionNotInTenantError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(note)
-
-    # ✅ ЗАПИСЬ В АУДИТ: обновление заметки
-    # try:
-    #     from app.core.audit.models import DataAuditLog
-
-    #     # Формируем словарь изменений
-    #     changes = {}
-    #     dump = obj_in.model_dump(exclude_unset=True)
-    #     for field, new_value in dump.items():
-    #         if field in old_values and old_values[field] != new_value:
-    #             if field.endswith('_id'):
-    #                 old_name = await get_entity_name(db, field[:-3], old_values[field])
-    #                 new_name = await get_entity_name(db, field[:-3], new_value)
-    #                 changes[field] = {
-    #                     "old": old_name if old_name else str(old_values[field]),
-    #                     "new": new_name if new_name else str(new_value)
-    #                 }
-    #             else:
-    #                 changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
-
-    #     if changes:
-    #         audit_log = DataAuditLog(
-    #             id=uuid.uuid4(),
-    #             tenant_id=current_session.tenant_id,
-    #             user_id=current_session.id,
-    #             entity_type="note",
-    #             entity_id=note.id,
-    #             entity_name=note.title,
-    #             action="update",
-    #             changes=changes if changes else None,
-    #         )
-    #         db.add(audit_log)
-    #         await db.commit()
-    # except Exception as e:
-    #     logger.warning(f"Could not write data audit: {e}")
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка обновления заметки %s: %s", note_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка обновления заметки",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -248,35 +244,38 @@ async def delete_note(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
+
+        # ✅ Аудит удаления — в той же транзакции, через сервис
+        await audit_service.log_data_delete(
+            db,
+            tenant_id=note.tenant_id,
+            user_id=current_session.id,
+            entity_type="note",
+            entity_id=note.id,
+            entity_name=note.title,
+        )
+
+
+        await db.commit()
     except NoteNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
-
-    # ✅ ЗАПИСЬ В АУДИТ: удаление заметки
-    # try:
-    #     from app.core.audit.models import DataAuditLog
-
-    #     audit_log = DataAuditLog(
-    #         id=uuid.uuid4(),
-    #         tenant_id=current_session.tenant_id,
-    #         user_id=current_session.id,
-    #         entity_type="note",
-    #         entity_id=note.id,
-    #         entity_name=note.title,
-    #         action="delete",
-    #         changes={"deleted": True},
-    #     )
-    #     db.add(audit_log)
-    #     await db.commit()
-    # except Exception as e:
-    #     logger.warning(f"Could not write data audit: {e}")
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка удаления заметки %s: %s", note_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка удаления заметки",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -298,19 +297,33 @@ async def acquire_note_lock(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
+
+
+        await db.commit()
+        await db.refresh(note)
     except NoteNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except NoteAccessDeniedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except NotePermissionError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(note)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка захвата блокировки заметки %s: %s", note_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка захвата блокировки",
+        ) from exc
+
     return ApiResponse(
         success=True,
         message="Блокировка захвачена",
@@ -331,15 +344,27 @@ async def release_note_lock(
             note_id=note_id,
             user=typing_cast(UserProtocol, current_session),
             tenant_id=current_session.tenant_id,
-            user_id=typing_cast(UserProtocol, current_session).id,
-            is_superadmin=current_session.is_superadmin,
+            user_id=current_session.id,
+            is_superadmin=bool(current_session.is_superadmin),
         )
+
+
+        await db.commit()
+        await db.refresh(note)
     except NoteNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except NoteEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(note)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка освобождения блокировки заметки %s: %s", note_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка освобождения блокировки",
+        ) from exc
+
     return ApiResponse(
         success=True,
         message="Блокировка освобождена",

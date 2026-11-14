@@ -1,97 +1,241 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
-from uuid import UUID
-from typing import Optional
-from datetime import datetime, timedelta
-
-from app.core.database import get_db, async_session
-from app.core.auth.dependencies import CurrentUser, get_db
-from app.core.schemas import ApiResponse, PaginatedResponse
-from app.core.audit.schemas import (
-    AuditAccessRead,
-    AuditDataRead,
-    AuditFilter,
-    AccessAuditCreate,
-    DataAuditCreate,
-)
-from app.core.audit.models import AccessAuditLog, DataAuditLog
-from app.core.users.models import UserModel as User
-from fastapi.responses import StreamingResponse
-from io import StringIO
+"""backend/app/core/audit/router.py"""
 import csv
+import logging
+from datetime import datetime, time, timedelta
+from io import StringIO
+from typing import Any, AsyncIterator, cast
+from uuid import UUID
 
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# Создаем роутер для аудита
+from app.core.audit.models import AccessAuditLog, DataAuditLog
+from app.core.audit.schemas import AuditAccessRead, AuditDataRead
+from app.core.auth.dependencies import CurrentUser, DBSession
+from app.core.schemas import ApiResponse, PaginatedResponse
+from app.core.users.models import UserModel as User
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/audit", tags=["Audit: access logs"])
 
 
-async def _apply_tenant_filter(
-    statement,
-    tenant_id: UUID,
+# ==================================================================
+# ПРОВЕРКА ПРАВ
+# ==================================================================
+def _ensure_audit_access(session: CurrentUser) -> None:
+    """Аудит доступен только администратору или суперадмину.
+
+    ⚠️ Аудит — конфиденциальные данные (IP-адреса, email пользователей,
+    old/new значения полей). Обычный пользователь не должен его видеть.
+    """
+    if not session.is_superadmin and not session.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Просмотр аудита доступен только администратору или суперадмину",
+        )
+
+
+# ==================================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ==================================================================
+async def _collect_user_emails(
+    db: AsyncSession,
+    user_ids: set[UUID],
+    *,
+    tenant_id: UUID | None = None,
+) -> dict[UUID, str]:
+    """Собирает email по списку user_id одним запросом.
+
+    Если tenant_id передан — фильтруем по нему (для админа тенанта,
+    чтобы не вытащить email пользователя чужого тенанта, если
+    в audit_log окажется чужой user_id).
+    """
+    if not user_ids:
+        return {}
+    stmt = select(User.id, User.email).where(User.id.in_(user_ids))
+    if tenant_id is not None:
+        stmt = stmt.where(User.tenant_id == tenant_id)
+    result = await db.execute(stmt)
+    return {uid: email for uid, email in result.all()}
+
+
+async def _fetch_user_emails_for_filter(
+    db: AsyncSession,
+    filter_conditions: list[ColumnElement[bool]],
+    *,
+    tenant_id: UUID | None = None,
+) -> dict[UUID, str]:
+    """Email'ы для всех user_id, попадающих под фильтр (для стриминга)."""
+    uid_stmt = (
+        select(DataAuditLog.user_id)
+        .outerjoin(User, DataAuditLog.user_id == User.id)
+        .where(and_(*filter_conditions), DataAuditLog.user_id.is_not(None))
+        .distinct()
+    )
+    uid_result = await db.execute(uid_stmt)
+    user_ids = {row[0] for row in uid_result.all()}
+    return await _collect_user_emails(db, user_ids, tenant_id=tenant_id)
+
+
+def _normalize_end_date(end_date: datetime) -> datetime:
+    """Нормализует end_date до конца дня (включительно).
+
+    Если клиент передал дату без времени — берём конец этого дня.
+    Если передал datetime — используем как есть (точная граница).
+    """
+    if end_date.time() == time.min:
+        # передана только дата — включаем весь день
+        return end_date + timedelta(days=1)
+    return end_date
+
+
+def _format_changes(changes: dict[str, Any] | None) -> str:
+    if not changes:
+        return ""
+    lines: list[str] = []
+    for field, val in changes.items():
+        if isinstance(val, dict):
+            val_dict = cast(dict[str, Any], val)
+            old_val = val_dict.get("old", "—")
+            new_val = val_dict.get("new", "—")
+            lines.append(f"{field}: {old_val} → {new_val}")
+        else:
+            lines.append(f"{field}: {val}")
+    return "\n".join(lines)
+
+
+def _build_audit_filter_conditions(
+    *,
     is_superadmin: bool,
-):
-    """Применять фильтрацию tenant_id только если пользователь НЕ суперадмин."""
+    tenant_id: UUID,
+    entity_type: str | None,
+    action: str | None,
+    entity_id: UUID | None,
+    user_email: str | None,
+    start_date: datetime | None,
+    end_date: datetime | None,
+) -> list[ColumnElement[bool]]:
+    """Собирает условия фильтрации для DataAuditLog (общая логика)."""
+    filter_conditions: list[ColumnElement[bool]] = []
     if not is_superadmin:
-        statement = statement.where(AccessAuditLog.tenant_id == tenant_id)  # type: ignore
-    return statement
+        filter_conditions.append(DataAuditLog.tenant_id == tenant_id)
+
+    if entity_type:
+        filter_conditions.append(DataAuditLog.entity_type == entity_type)
+    if entity_id:
+        filter_conditions.append(DataAuditLog.entity_id == entity_id)
+    if action:
+        filter_conditions.append(DataAuditLog.action == action)
+    if user_email:
+        filter_conditions.append(User.email.ilike(f"%{user_email}%"))
+    if start_date:
+        filter_conditions.append(DataAuditLog.created_at >= start_date)
+    if end_date:
+        filter_conditions.append(
+            DataAuditLog.created_at < _normalize_end_date(end_date)
+        )
+    return filter_conditions
 
 
+async def _stream_csv(
+    db: AsyncSession,
+    filter_conditions: list[ColumnElement[bool]],
+    user_emails: dict[UUID, str],
+) -> AsyncIterator[str]:
+    """Генерирует CSV построчно, не загружая всю выборку в память.
+
+    ⚠️ Каждая строка пишется в новый StringIO — так csv.writer
+    не накапливает внутреннее состояние между yield'ами.
+    """
+    # Заголовок + BOM
+    header_buffer = StringIO()
+    header_buffer.write("\ufeff")
+    header_writer = csv.writer(header_buffer, delimiter=";")
+    header_writer.writerow(["Дата", "Пользователь", "Сущность", "Действие", "Изменения"])
+    yield header_buffer.getvalue()
+
+    base_stmt = (
+        select(DataAuditLog)
+        .outerjoin(User, DataAuditLog.user_id == User.id)
+        .where(and_(*filter_conditions))
+        .order_by(DataAuditLog.created_at.desc())
+    )
+
+    result = await db.stream(base_stmt)
+    async for item in result.scalars():
+        entity = (
+            f"{item.entity_type}: {item.entity_name}"
+            if item.entity_name
+            else f"{item.entity_type}: {item.entity_id}"
+        )
+        row_buffer = StringIO()
+        row_writer = csv.writer(row_buffer, delimiter=";")
+        row_writer.writerow(
+            [
+                item.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                user_emails.get(item.user_id) if item.user_id else "Система",
+                entity,
+                item.action,
+                _format_changes(item.changes),
+            ]
+        )
+        yield row_buffer.getvalue()
+
+
+# ==================================================================
+# ЛОГИ ДОСТУПА
+# ==================================================================
 @router.get(
     "/access",
     response_model=ApiResponse[PaginatedResponse[AuditAccessRead]],
 )
 async def list_access_audit(
     session: CurrentUser,
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db),
+    db: DBSession,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
 ) -> ApiResponse[PaginatedResponse[AuditAccessRead]]:
-    """Возвращает список логов доступа (только для супер-админа или админа тенанта)."""
+    """Список логов доступа (только админ/суперадмин)."""
+    _ensure_audit_access(session)   # ✅ проверка прав
 
-    from app.core.users.models import UserModel as User
-
-    is_superadmin = session.is_superadmin
+    is_superadmin = bool(session.is_superadmin)
     tenant_id = session.tenant_id
 
-    # Базовый запрос для подсчета (без JOIN, чтобы не размножал строки)
     if not is_superadmin:
-        count_stmt = select(func.count()).select_from(AccessAuditLog).where(AccessAuditLog.tenant_id == tenant_id)  # type: ignore
+        count_stmt = (
+            select(func.count())
+            .select_from(AccessAuditLog)
+            .where(AccessAuditLog.tenant_id == tenant_id)
+        )
     else:
-        count_stmt = select(func.count()).select_from(AccessAuditLog)  # type: ignore
+        count_stmt = select(func.count()).select_from(AccessAuditLog)
 
-    # Считаем общее количество
     count_result = await db.execute(count_stmt)
     total: int = count_result.scalar() or 0
 
-    # Запрос с пагинацией и LEFT JOIN для получения email
-    # Используем LEFT JOIN, чтобы записи с user_id=None не пропадали
-    from sqlalchemy import outerjoin
-
-    join_stmt = outerjoin(AccessAuditLog, User, AccessAuditLog.user_id == User.id)
-
-    # Фильтр tenant_id применять только если НЕ суперадмин
+    base_stmt = (
+        select(AccessAuditLog)
+        .order_by(AccessAuditLog.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
     if not is_superadmin:
-        base_stmt = select(AccessAuditLog).select_from(join_stmt).where(AccessAuditLog.tenant_id == tenant_id).order_by(AccessAuditLog.created_at.desc()).offset(skip).limit(limit)
-    else:
-        base_stmt = select(AccessAuditLog).select_from(join_stmt).order_by(AccessAuditLog.created_at.desc()).offset(skip).limit(limit)
+        base_stmt = base_stmt.where(AccessAuditLog.tenant_id == tenant_id)
 
     result = await db.execute(base_stmt)
     items = result.scalars().all()
 
-    # Собираем данные для маппинга user_id -> email
     user_ids: list[UUID | None] = [item.user_id for item in items]
-    unique_user_ids = list(set(uid for uid in user_ids if uid is not None))
+    unique_user_ids = {uid for uid in user_ids if uid is not None}
+    user_emails = await _collect_user_emails(
+        db,
+        unique_user_ids,
+        tenant_id=None if is_superadmin else tenant_id,   # ✅ для админа — только свой тенант
+    )
 
-    # Получаем email для всех уникальных user_id
-    user_emails: dict[UUID, str] = {}
-    if unique_user_ids:
-        user_stmt = select(User.id, User.email).where(User.id.in_(unique_user_ids))
-        user_result = await db.execute(user_stmt)
-        for uid, email in user_result.all():
-            user_emails[uid] = email
-
-    # Конвертируем в Pydantic схемы
     audit_items = [
         AuditAccessRead(
             id=item.id,
@@ -121,61 +265,54 @@ async def list_access_audit(
     )
 
 
+# ==================================================================
+# ЛОГИ ИЗМЕНЕНИЙ ДАННЫХ
+# ==================================================================
 @router.get(
     "/data",
     response_model=ApiResponse[PaginatedResponse[AuditDataRead]],
 )
 async def list_data_audit(
     session: CurrentUser,
-    skip: int = 0,
-    limit: int = 100,
-    entity_type: Optional[str] = None,
-    action: Optional[str] = None,
-    entity_id: Optional[UUID] = None,
-    user_email: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    db: AsyncSession = Depends(get_db),
+    db: DBSession,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
+    entity_type: str | None = None,
+    action: str | None = None,
+    entity_id: UUID | None = None,
+    user_email: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> ApiResponse[PaginatedResponse[AuditDataRead]]:
-    """Возвращает список изменений данных (с пагинацией)."""
+    """Список изменений данных с пагинацией (только админ/суперадмин)."""
+    _ensure_audit_access(session)   # ✅ проверка прав
 
-    from app.core.users.models import UserModel as User
-
-    is_superadmin = session.is_superadmin
+    is_superadmin = bool(session.is_superadmin)
     tenant_id = session.tenant_id
 
-    # Базовый запрос для подсчета
-    if not is_superadmin:
-        filter_conditions = [DataAuditLog.tenant_id == tenant_id]  # type: ignore
-    else:
-        filter_conditions = []
+    filter_conditions = _build_audit_filter_conditions(
+        is_superadmin=is_superadmin,
+        tenant_id=tenant_id,
+        entity_type=entity_type,
+        action=action,
+        entity_id=entity_id,
+        user_email=user_email,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
-    if entity_type:
-        filter_conditions.append(DataAuditLog.entity_type == entity_type)  # type: ignore
-    if entity_id:
-        filter_conditions.append(DataAuditLog.entity_id == entity_id)  # type: ignore
-    if action:
-        filter_conditions.append(DataAuditLog.action == action)  # type: ignore
-    if user_email:
-        filter_conditions.append(User.email.ilike(f"%{user_email}%"))
-    if start_date:
-        filter_conditions.append(DataAuditLog.created_at >= start_date)
-    if end_date:
-        end_date_inclusive = end_date + timedelta(days=1)
-        filter_conditions.append(DataAuditLog.created_at < end_date_inclusive)
-
-    count_stmt = select(func.count()).select_from(DataAuditLog).where(and_(*filter_conditions))  # type: ignore
+    count_stmt = (
+        select(func.count())
+        .select_from(DataAuditLog)
+        .outerjoin(User, DataAuditLog.user_id == User.id)
+        .where(and_(*filter_conditions))
+    )
     count_result = await db.execute(count_stmt)
     total: int = count_result.scalar() or 0
 
-    # Запрос с пагинацией и LEFT JOIN
-    from sqlalchemy import outerjoin
-    join_stmt = outerjoin(DataAuditLog, User, DataAuditLog.user_id == User.id)
-
-    # ВАЖНО: Если фильтруем по user_email, нужно использовать select(DataAuditLog) с join_stmt
     base_stmt = (
         select(DataAuditLog)
-        .select_from(join_stmt)
+        .outerjoin(User, DataAuditLog.user_id == User.id)
         .where(and_(*filter_conditions))
         .order_by(DataAuditLog.created_at.desc())
         .offset(skip)
@@ -185,17 +322,14 @@ async def list_data_audit(
     result = await db.execute(base_stmt)
     items = result.scalars().all()
 
-    # Маппинг user_id -> email
     user_ids: list[UUID | None] = [item.user_id for item in items]
-    unique_user_ids = list(set(uid for uid in user_ids if uid is not None))
-    user_emails: dict[UUID, str] = {}
-    if unique_user_ids:
-        user_stmt = select(User.id, User.email).where(User.id.in_(unique_user_ids))
-        user_result = await db.execute(user_stmt)
-        for uid, email in user_result.all():
-            user_emails[uid] = email
+    unique_user_ids = {uid for uid in user_ids if uid is not None}
+    user_emails = await _collect_user_emails(
+        db,
+        unique_user_ids,
+        tenant_id=None if is_superadmin else tenant_id,   # ✅
+    )
 
-    # Конвертация в Pydantic
     audit_items = [
         AuditDataRead(
             id=item.id,
@@ -206,7 +340,7 @@ async def list_data_audit(
             entity_id=item.entity_id,
             entity_name=item.entity_name,
             action=item.action,
-            changes=item.changes if item.changes else None,
+            changes=item.changes,
             created_at=item.created_at,
         )
         for item in items
@@ -226,101 +360,51 @@ async def list_data_audit(
     )
 
 
+# ==================================================================
+# ЭКСПОРТ В CSV
+# ==================================================================
 @router.get(
     "/export",
     response_class=StreamingResponse,
 )
 async def export_data_audit(
     session: CurrentUser,
-    entity_type: Optional[str] = None,
-    action: Optional[str] = None,
-    entity_id: Optional[UUID] = None,
-    user_email: Optional[str] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    db: AsyncSession = Depends(get_db),
-):
-    """Экспорт всех изменений данных в CSV."""
-    from app.core.users.models import UserModel as User
+    db: DBSession,
+    entity_type: str | None = None,
+    action: str | None = None,
+    entity_id: UUID | None = None,
+    user_email: str | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+) -> StreamingResponse:
+    """Экспорт изменений данных в CSV (стримингом, только админ/суперадмин)."""
+    _ensure_audit_access(session)   # ✅ проверка прав
 
-    is_superadmin = session.is_superadmin
+    is_superadmin = bool(session.is_superadmin)
     tenant_id = session.tenant_id
 
-    if not is_superadmin:
-        filter_conditions = [DataAuditLog.tenant_id == tenant_id]  # type: ignore
-    else:
-        filter_conditions = []
+    filter_conditions = _build_audit_filter_conditions(
+        is_superadmin=is_superadmin,
+        tenant_id=tenant_id,
+        entity_type=entity_type,
+        action=action,
+        entity_id=entity_id,
+        user_email=user_email,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
-    if entity_type:
-        filter_conditions.append(DataAuditLog.entity_type == entity_type)  # type: ignore
-    if entity_id:
-        filter_conditions.append(DataAuditLog.entity_id == entity_id)  # type: ignore
-    if action:
-        filter_conditions.append(DataAuditLog.action == action)  # type: ignore
-    if user_email:
-        filter_conditions.append(User.email.ilike(f"%{user_email}%"))
-    if start_date:
-        filter_conditions.append(DataAuditLog.created_at >= start_date)
-    if end_date:
-        end_date_inclusive = end_date + timedelta(days=1)
-        filter_conditions.append(DataAuditLog.created_at < end_date_inclusive)
+    user_emails = await _fetch_user_emails_for_filter(
+        db,
+        filter_conditions,
+        tenant_id=None if is_superadmin else tenant_id,   # ✅
+    )
 
-    from sqlalchemy import outerjoin
-    join_stmt = outerjoin(DataAuditLog, User, DataAuditLog.user_id == User.id)
-    base_stmt = select(DataAuditLog).select_from(join_stmt).where(and_(*filter_conditions)).order_by(DataAuditLog.created_at.desc())
-
-    result = await db.execute(base_stmt)
-    items = result.scalars().all()
-
-    # Получаем email для всех уникальных user_id
-    user_ids: list[UUID | None] = [item.user_id for item in items]
-    unique_user_ids = list(set(uid for uid in user_ids if uid is not None))
-    user_emails: dict[UUID, str] = {}
-    if unique_user_ids:
-        user_stmt = select(User.id, User.email).where(User.id.in_(unique_user_ids))
-        user_result = await db.execute(user_stmt)
-        for uid, email in user_result.all():
-            user_emails[uid] = email
-
-    # Создаем CSV
-    output = StringIO()
-    output.write('\ufeff')  # BOM
-    writer = csv.writer(output, delimiter=';')
-
-    writer.writerow(['Дата', 'Пользователь', 'Сущность', 'Действие', 'Изменения'])
-
-    for item in items:
-        entity = f"{item.entity_type}: {item.entity_name}" if item.entity_name else f"{item.entity_type}: {item.entity_id}"
-        
-        # Безопасное формирование изменений (проверяем, что это словарь)
-        changes_str = ""
-        if item.changes and isinstance(item.changes, dict):
-            changes_list = []
-            for field, val in item.changes.items():
-                if isinstance(val, dict):
-                    old_val = val.get('old', '—')
-                    new_val = val.get('new', '—')
-                    changes_list.append(f"{field}: {old_val} → {new_val}")
-                else:
-                    changes_list.append(f"{field}: {val}")
-            changes_str = "\n".join(changes_list)
-        elif item.changes:
-            changes_str = str(item.changes)
-
-        writer.writerow([
-            item.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            user_emails.get(item.user_id, 'Система'),
-            entity,
-            item.action,
-            changes_str,
-        ])
-
-    output.seek(0)
     return StreamingResponse(
-        output,
+        _stream_csv(db, filter_conditions, user_emails),
         media_type="text/csv",
         headers={
             "Content-Disposition": "attachment; filename=audit.csv",
             "Content-Type": "text/csv; charset=utf-8",
-        }
+        },
     )

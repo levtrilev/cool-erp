@@ -13,6 +13,7 @@ $RECYCLE.BIN/
 
 # Редакторы кода и IDE (VS Code, PyCharm / WebStorm)
 .vscode/
+.claude/
 .idea/
 *.suo
 *.ntvs*
@@ -86,3 +87,9 @@ frontend/.tsbuildinfo
 # сгенерированный по OpenAPI код фронтенда
 # РЕКОМЕНДАЦИЯ: Если папка frontend/src/api/generated полностью создается 
 frontend/src/api/generated/
+
+# ==========================================
+# Инструменты анализа кода (Graphify)
+# ==========================================
+# Граф знаний и отчеты (генерируются локально)
+graphify-out/
