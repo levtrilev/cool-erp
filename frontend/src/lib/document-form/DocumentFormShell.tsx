@@ -169,6 +169,8 @@ export function DocumentFormShell<
   const hideDocNumber = visibility?.hideDocNumber ?? false;
   const hideDocDate = visibility?.hideDocDate ?? false;
   const hideTags = visibility?.hideTags ?? false;
+  const hideSection = visibility?.hideSection ?? false;
+  const hideDocStatus = visibility?.hideDocStatus ?? false;
 
   // ✅ Реактивное чтение состояния формы (Правило №45/46: useFormState, не watch()).
   // isDirty сравнивает текущие значения с defaultValues, выставленными при reset().
@@ -344,87 +346,90 @@ export function DocumentFormShell<
             id={formId}
           >
             {children}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>
-                  Раздел <span className="text-destructive">*</span>
-                </Label>
-                <Controller
-                  name={"section_id" as Path<TFormData>}
-                  control={control}
-                  render={({ field }) => (
-                    <ReferenceSelect
-                      fetchFn={async (params) => {
-                        const response = await getSectionsSectionsGet({
-                          skip: params.skip,
-                          limit: params.limit,
-                          search: params.search,
-                        });
-                        const items = (response?.data?.items ?? []).map(
-                          (item) => ({
-                            id: item.id,
-                            name: item.name,
-                          }),
-                        );
-                        return { items, total: response?.data?.total ?? 0 };
-                      }}
-                      queryKey={["sections", "active"]}
-                      value={field.value as string}
-                      onValueChange={field.onChange}
-                      placeholder="Выберите раздел..."
-                      selectedLabel={sectionName ?? "Выберите раздел..."}
-                      heading="Разделы"
-                      limit={50}
-                      disabled={readOnly}
+            {(!hideSection || !hideDocStatus) && (
+              <div className="grid grid-cols-2 gap-4">
+                {!hideSection && (
+                  <div className="space-y-2">
+                    <Label>
+                      Раздел <span className="text-destructive">*</span>
+                    </Label>
+                    <Controller
+                      name={"section_id" as Path<TFormData>}
+                      control={control}
+                      render={({ field }) => (
+                        <ReferenceSelect
+                          fetchFn={async (params) => {
+                            const response = await getSectionsSectionsGet({
+                              skip: params.skip,
+                              limit: params.limit,
+                              search: params.search,
+                            });
+                            const items = (response?.data?.items ?? []).map(
+                              (item) => ({
+                                id: item.id,
+                                name: item.name,
+                              }),
+                            );
+                            return { items, total: response?.data?.total ?? 0 };
+                          }}
+                          queryKey={["sections", "active"]}
+                          value={field.value as string}
+                          onValueChange={field.onChange}
+                          placeholder="Выберите раздел..."
+                          selectedLabel={sectionName ?? "Выберите раздел..."}
+                          heading="Разделы"
+                          limit={50}
+                          disabled={readOnly}
+                        />
+                      )}
                     />
-                  )}
-                />
-                {errors.section_id && (
-                  <p className="text-xs text-destructive">
-                    {errors.section_id.message as string}
-                  </p>
+                    {errors.section_id && (
+                      <p className="text-xs text-destructive">
+                        {errors.section_id.message as string}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!hideDocStatus && (
+                  <div className="space-y-2">
+                    <Label htmlFor={`${formId}-doc_status`}>
+                      Статус <span className="text-destructive">*</span>
+                    </Label>
+                    <Controller
+                      name={"doc_status" as Path<TFormData>}
+                      control={control}
+                      render={({ field }) => (
+                        <Select
+                          value={field.value as string}
+                          onValueChange={field.onChange}
+                          disabled={readOnly}
+                        >
+                          <SelectTrigger
+                            id={`${formId}-doc_status`}
+                            className="w-full"
+                          >
+                            <SelectValue placeholder="Выберите статус" />
+                          </SelectTrigger>
+                          <SelectContent
+                            position="popper"
+                            sideOffset={4}
+                            className="w-[var(--radix-select-trigger-width)] max-h-60"
+                          >
+                            {Object.entries(DOC_STATUS_LABELS).map(
+                              ([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ),
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
                 )}
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-doc_status`}>
-                  Статус <span className="text-destructive">*</span>
-                </Label>
-                <Controller
-                  name={"doc_status" as Path<TFormData>}
-                  control={control}
-                  render={({ field }) => (
-                    <Select
-                      value={field.value as string}
-                      onValueChange={field.onChange}
-                      disabled={readOnly}
-                    >
-                      <SelectTrigger
-                        id={`${formId}-doc_status`}
-                        className="w-full"
-                      >
-                        <SelectValue placeholder="Выберите статус" />
-                      </SelectTrigger>
-                      <SelectContent
-                        position="popper"
-                        sideOffset={4}
-                        className="w-[var(--radix-select-trigger-width)] max-h-60"
-                      >
-                        {Object.entries(DOC_STATUS_LABELS).map(
-                          ([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
-                            </SelectItem>
-                          ),
-                        )}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-            </div>
-
+            )}
             {(!hideDocNumber || !hideDocDate) && (
               <div className="grid grid-cols-2 gap-4">
                 {!hideDocNumber && (

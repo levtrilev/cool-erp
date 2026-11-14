@@ -22,6 +22,24 @@ from app.modules.sales.goods.schemas import (
     SalesGoodsUpdateSchema,
 )
 from app.modules.sales.goods.service import goods_service
+# ======
+from datetime import date
+
+from app.core.schemas import ApiResponse, PaginatedResponse, SortOrder
+from app.modules.sales.goods.crud import (
+    GoodsEditingLockedError,
+    GoodsNotFoundError,
+    GoodsPermissionError,
+    GoodsVersionConflictError,
+    crud_goods,
+)
+from app.modules.sales.goods.schemas import (
+    SalesGoodsCreateSchema,
+    SalesGoodsResponseSchema,
+    SalesGoodsSortField,
+    SalesGoodsUpdateSchema,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +56,13 @@ async def list_goods(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
     search: str | None = None,
+    sort_by: SalesGoodsSortField | None = None,
+    sort_order: SortOrder = SortOrder.ASC,
+    filter_name: str | None = None,
+    filter_item_type_name: str | None = None,
+    filter_updated_at: date | None = None,
 ) -> ApiResponse[PaginatedResponse[SalesGoodsResponseSchema]]:
-    """Список товаров с контролем доступа."""
+    """Список товаров с контролем доступа, сортировкой и фильтрами."""
     items, total = await crud_goods.get_multi(
         db,
         user=cast(UserProtocol, session),
@@ -48,8 +71,12 @@ async def list_goods(
         skip=skip,
         limit=limit,
         search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        filter_name=filter_name,
+        filter_item_type_name=filter_item_type_name,
+        filter_updated_at=filter_updated_at,
     )
-
     return ApiResponse(
         success=True,
         message="Товары получены",
@@ -60,7 +87,6 @@ async def list_goods(
             size=limit,
         ),
     )
-
 
 @router.post(
     "/",
@@ -196,13 +222,11 @@ async def update_goods(
     except GoodsEditingLockedError as exc:
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.error("Ошибка обновления товара %s: %s", goods_id, str(exc), exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ошибка обновления товара",
-        ) from exc
+    except GoodsPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    await db.commit()
+    await db.refresh(goods)
 
     return ApiResponse(
         success=True,

@@ -34,12 +34,6 @@ export const MENU_CONFIG: MenuItem[] = [
         icon: FileText,
       },
       {
-        id: "goods",
-        label: "Товары",
-        path: "/sales/goods",
-        icon: Gift,
-      },
-      {
         id: "warehouses",
         label: "Склады",
         path: "/inventory/warehouses",
@@ -72,6 +66,18 @@ export const MENU_CONFIG: MenuItem[] = [
         label: "Заказы",
         path: "/sales/orders",
         icon: GlobeCheck,
+      },
+      {
+        id: "goods",
+        label: "Товары",
+        path: "/sales/goods",
+        icon: Gift,
+      },
+      {
+        id: "itemtypes",
+        label: "Типы номенклатуры",
+        path: "/sales/itemtypes",
+        icon: Gift,
       },
     ],
   },

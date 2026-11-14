@@ -11,3 +11,6 @@ class GoodsVersionConflictError(Exception):
 
 class GoodsEditingLockedError(Exception):
     """Товар редактируется другим пользователем (423)."""
+
+class GoodsPermissionError(Exception):
+    """Недостаточно прав на редактирование товара (403)."""    

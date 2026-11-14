@@ -1,14 +1,12 @@
 """backend/app/core/auth/crud.py"""
-from typing import Optional
-
 import bcrypt
+from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crud.base import CRUDBase
 from app.core.users.models import UserModel
 from app.core.users.schemas import UserRegisterSchema, UserUpdateSchema
-
 
 class CRUDAuth(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
     """CRUD для аутентификации.
@@ -34,7 +32,6 @@ class CRUDAuth(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             return False
         stored_hash_bytes = db_user.password.encode("utf-8")
         return bcrypt.checkpw(plain_password.encode("utf-8"), stored_hash_bytes)
-
 
 # Экспортируем синглтон
 crud_auth = CRUDAuth(UserModel)

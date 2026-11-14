@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+// frontend/src/modules/sales/goods/GoodsPage.tsx (полная замена)
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
-  Search,
   Plus,
   Trash2,
+  Search,
   Loader2,
   Lock,
   ChevronLeft,
@@ -11,7 +12,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -32,431 +32,695 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useResizableColumns } from "@/components/hooks/useResizableColumns";
-
-// ✅ Orval-хуки (Правило №9). Имена зависят от конфигурации orval.config.ts.
-// После перегенерации (npm run generate:api) уточните фактические имена.
+import { useToast } from "@/components/ui/use-toast";
 import {
   useListGoodsSalesGoodsGet,
   useDeleteGoodsSalesGoodsGoodsIdDelete,
+  listGoodsSalesGoodsGet,
   useAcquireGoodsLockSalesGoodsGoodsIdLockPost,
   useReleaseGoodsLockSalesGoodsGoodsIdLockDelete,
-  listGoodsSalesGoodsGet,
 } from "@/api/generated/sales-goods/sales-goods";
-import type { SalesGoodsResponseSchema } from "@/api/generated/coolERP.schemas";
+import {
+  SalesGoodsResponseSchema,
+  SalesGoodsSortField,
+  SortOrder,
+  type TableColumnStateSchema,
+  type TablePreferenceSchema,
+  type TablePreferenceSchemaColumnStates,
+} from "@/api/generated/coolERP.schemas";
 import { EditGoodModal } from "./EditGoodModal";
+import { useResizableColumns } from "@/components/hooks/useResizableColumns";
+import {
+  ColumnHeaderMenu,
+  type ColumnDef,
+  type ColumnState,
+  type ColumnStates,
+} from "@/core/notes/ColumnHeaderMenu";
+import { useTablePreferences } from "@/lib/ui-preferences/useTablePreferences";
+import {
+  columnFilterFromApi,
+  columnFilterToApi,
+  columnSortFromApi,
+  columnSortToApi,
+} from "@/lib/ui-preferences/tableColumnStates";
 
-export function GoodsPage() {
-  const queryClient = useQueryClient();
+/**
+ * ✅ P3: колонка «Раздел» скрыта ТОЛЬКО из представления.
+ * Определение колонки, ширина и JSX оставлены в коде под этим флагом:
+ * возврат в таблицу = переключение флага на true без иных правок.
+ * Конфигурируемый набор колонок в UI — отдельная задача (не реализуется).
+ */
+const SHOW_SECTION_COLUMN = false;
+
+type GoodsListParams = NonNullable<
+  Parameters<typeof listGoodsSalesGoodsGet>[0]
+>;
+type GoodsQueryFilters = Omit<GoodsListParams, "skip" | "limit">;
+
+const SORT_FIELD_BY_COLUMN: Record<string, SalesGoodsSortField> = {
+  name: SalesGoodsSortField.name,
+  item_type_name: SalesGoodsSortField.item_type_name,
+  updated_at: SalesGoodsSortField.updated_at,
+};
+
+const SORT_FILTER_COLUMNS: ColumnDef[] = [
+  { id: SalesGoodsSortField.name, label: "Название", type: "string" },
+  { id: SalesGoodsSortField.item_type_name, label: "Тип номенклатуры", type: "string" },
+  { id: SalesGoodsSortField.updated_at, label: "Обновлено", type: "date" },
+];
+
+// ✅ section_name оставлен в конфигурации ширин: возврат колонки не трогает ресайз
+const COLUMNS = [
+  { id: "name", initialWidth: 200, minWidth: 140 },
+  { id: "item_type_name", initialWidth: 170, minWidth: 110 },
+  { id: "description", initialWidth: 200, minWidth: 100 },
+  { id: "author_name", initialWidth: 150, minWidth: 100 },
+  { id: "section_name", initialWidth: 160, minWidth: 100 },
+  { id: "updated_at", initialWidth: 150, minWidth: 110 },
+  { id: "actions", initialWidth: 70, minWidth: 60 },
+];
+
+const buildInitialColumnStates = (): ColumnStates =>
+  Object.fromEntries(
+    SORT_FILTER_COLUMNS.map((c) => [c.id, { sort: null, filter: null }]),
+  );
+
+// ── Персистентный вид таблицы (серверный) ─────────────────────────
+interface GoodsTableViewState {
+  columnStates: ColumnStates;
+  search: string;
+  page: number;
+}
+
+const GOODS_TABLE_DEFAULT_STATE: GoodsTableViewState = {
+  columnStates: buildInitialColumnStates(),
+  search: "",
+  page: 1,
+};
+
+const toStoredGoods = (state: GoodsTableViewState): TablePreferenceSchema => ({
+  column_states: Object.fromEntries(
+    Object.entries(state.columnStates).map(([key, value]) => [
+      key,
+      { sort: columnSortToApi(value.sort), filter: columnFilterToApi(value.filter) },
+    ]),
+  ),
+  search: state.search,
+  page: state.page,
+  page_size: 10,
+});
+
+const fromStoredGoods = (
+  stored: TablePreferenceSchema | undefined,
+  defaults: GoodsTableViewState,
+): GoodsTableViewState => {
+  if (stored === undefined) return defaults;
+  const columnStates: ColumnStates = buildInitialColumnStates();
+  const storedColumns: TablePreferenceSchemaColumnStates =
+    stored.column_states ?? {};
+  for (const column of SORT_FILTER_COLUMNS) {
+    const raw: TableColumnStateSchema | undefined = storedColumns[column.id];
+    if (raw === undefined) continue;
+    columnStates[column.id] = {
+      sort: columnSortFromApi(raw.sort),
+      filter: columnFilterFromApi(raw.filter),
+    };
+  }
+  return {
+    columnStates,
+    search: stored.search ?? "",
+    page: stored.page ?? 1,
+  };
+};
+
+export const GoodsPage = () => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // --- Состояния (Правило №22) ---
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const {
+    state: viewState,
+    setState: setViewState,
+    isRestored,
+  } = useTablePreferences<GoodsTableViewState>({
+    tableKey: "sales-goods",
+    defaultState: GOODS_TABLE_DEFAULT_STATE,
+    toStored: toStoredGoods,
+    fromStored: fromStoredGoods,
+  });
+
+  const columnStates: ColumnStates = viewState.columnStates;
+  const search: string = viewState.search;
+  const page: number = viewState.page;
   const [limit] = useState(10);
 
-  // --- Модалка и блокировка (Правило №39) ---
+  // ✅ Правило №47: ввод поиска — локальное транзиентное состояние
+  const [searchInput, setSearchInput] = useState<string>("");
+  const searchInputInitializedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isRestored || searchInputInitializedRef.current) return;
+    searchInputInitializedRef.current = true;
+    setSearchInput(search);
+  }, [isRestored, search]);
+
+  const setPage = useCallback(
+    (next: number): void => setViewState((prev) => ({ ...prev, page: next })),
+    [setViewState],
+  );
+  const setSearch = useCallback(
+    (next: string): void => setViewState((prev) => ({ ...prev, search: next })),
+    [setViewState],
+  );
+  const setColumnStates = useCallback<
+    (action: ColumnStates | ((prev: ColumnStates) => ColumnStates)) => void
+  >(
+    (action) =>
+      setViewState((prev) => ({
+        ...prev,
+        columnStates:
+          typeof action === "function" ? action(prev.columnStates) : action,
+      })),
+    [setViewState],
+  );
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGood, setEditingGood] =
     useState<SalesGoodsResponseSchema | null>(null);
-  const [readOnly, setReadOnly] = useState(false);
-
-  // --- Удаление (Правило №16) ---
   const [deleteGoodId, setDeleteGoodId] = useState<string | null>(null);
-
-  // --- Подсветка (Правило №17) ---
   const [highlightedGoodId, setHighlightedGoodId] = useState<string | null>(
     null,
   );
+  const [readOnly, setReadOnly] = useState(false);
+  const [readOnlyReason, setReadOnlyReason] = useState<string>("");
 
-  // --- Orval-хуки ---
-  const { data, isLoading, isError, refetch } = useListGoodsSalesGoodsGet({
-    skip: (page - 1) * limit,
-    limit,
-    search: search || undefined,
-  });
+  const { widths, handleMouseDown, resetWidths } = useResizableColumns(
+    COLUMNS,
+    "goods-table-widths",
+  );
+
+  const sortColumnId = useMemo(
+    () =>
+      Object.keys(columnStates).find((id) => columnStates[id].sort !== null) ??
+      null,
+    [columnStates],
+  );
+  const sortDirection = sortColumnId ? columnStates[sortColumnId].sort : null;
+
+  const strFilter = useCallback(
+    (columnId: string): string | undefined => {
+      const value = columnStates[columnId]?.filter;
+      return typeof value === "string" && value.length > 0 ? value : undefined;
+    },
+    [columnStates],
+  );
+
+  const hasActiveFiltersOrSort = useMemo(
+    () =>
+      sortColumnId !== null ||
+      Object.values(columnStates).some(
+        (s) => s.filter !== null && s.filter !== "",
+      ),
+    [columnStates, sortColumnId],
+  );
+
+  const queryFilters: GoodsQueryFilters = useMemo(
+    () => ({
+      search: search || undefined,
+      sort_by: sortColumnId ? SORT_FIELD_BY_COLUMN[sortColumnId] : undefined,
+      sort_order: sortColumnId
+        ? sortDirection === "desc"
+          ? SortOrder.desc
+          : SortOrder.asc
+        : undefined,
+      filter_name: strFilter("name"),
+      filter_item_type_name: strFilter("item_type_name"),
+      filter_updated_at: strFilter("updated_at"),
+    }),
+    [search, sortColumnId, sortDirection, strFilter],
+  );
+
+  const { data, isLoading, refetch } = useListGoodsSalesGoodsGet(
+    { skip: (page - 1) * limit, limit, ...queryFilters },
+    { query: { enabled: isRestored, placeholderData: keepPreviousData } },
+  );
 
   const deleteMutation = useDeleteGoodsSalesGoodsGoodsIdDelete();
   const acquireLockMutation = useAcquireGoodsLockSalesGoodsGoodsIdLockPost();
   const releaseLockMutation = useReleaseGoodsLockSalesGoodsGoodsIdLockDelete();
 
-  const goods = data?.data?.items ?? [];
-  const total = data?.data?.total ?? 0;
-  const totalPages = Math.ceil(total / limit);
+  const pageMeta = data?.data;
+  const items: SalesGoodsResponseSchema[] = useMemo(
+    () => pageMeta?.items ?? [],
+    [pageMeta?.items],
+  );
+  const total: number = pageMeta?.total ?? 0;
+  const totalPages: number = Math.max(1, Math.ceil(total / limit));
 
-  // --- Автосброс подсветки (Правило №17) ---
   useEffect(() => {
-    if (highlightedGoodId) {
-      const timer = setTimeout(() => setHighlightedGoodId(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [highlightedGoodId]);
+    if (!isRestored || data === undefined) return;
+    if (page > totalPages) setPage(totalPages);
+  }, [isRestored, data, page, totalPages, setPage]);
 
-  // --- Обработчики ---
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleColumnChange = useCallback(
+    (columnId: string, patch: Partial<ColumnState>) => {
+      setColumnStates((prev) => {
+        const next: ColumnStates = {
+          ...prev,
+          [columnId]: { ...prev[columnId], ...patch },
+        };
+        if (patch.sort !== undefined && patch.sort !== null) {
+          for (const key of Object.keys(next)) {
+            if (key !== columnId) next[key] = { ...next[key], sort: null };
+          }
+        }
+        return next;
+      });
+      setPage(1);
+    },
+    [setColumnStates, setPage],
+  );
+
+  const resetFiltersAndSort = useCallback(() => {
+    setColumnStates(buildInitialColumnStates());
     setPage(1);
-    setSearch(searchInput);
-  };
+  }, [setColumnStates, setPage]);
 
-  const handleCreate = () => {
-    setEditingGood(null);
-    setReadOnly(false);
-    setIsModalOpen(true);
-  };
+  const handleGoodSaved = useCallback(
+    async (id: string, name?: string): Promise<void> => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-goods"] });
+      const refreshed = await refetch();
+      const currentItems: SalesGoodsResponseSchema[] =
+        refreshed.data?.data?.items ?? [];
+      if (currentItems.some((item) => item.id === id)) {
+        setHighlightedGoodId(id);
+        toast({ title: "Успешно сохранено" });
+        return;
+      }
+      try {
+        const fullList = await listGoodsSalesGoodsGet({
+          limit: 1000,
+          skip: 0,
+          ...queryFilters,
+        });
+        const foundIndex: number = (fullList.data?.items ?? []).findIndex(
+          (item) => item.id === id,
+        );
+        if (foundIndex === -1) {
+          toast({
+            title: "Сохранено",
+            description: hasActiveFiltersOrSort
+              ? "Запись не отображается в текущем списке: она не подходит под активные фильтры или условия поиска."
+              : "Запись не найдена в списке. Обновите страницу.",
+          });
+          return;
+        }
+        const targetPage: number = Math.floor(foundIndex / limit) + 1;
+        toast({
+          title: "Сохранено",
+          description: `Товар «${name ?? ""}» теперь на странице ${targetPage}.`,
+          action: (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPage(targetPage);
+                setHighlightedGoodId(id);
+              }}
+            >
+              Перейти
+            </Button>
+          ),
+        });
+      } catch (error: unknown) {
+        const err = error as { response?: { data?: { detail?: string } } };
+        toast({
+          variant: "destructive",
+          title: "Ошибка навигации",
+          description:
+            err?.response?.data?.detail || "Не удалось определить страницу",
+        });
+      }
+    },
+    [
+      queryClient,
+      refetch,
+      queryFilters,
+      limit,
+      setPage,
+      toast,
+      hasActiveFiltersOrSort,
+    ],
+  );
 
-  // ✅ Правило №39: Открытие с проверкой и захватом блокировки
-  const openEdit = async (item: SalesGoodsResponseSchema) => {
-    setEditingGood(item);
-
-    // 1. Если документ уже заблокирован — сразу открываем в readOnly
-    if (item.is_editing_locked) {
-      setReadOnly(true);
-      setIsModalOpen(true);
+  const handleDelete = async (): Promise<void> => {
+    if (!deleteGoodId) return;
+    try {
+      await deleteMutation.mutateAsync({ goodsId: deleteGoodId });
+      await refetch();
+      setDeleteGoodId(null);
+      toast({ title: "Товар удалён" });
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
       toast({
         variant: "destructive",
-        title: "Товар занят",
-        description:
-          "Товар редактируется другим пользователем. Открыт в режиме только для чтения.",
+        title: "Ошибка удаления",
+        description: err?.response?.data?.detail || "Не удалось удалить товар!",
       });
+    }
+  };
+
+  const openEdit = async (item: SalesGoodsResponseSchema): Promise<void> => {
+    setEditingGood(item);
+    if (item.is_editing_locked) {
+      setReadOnly(true);
+      setReadOnlyReason(
+        "Документ редактируется другим пользователем. Вы можете только просматривать данные.",
+      );
+      setIsModalOpen(true);
       return;
     }
-
-    // 2. Документ свободен — пытаемся захватить блокировку
     try {
       await acquireLockMutation.mutateAsync({ goodsId: item.id });
       setReadOnly(false);
+      setReadOnlyReason("");
       setIsModalOpen(true);
     } catch (error: unknown) {
-      // ✅ Правило №36: безопасная обработка ошибок
       const err = error as {
         response?: { status?: number; data?: { detail?: string } };
       };
-      if (err?.response?.status === 423) {
-        // Блокировка захвачена между проверкой и вызовом — открываем в readOnly
+      const status = err?.response?.status;
+      if (status === 403) {
         setReadOnly(true);
+        setReadOnlyReason(
+          "У вас нет прав на изменение этого документа. Доступен только просмотр.",
+        );
+        setIsModalOpen(true);
+      } else if (status === 423) {
+        setReadOnly(true);
+        setReadOnlyReason(
+          "Документ редактируется другим пользователем. Открыт в режиме только для чтения.",
+        );
         setIsModalOpen(true);
         toast({
           variant: "destructive",
-          title: "Товар занят",
-          description:
-            "Товар редактируется другим пользователем. Открыт в режиме только для чтения.",
+          title: "Документ занят",
+          description: "Документ редактируется другим пользователем.",
         });
       } else {
         toast({
           variant: "destructive",
           title: "Ошибка блокировки",
-          description:
-            err?.response?.data?.detail || "Не удалось заблокировать товар",
+          description: err?.response?.data?.detail || "Не удалось открыть документ",
         });
       }
     }
   };
 
-  // ✅ Правило №39: Освобождение блокировки при закрытии модалки
-  const handleModalClose = async (open: boolean) => {
+  const handleModalClose = async (open: boolean): Promise<void> => {
     if (!open && editingGood && !readOnly) {
       try {
         await releaseLockMutation.mutateAsync({ goodsId: editingGood.id });
       } catch {
-        // ✅ Ошибки освобождения игнорируются (таймаут 30 минут снимет блокировку)
+        // Ошибки освобождения игнорируются (таймаут 30 минут снимет блокировку)
       }
     }
     setIsModalOpen(open);
     if (!open) {
       setEditingGood(null);
       setReadOnly(false);
+      setReadOnlyReason("");
     }
   };
 
-  // ✅ Умная навигация (Правило №18, 23)
-  const handleGoodSaved = async (newId: string, newName: string) => {
-    const result = await refetch();
-    const currentItems = result.data?.data?.items || [];
-    const itemExists = currentItems.some((i) => i.id === newId);
-
-    if (itemExists) {
-      setHighlightedGoodId(newId);
-      toast({ title: "Сохранено", description: `Товар "${newName}" обновлён` });
-      return;
+  useEffect(() => {
+    if (highlightedGoodId && items.some((item) => item.id === highlightedGoodId)) {
+      const timer = setTimeout(() => setHighlightedGoodId(null), 3000);
+      return () => clearTimeout(timer);
     }
+  }, [items, highlightedGoodId]);
 
-    try {
-      const allData = await listGoodsSalesGoodsGet({ limit: 1000, skip: 0 });
-      const allItems = allData?.data?.items ?? [];
-      const itemIndex = allItems.findIndex((i: SalesGoodsResponseSchema) => i.id === newId);
-      const targetPage = Math.floor(itemIndex / limit) + 1;
-      toast({
-        title: "Сохранено",
-        description: `Товар "${newName}" находится на странице ${targetPage}`,
-        action: (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setPage(targetPage);
-              setTimeout(() => setHighlightedGoodId(newId), 500);
-            }}
-          >
-            Перейти
-          </Button>
-        ),
-      });
-    } catch (error) {
-      console.error("Ошибка поиска записи:", error);
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description: "Не удалось найти товар",
-      });
-    }
+  const openCreate = (): void => {
+    setEditingGood(null);
+    setReadOnly(false);
+    setIsModalOpen(true);
   };
 
-  // ✅ Удаление с обработкой 423 (Правило №16 + Правило №39)
-  const handleDelete = () => {
-    if (!deleteGoodId) return;
-    deleteMutation.mutate(
-      { goodsId: deleteGoodId },
-      {
-        onSuccess: async () => {
-          toast({ title: "Удалено", description: "Товар успешно удалён" });
-          queryClient.invalidateQueries({ queryKey: ["sales-goods"] });
-          await refetch(); // Правило №25
-          setDeleteGoodId(null);
-        },
-        onError: (error: unknown) => {
-          const err = error as {
-            response?: { status?: number; data?: { detail?: string } };
-          };
-          const status = err?.response?.status;
-          let message = err?.response?.data?.detail || "Не удалось удалить товар";
-          if (status === 423) {
-            message =
-              "Товар заблокирован другим пользователем и не может быть удалён";
-          }
-          toast({
-            variant: "destructive",
-            title: "Ошибка удаления",
-            description: message,
-          });
-        },
-      },
+  const formatDate = (iso: string | null | undefined): string => {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString("ru-RU", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const renderSortableHeader = (columnId: string) => {
+    const col = SORT_FILTER_COLUMNS.find((c) => c.id === columnId);
+    if (!col) return null;
+    return (
+      <TableHead
+        style={{ width: widths[columnId as keyof typeof widths] }}
+        className="relative"
+      >
+        <ColumnHeaderMenu
+          column={col}
+          state={columnStates[columnId]}
+          onChange={handleColumnChange}
+        />
+        <div
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+          onMouseDown={(e) => handleMouseDown(columnId, e)}
+        />
+      </TableHead>
     );
   };
 
-  // ✅ Изменяемая ширина колонок (Правило №29)
-  const columns = [
-    { id: "name", initialWidth: 180, minWidth: 120 },
-    { id: "description", initialWidth: 200, minWidth: 100 },
-    { id: "section_name", initialWidth: 160, minWidth: 100 },
-    { id: "author_name", initialWidth: 150, minWidth: 100 },
-    { id: "updated_at", initialWidth: 140, minWidth: 100 },
-    { id: "actions", initialWidth: 80, minWidth: 60 },
-  ];
-  const { widths, handleMouseDown, resetWidths } = useResizableColumns(
-    columns,
-    "goods-table-widths",
-  );
-
-  if (isError)
-    return <div className="p-4 text-destructive">Ошибка загрузки данных</div>;
+  const visibleColumnCount: number = 6 + (SHOW_SECTION_COLUMN ? 1 : 0);
 
   return (
-    <div className="container mx-auto px-4 py-3">
-      {/* Заголовок (Правило №11) */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-2">
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">Товары</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Всего: {total}</p>
+          <h1 className="text-2xl font-bold">Товары</h1>
+          <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+            Всего: {total}
+          </p>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <form
-            onSubmit={handleSearch}
-            className="flex gap-2 flex-1 md:flex-initial"
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={resetWidths}>
+            Сбросить ширину
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetFiltersAndSort}
+            disabled={!hasActiveFiltersOrSort}
           >
-            <Input
-              placeholder="Поиск товара..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full md:w-64"
-            />
-            <Button type="submit" variant="secondary">
-              <Search className="h-4 w-4 mr-2" /> Найти
-            </Button>
-          </form>
-          <Button onClick={handleCreate}>
+            Сбросить фильтры/сортировку
+          </Button>
+          <Button onClick={openCreate}>
             <Plus className="h-4 w-4 mr-2" /> Создать
           </Button>
         </div>
       </div>
 
-      {/* Таблица (Правило №13) */}
-      <div className="rounded-md border bg-card">
-        <div className="flex justify-end p-2 border-b">
-          <Button variant="ghost" size="sm" onClick={resetWidths} className="text-xs">
-            Сбросить ширину
-          </Button>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSearch(searchInput);
+          setPage(1);
+        }}
+        className="flex gap-2"
+      >
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Поиск по названию, описанию, номеру..."
+          className="max-w-md"
+        />
+        <Button type="submit">
+          <Search className="h-4 w-4 mr-2" /> Найти
+        </Button>
+      </form>
+
+      {!isRestored || isLoading ? (
+        <div className="flex items-center justify-center h-40">
+          <Loader2 className="h-6 w-6 animate-spin" />
         </div>
-        <Table className="table-fixed w-full">
-          <TableHeader>
-            <TableRow className="h-10 hover:bg-transparent">
-              <TableHead className="relative" style={{ width: `${widths.name}px` }}>
-                Название
-                <div
-                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-                  onMouseDown={(e) => handleMouseDown("name", e)}
-                />
-              </TableHead>
-              <TableHead className="relative" style={{ width: `${widths.description}px` }}>
-                Описание
-                <div
-                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-                  onMouseDown={(e) => handleMouseDown("description", e)}
-                />
-              </TableHead>
-              <TableHead className="relative" style={{ width: `${widths.section_name}px` }}>
-                Раздел
-                <div
-                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-                  onMouseDown={(e) => handleMouseDown("section_name", e)}
-                />
-              </TableHead>
-              <TableHead className="relative" style={{ width: `${widths.author_name}px` }}>
-                Автор
-                <div
-                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-                  onMouseDown={(e) => handleMouseDown("author_name", e)}
-                />
-              </TableHead>
-              <TableHead className="relative" style={{ width: `${widths.updated_at}px` }}>
-                Обновлено
-                <div
-                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/40 transition-colors"
-                  onMouseDown={(e) => handleMouseDown("updated_at", e)}
-                />
-              </TableHead>
-              <TableHead style={{ width: `${widths.actions}px` }} />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
-            ) : goods.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={6}
-                  className="text-center text-muted-foreground py-8"
+      ) : (
+        <div className="rounded-md border overflow-auto max-h-[calc(100vh-260px)]">
+          <Table className="table-fixed w-full">
+            <TableHeader className="sticky top-0 bg-background z-10 shadow-sm">
+              <TableRow className="h-10 hover:bg-transparent">
+                {renderSortableHeader("name")}
+                {renderSortableHeader("item_type_name")}
+                <TableHead
+                  style={{ width: widths.description }}
+                  className="relative"
                 >
-                  Товары не найдены
-                </TableCell>
-              </TableRow>
-            ) : (
-              goods.map((item) => (
-                <TableRow
-                  key={item.id}
-                  className={
-                    highlightedGoodId === item.id
-                      ? "bg-yellow-100 dark:bg-yellow-900/30 transition-colors duration-300"
-                      : ""
-                  }
+                  Описание
+                  <div
+                    className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                    onMouseDown={(e) => handleMouseDown("description", e)}
+                  />
+                </TableHead>
+                <TableHead
+                  style={{ width: widths.author_name }}
+                  className="relative"
                 >
-                  {/* ✅ Правило №39: Название как кликабельная ссылка */}
-                  <TableCell
-                    style={{ width: `${widths.name}px` }}
-                    className="py-1 align-top overflow-hidden"
+                  Автор
+                  <div
+                    className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                    onMouseDown={(e) => handleMouseDown("author_name", e)}
+                  />
+                </TableHead>
+                {/* ✅ P3: колонка «Раздел» скрыта флагом, код сохранён */}
+                {SHOW_SECTION_COLUMN && (
+                  <TableHead
+                    style={{ width: widths.section_name }}
+                    className="relative"
                   >
-                    <button
-                      type="button"
-                      onClick={() => openEdit(item)}
-                      className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
-                      title={item.name}
-                    >
-                      {/* ✅ Иконка замка при блокировке */}
-                      {item.is_editing_locked && (
-                        <Lock className="inline h-3 w-3 mr-1 text-amber-500" />
-                      )}
-                      {item.name}
-                    </button>
-                  </TableCell>
-                  <TableCell
-                    style={{ width: `${widths.description}px` }}
-                    className="py-1 text-muted-foreground align-top overflow-hidden"
-                  >
+                    Раздел
                     <div
-                      title={item.description || undefined}
-                      className="block w-full truncate"
+                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/20"
+                      onMouseDown={(e) => handleMouseDown("section_name", e)}
+                    />
+                  </TableHead>
+                )}
+                {renderSortableHeader("updated_at")}
+                <TableHead style={{ width: widths.actions }} />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={visibleColumnCount}
+                    className="text-center py-8 text-muted-foreground"
+                  >
+                    {hasActiveFiltersOrSort || search
+                      ? "Нет записей, соответствующих условиям"
+                      : "Товары не найдены"}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => (
+                  <TableRow
+                    key={item.id}
+                    className={
+                      highlightedGoodId === item.id
+                        ? "bg-yellow-100 dark:bg-yellow-900/30 transition-colors duration-300"
+                        : ""
+                    }
+                  >
+                    <TableCell
+                      style={{ width: widths.name }}
+                      className="py-1 align-top overflow-hidden"
                     >
-                      {item.description || "—"}
-                    </div>
-                  </TableCell>
-                  {/* ✅ Правило №42: денормализованное имя раздела */}
-                  <TableCell
-                    style={{ width: `${widths.section_name}px` }}
-                    className="py-1 text-muted-foreground align-top overflow-hidden"
-                  >
-                    <div className="block w-full truncate">
-                      {item.section_name ?? "—"}
-                    </div>
-                  </TableCell>
-                  {/* ✅ Правило №42: денормализованное имя автора */}
-                  <TableCell
-                    style={{ width: `${widths.author_name}px` }}
-                    className="py-1 text-muted-foreground align-top overflow-hidden"
-                  >
-                    <div className="block w-full truncate">
-                      {item.author_name ?? "—"}
-                    </div>
-                  </TableCell>
-                  <TableCell
-                    style={{ width: `${widths.updated_at}px` }}
-                    className="py-1 text-muted-foreground align-top overflow-hidden"
-                  >
-                    <div className="block w-full truncate">
-                      {new Date(item.updated_at).toLocaleString("ru-RU", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </div>
-                  </TableCell>
-                  {/* ✅ Правило №39: Колонка Действия — только удаление */}
-                  <TableCell
-                    style={{ width: `${widths.actions}px` }}
-                    className="py-1 align-top"
-                  >
-                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(item)}
+                        className="text-left text-link hover:text-link-hover hover:underline underline-offset-2 font-medium cursor-pointer w-full truncate block focus:outline-none focus:ring-2 focus:ring-link focus:ring-offset-1 rounded-sm transition-colors"
+                        title={item.name}
+                      >
+                        {item.is_editing_locked && (
+                          <Lock className="inline h-3 w-3 mr-1 text-amber-500" />
+                        )}
+                        {item.name}
+                      </button>
+                    </TableCell>
+                    <TableCell
+                      style={{ width: widths.item_type_name }}
+                      className="py-1 align-top overflow-hidden"
+                    >
+                      <div
+                        className="block w-full truncate"
+                        title={item.item_type_name ?? undefined}
+                      >
+                        {item.item_type_name ?? "—"}
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      style={{ width: widths.description }}
+                      className="py-1 text-muted-foreground align-top overflow-hidden"
+                    >
+                      <div
+                        className="block w-full truncate"
+                        title={item.description ?? undefined}
+                      >
+                        {item.description || "—"}
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      style={{ width: widths.author_name }}
+                      className="py-1 text-muted-foreground align-top overflow-hidden"
+                    >
+                      <div className="block w-full truncate">
+                        {item.author_name ?? "—"}
+                      </div>
+                    </TableCell>
+                    {SHOW_SECTION_COLUMN && (
+                      <TableCell
+                        style={{ width: widths.section_name }}
+                        className="py-1 text-muted-foreground align-top overflow-hidden"
+                      >
+                        <div className="block w-full truncate">
+                          {item.section_name ?? "—"}
+                        </div>
+                      </TableCell>
+                    )}
+                    <TableCell
+                      style={{ width: widths.updated_at }}
+                      className="py-1 text-muted-foreground align-top overflow-hidden"
+                    >
+                      <div className="block w-full truncate">
+                        {formatDate(item.updated_at)}
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      style={{ width: widths.actions }}
+                      className="py-1 align-top"
+                    >
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
                         onClick={() => setDeleteGoodId(item.id)}
                         title="Удалить"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {/* Пагинация (Правило №15) */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-1 mt-3">
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(1)}
+            aria-label="Первая страница"
+          >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === 1} onClick={() => setPage(page - 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+            aria-label="Предыдущая страница"
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -468,32 +732,46 @@ export function GoodsPage() {
                 key={pageNum}
                 size="sm"
                 variant={page === pageNum ? "default" : "outline"}
-                className="h-8 w-8 p-0"
+                className="h-8 w-8 p-0 tabular-nums"
                 onClick={() => setPage(pageNum)}
+                aria-current={page === pageNum ? "page" : undefined}
               >
                 {pageNum}
               </Button>
             );
           })}
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(page + 1)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(page + 1)}
+            aria-label="Следующая страница"
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button size="sm" variant="outline" className="h-8 w-8 p-0" disabled={page === totalPages} onClick={() => setPage(totalPages)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 w-8 p-0"
+            disabled={page === totalPages}
+            onClick={() => setPage(totalPages)}
+            aria-label="Последняя страница"
+          >
             <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
       )}
 
-      {/* Модалка создания/редактирования (Правило №35, №39) */}
       <EditGoodModal
         open={isModalOpen}
         onOpenChange={handleModalClose}
         initialData={editingGood}
         onSaved={handleGoodSaved}
         readOnly={readOnly}
+        readOnlyReason={readOnlyReason}
       />
 
-      {/* AlertDialog для удаления (Правило №16) */}
       <AlertDialog
         open={!!deleteGoodId}
         onOpenChange={(open) => !open && setDeleteGoodId(null)}
@@ -502,7 +780,8 @@ export function GoodsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить товар?</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить. Связанные документы могут быть затронуты.
+              Товар будет помечен как удалённый (мягкое удаление). Запись
+              останется в БД для аудита, но перестанет отображаться в списках.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -513,14 +792,15 @@ export function GoodsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="animate-spin mr-2 h-4 w-4" />
               ) : (
-                "Удалить"
+                <Trash2 className="mr-2 h-4 w-4" />
               )}
+              Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
-}
+};
