@@ -1,102 +1,98 @@
-// Вкладки с индикаторами изменений
-// Обёртка над Tabs из shadcn. 
-// Поддерживает индикаторы несохранённых изменений (*) и счётчики на вкладках (Правило №46, п.7). 
-// Метаданные вкладок извлекаются из children (FormTabPanel).
-
-import * as React from "react";
-import type { ReactNode, ReactElement } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-// import { cn } from "@/lib/utils";
+// frontend/src/lib/form-blocks/FormTabs.tsx
+import {
+  Children,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 export interface FormTabPanelProps {
-  /** Уникальный идентификатор вкладки. */
+  /** Уникальный идентификатор вкладки (значение TabsContent). */
   value: string;
-  /** Метка вкладки. */
+  /** Подпись на переключателе вкладок. */
   label: string;
-  /** Индикатор несохранённых изменений (жёлтый `*`). */
-  dirty?: boolean;
-  /** Счётчик в заголовке (например, число строк). */
-  counter?: number | string;
-  /** Отключить вкладку. */
-  disabled?: boolean;
+  className?: string;
   children: ReactNode;
 }
 
 /**
- * Панель вкладки. Сам по себе рендерит только детей;
- * метаданные (label, dirty, counter) читаются родительским `FormTabs`.
+ * Декларация вкладки формы: метка уходит в переключатель,
+ * содержимое — в область контента. Рендерится компонентом FormTabs;
+ * самостоятельно ничего не выводит.
  */
-export const FormTabPanel = ({ children }: FormTabPanelProps) => <>{children}</>;
-FormTabPanel.displayName = "FormTabPanel";
+export const FormTabPanel = ({ children }: FormTabPanelProps) => (
+  <>{children}</>
+);
 
 export interface FormTabsProps {
-  /** Вкладка по умолчанию (неуправляемый режим). */
-  defaultValue?: string;
-  /** Активная вкладка (управляемый режим). */
-  value?: string;
-  /** Колбэк смены вкладки. */
-  onValueChange?: (value: string) => void;
-  children: ReactNode;
+  /** Вкладка, открытая по умолчанию. */
+  defaultValue: string;
   className?: string;
+  children: ReactNode;
 }
 
 /**
- * Строительный блок: вкладки формы с индикаторами изменений.
+ * Вкладки документной формы.
  *
- * Извлекает метаданные из дочерних `FormTabPanel` и строит
- * `TabsList` с триггерами. Поддерживает `dirty` (жёлтый `*`)
- * и `counter` (число в скобках) на каждой вкладке.
+ * ✅ Стабильная высота: все панели монтируются постоянно (forceMount) и
+ * укладываются в ОДНУ ячейку grid (col-start-1 row-start-1). Неактивная
+ * панель скрывается через visibility (data-[state=inactive]:invisible),
+ * а не через display — поэтому она продолжает задавать высоту области.
+ * Высота контента = высота самой высокой вкладки и не меняется при
+ * переключении: окно документа не «прыгает», переключатель остаётся
+ * вверху, а на короткой вкладке ниже контента остаётся пустое место
+ * до футера с кнопками.
  */
 export const FormTabs = ({
   defaultValue,
-  value,
-  onValueChange,
-  children,
   className,
+  children,
 }: FormTabsProps) => {
-  // Извлекаем только дочерние элементы типа FormTabPanel
-  const panels = React.Children.toArray(children).filter(
+  const panels = Children.toArray(children).filter(
     (child): child is ReactElement<FormTabPanelProps> =>
-      React.isValidElement(child) && child.type === FormTabPanel,
+      isValidElement(child) && child.type === FormTabPanel,
   );
 
   return (
-    <Tabs
-      defaultValue={defaultValue}
-      value={value}
-      onValueChange={onValueChange}
-      className={className}
-    >
-      <TabsList className="w-full justify-start h-auto flex-wrap">
-        {panels.map((panel) => {
-          const { value: tabValue, label, dirty, counter, disabled } = panel.props;
-          return (
-            <TabsTrigger
-              key={tabValue}
-              value={tabValue}
-              disabled={disabled}
-              className="relative"
-            >
-              {label}
-              {counter !== undefined && (
-                <span className="ml-1 text-muted-foreground">({counter})</span>
-              )}
-              {/* Индикатор несохранённых изменений (Правило №46, п.7.5) */}
-              {dirty && (
-                <span className="absolute -top-1 -right-1 text-amber-500 text-xl font-bold leading-none">
-                  *
-                </span>
-              )}
-            </TabsTrigger>
-          );
-        })}
+    <Tabs defaultValue={defaultValue} className={className}>
+      <TabsList>
+        {panels.map((panel) => (
+          <TabsTrigger
+            key={panel.props.value}
+            value={panel.props.value}
+            className="cursor-pointer"
+          >
+            {panel.props.label}
+          </TabsTrigger>
+        ))}
       </TabsList>
 
-      {panels.map((panel) => (
-        <TabsContent key={panel.props.value} value={panel.props.value} className="mt-4">
-          {panel.props.children}
-        </TabsContent>
-      ))}
+      {/* Одна ячейка grid на все панели: высота области постоянна. */}
+      <div className="grid min-h-0">
+        {panels.map((panel) => (
+          <TabsContent
+            key={panel.props.value}
+            value={panel.props.value}
+            forceMount
+            className={cn(
+              "col-start-1 row-start-1",
+              // visibility, а не display: скрытая панель сохраняет место
+              // в раскладке и не участвует в фокусе/доступности.
+              "data-[state=inactive]:invisible",
+              panel.props.className,
+            )}
+          >
+            {panel.props.children}
+          </TabsContent>
+        ))}
+      </div>
     </Tabs>
   );
 };

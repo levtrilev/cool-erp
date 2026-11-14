@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, text
+from sqlalchemy import ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.core.sections.models import SectionModel
     from app.core.tenants.models import TenantModel
     from app.core.users.models import UserModel
-
+    from app.modules.sales.item_types.models import SalesItemTypeModel
 
 class SalesGoodsModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
     """
@@ -57,8 +57,34 @@ class SalesGoodsModel(DocumentAccessMixin, DocumentLifecycleMixin, Base):
         foreign_keys="SalesGoodsModel.author_id",
         lazy="selectin",
     )
+    # ✅ Связь с типом номенклатуры (внутри домена sales — FK допустим)
+    item_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("public.sales_item_types.id"),
+        nullable=True,
+        index=True,
+        comment="Тип номенклатуры (справочник sales_item_types)",
+    )
+    # ✅ Копия единицы измерения: заполняется из типа при выборе,
+    # хранится на товаре (P2)
+    base_uom: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Единица измерения основная (копия из типа номенклатуры)",
+    )
+
+    item_type: Mapped["SalesItemTypeModel | None"] = relationship(
+        "SalesItemTypeModel",
+        foreign_keys="SalesGoodsModel.item_type_id",
+        lazy="selectin",
+    )
 
     # ✅ Денормализованные имена (Правило №42, часть 1.4-1.5)
+    @property
+    def item_type_name(self) -> str | None:
+        """Наименование типа номенклатуры для списков и формы."""
+        return self.item_type.name if self.item_type else None
+
     @property
     def tenant_name(self) -> str | None:
         """Название организации для отображения в интерфейсе."""

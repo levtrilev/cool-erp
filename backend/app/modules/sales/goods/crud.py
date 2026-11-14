@@ -1,9 +1,9 @@
 """CRUD для товаров с блокировками (Правило №40) и контролем доступа."""
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import cast as typing_cast
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -11,16 +11,20 @@ from app.core.access.schemas import AccessResult, UserProtocol
 from app.core.access.service import AccessService, DocumentProtocol
 from app.core.crud.base import CRUDBase
 from app.core.doctypes.document_base import EDITING_LOCK_TIMEOUT_MINUTES
+from app.core.schemas import SortOrder
 from app.modules.sales.goods.exceptions import (
     GoodsEditingLockedError,
     GoodsNotFoundError,
+    GoodsPermissionError,
     GoodsVersionConflictError,
 )
 from app.modules.sales.goods.models import SalesGoodsModel
 from app.modules.sales.goods.schemas import (
     SalesGoodsCreateSchema,
+    SalesGoodsSortField,
     SalesGoodsUpdateSchema,
 )
+from app.modules.sales.item_types.models import SalesItemTypeModel
 
 
 class CRUDSalesGoods(
@@ -28,6 +32,7 @@ class CRUDSalesGoods(
 ):
     """CRUD для товаров с блокировками и контролем доступа."""
 
+# backend/app/modules/sales/goods/crud.py (полная замена get_multi)
     async def get_multi(
         self,
         db: AsyncSession,
@@ -38,39 +43,92 @@ class CRUDSalesGoods(
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
+        sort_by: SalesGoodsSortField | None = None,
+        sort_order: SortOrder = SortOrder.ASC,
+        filter_name: str | None = None,
+        filter_item_type_name: str | None = None,
+        filter_updated_at: date | None = None,
     ) -> tuple[list[SalesGoodsModel], int]:
         """
-        Список товаров с контролем доступа через AccessService.
-
-        Важно:
-        - Не фильтруем список только по tenant_id.
-        - Видимость определяет AccessService.build_access_filter().
-        - Если фильтр None — пользователь не видит ни одной записи.
+        Список товаров с контролем доступа, сортировкой и фильтрами на SQL.
+        Join к sales_item_types — внутри домена sales (матрица доступа §1.3),
+        используется для сортировки/фильтра по наименованию типа.
+        Left join не меняет число строк (связь многие-к-одному).
         """
         model = self.model
         access_service = AccessService(db)
-
         access_filter = await access_service.build_access_filter(user, model)
         if access_filter is None:
             return [], 0
 
         base_where: ColumnElement[bool] = model.deleted_at.is_(None)
-
-        stmt = select(model).where(base_where, access_filter)
+        item_type_join = (
+            SalesItemTypeModel,
+            model.item_type_id == SalesItemTypeModel.id,
+        )
+        stmt = (
+            select(model)
+            .outerjoin(*item_type_join)
+            .where(base_where, access_filter)
+        )
         count_stmt = (
             select(func.count())
             .select_from(model)
+            .outerjoin(*item_type_join)
             .where(base_where, access_filter)
         )
 
         if search:
             pattern: str = f"%{search}%"
-            search_condition: ColumnElement[bool] = model.name.ilike(pattern)
+            search_condition: ColumnElement[bool] = or_(
+                model.name.ilike(pattern),
+                model.description.ilike(pattern),
+                model.doc_number.ilike(pattern),
+            )
             stmt = stmt.where(search_condition)
             count_stmt = count_stmt.where(search_condition)
 
+        if filter_name:
+            cond = model.name.ilike(f"%{filter_name}%")
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_item_type_name:
+            cond = SalesItemTypeModel.name.ilike(f"%{filter_item_type_name}%")
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+        if filter_updated_at is not None:
+            # ✅ Sargable-фильтр диапазона за день (индекс пригоден)
+            day_start = datetime.combine(
+                filter_updated_at, time.min, tzinfo=timezone.utc
+            )
+            day_end = day_start + timedelta(days=1)
+            cond = and_(
+                model.updated_at >= day_start,
+                model.updated_at < day_end,
+            )
+            stmt = stmt.where(cond)
+            count_stmt = count_stmt.where(cond)
+
         total: int = (await db.execute(count_stmt)).scalar_one()
-        stmt = stmt.order_by(model.name.asc()).offset(skip).limit(limit)
+
+        ascending: bool = sort_order == SortOrder.ASC
+        if sort_by == SalesGoodsSortField.item_type_name:
+            order_expr = (
+                SalesItemTypeModel.name.asc()
+                if ascending
+                else SalesItemTypeModel.name.desc()
+            ).nulls_last()
+            stmt = stmt.order_by(order_expr)
+        elif sort_by == SalesGoodsSortField.updated_at:
+            stmt = stmt.order_by(
+                model.updated_at.asc() if ascending else model.updated_at.desc()
+            )
+        else:
+            stmt = stmt.order_by(
+                model.name.asc() if ascending else model.name.desc()
+            )
+        stmt = stmt.order_by(model.id.asc())
+        stmt = stmt.offset(skip).limit(limit)
 
         items: list[SalesGoodsModel] = list(
             (await db.execute(stmt)).scalars().all()
@@ -152,7 +210,7 @@ class CRUDSalesGoods(
         # Блокировка нужна только для редактирования.
         # Пользователь с read-only доступом не должен захватывать lock.
         if access.level < 2:
-            raise GoodsNotFoundError("Товар не найден")
+            raise GoodsPermissionError("Нет права на редактирование товара")
 
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=EDITING_LOCK_TIMEOUT_MINUTES)
@@ -273,7 +331,7 @@ class CRUDSalesGoods(
 
         # Изменение разрешено только при уровне >= 2.
         if access.level < 2:
-            raise GoodsNotFoundError("Товар не найден")
+            raise GoodsPermissionError("Нет права на редактирование товара")
 
         if (
             goods.editing_by_user_id is not None

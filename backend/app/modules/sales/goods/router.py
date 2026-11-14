@@ -23,6 +23,24 @@ from app.modules.sales.goods.schemas import (
 )
 # from app.core.audit.utils import get_entity_name
 from app.modules.sales.goods.service import goods_service
+# ======
+from datetime import date
+
+from app.core.schemas import ApiResponse, PaginatedResponse, SortOrder
+from app.modules.sales.goods.crud import (
+    GoodsEditingLockedError,
+    GoodsNotFoundError,
+    GoodsPermissionError,
+    GoodsVersionConflictError,
+    crud_goods,
+)
+from app.modules.sales.goods.schemas import (
+    SalesGoodsCreateSchema,
+    SalesGoodsResponseSchema,
+    SalesGoodsSortField,
+    SalesGoodsUpdateSchema,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +57,13 @@ async def list_goods(
     skip: int = 0,
     limit: int = 100,
     search: str | None = None,
+    sort_by: SalesGoodsSortField | None = None,
+    sort_order: SortOrder = SortOrder.ASC,
+    filter_name: str | None = None,
+    filter_item_type_name: str | None = None,
+    filter_updated_at: date | None = None,
 ) -> ApiResponse[PaginatedResponse[SalesGoodsResponseSchema]]:
-    """Список товаров с контролем доступа."""
+    """Список товаров с контролем доступа, сортировкой и фильтрами."""
     items, total = await crud_goods.get_multi(
         db,
         user=cast(UserProtocol, session),
@@ -49,8 +72,12 @@ async def list_goods(
         skip=skip,
         limit=limit,
         search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        filter_name=filter_name,
+        filter_item_type_name=filter_item_type_name,
+        filter_updated_at=filter_updated_at,
     )
-
     return ApiResponse(
         success=True,
         message="Товары получены",
@@ -61,7 +88,6 @@ async def list_goods(
             size=limit,
         ),
     )
-
 
 @router.post(
     "/",
@@ -154,14 +180,6 @@ async def update_goods(
 ) -> ApiResponse[SalesGoodsResponseSchema]:
     """Сохранение с проверкой версии, блокировки и права изменения."""
     try:
-        # ✅ Сохраняем текущие значения полей перед обновлением
-        # goods_before = await crud_goods.get(db, id=goods_id)
-        # old_values = {}
-        # if goods_before:
-        #     for field in data.model_fields:
-        #         if field in data.model_dump(exclude_unset=True):
-        #             old_values[field] = getattr(goods_before, field, None)
-
         goods = await goods_service.update(
             db,
             goods_id=goods_id,
@@ -177,6 +195,8 @@ async def update_goods(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
+    except GoodsPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)
@@ -298,6 +318,8 @@ async def acquire_goods_lock(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except GoodsEditingLockedError as exc:
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
+    except GoodsPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(goods)

@@ -82,6 +82,7 @@ export function useDocumentSave<
     control,
     handleSubmit,
     reset,
+    setValue, // ✅ деструктурировать из useForm
     formState: { errors, isSubmitting },
   } = useForm<TFormData>({
     resolver: createDocumentResolver(formSchema),
@@ -260,6 +261,7 @@ export function useDocumentSave<
       readOnly,
       formId,
       handleOpenChange,
+      setValue,
     }),
     [
       control,
@@ -272,6 +274,7 @@ export function useDocumentSave<
       readOnly,
       formId,
       handleOpenChange,
+      setValue,
     ],
   );
 }

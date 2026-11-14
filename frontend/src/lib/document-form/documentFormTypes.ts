@@ -1,5 +1,5 @@
 import { BaseSyntheticEvent } from "react";
-import type { Control, FieldErrors } from "react-hook-form";
+import type { Control, FieldErrors, UseFormSetValue } from "react-hook-form";
 
 /**
  * Базовые значения формы документа (поля миксинов, ТЗ §3.3 + жизненный цикл).
@@ -39,6 +39,8 @@ export interface DocumentFormState<TFormData extends DocumentBaseFormValues<stri
   readOnly: boolean;
   formId: string;
   handleOpenChange: (nextOpen: boolean) => void;
+  // ✅ Запись в поля формы из бизнес-кода (автозаполнение base_uom и т.п.)
+  setValue: UseFormSetValue<TFormData>;
 }
 
 /**
@@ -49,6 +51,8 @@ export interface DocumentFieldVisibility {
   hideDocNumber?: boolean;
   hideDocDate?: boolean;
   hideTags?: boolean;
+  hideSection?: boolean;
+  hideDocStatus?: boolean;
 }
 
 import type { DefaultValues, FieldValues } from "react-hook-form";

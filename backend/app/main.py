@@ -47,6 +47,7 @@ from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
 from app.core.currencies.router import router as currencies_router
 from app.core.user_preferences.router import router as user_preferences_router
+from app.modules.sales.item_types.router import router as sales_item_types_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
 sessions_storage: dict[str, Any] = {}
@@ -149,3 +150,5 @@ app.include_router(regions_router)
 app.include_router(bp_regions_replica_router)
 app.include_router(sales_orders_router)
 app.include_router(currencies_router)
+app.include_router(sales_item_types_router)
+
