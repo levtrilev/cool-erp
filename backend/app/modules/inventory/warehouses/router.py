@@ -3,9 +3,11 @@
 import logging
 from typing import cast
 import uuid
-from fastapi import APIRouter, HTTPException, status
+
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.access.schemas import UserProtocol
+from app.core.audit import service as audit_service
 from app.core.auth.dependencies import DBSession, CurrentUser
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.modules.inventory.warehouses.crud import (
@@ -20,7 +22,6 @@ from app.modules.inventory.warehouses.schemas import (
     InvWarehouseResponseSchema,
     InvWarehouseUpdateSchema,
 )
-from app.core.audit.utils import get_entity_name
 from app.modules.inventory.warehouses.service import warehouse_service
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ router = APIRouter(prefix="/inventory/warehouses", tags=["Inventory: warehouses"
 async def list_warehouses(
     db: DBSession,
     session: CurrentUser,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[InvWarehouseResponseSchema]]:
     """Список складов с контролем доступа через AccessService (все 5 слоёв)."""
@@ -80,29 +81,31 @@ async def create_warehouse(
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
         )
-    except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(warehouse)
 
-    # ✅ ЗАПИСЬ В АУДИТ: создание склада
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
+        # ✅ Аудит создания — в той же транзакции, через сервис
+        await audit_service.log_data_create(
+            db,
+            tenant_id=warehouse.tenant_id,
             user_id=session.id,
             entity_type="warehouse",
             entity_id=warehouse.id,
             entity_name=warehouse.name,
-            action="create",
-            changes=None,
+            changes=data.model_dump(mode="json"),
         )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+
+
+        await db.commit()          # ✅ ОДИН коммит на всю операцию
+        await db.refresh(warehouse)
+    except PermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка создания склада: %s", str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка создания склада",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -148,15 +151,15 @@ async def update_warehouse(
     session: CurrentUser,
 ) -> ApiResponse[InvWarehouseResponseSchema]:
     """Сохранение с проверкой версии (409), блокировки (423) и контроля доступа."""
-    try:
-        # ✅ Сохраняем текущие значения полей перед обновлением
-        warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
-        old_values: dict[str, uuid.UUID | str | None] = {}
-        if warehouse_before:
-            for field in InvWarehouseUpdateSchema.model_fields:
-                if field in data.model_dump(exclude_unset=True):
-                    old_values[field] = getattr(warehouse_before, field, None)
+    # ✅ old_values собираем ДО warehouse_service.update — иначе diff будет old == new
+    warehouse_before = await crud_warehouse.get(db, id=warehouse_id)
+    old_values: dict[str, uuid.UUID | str | None] = {}
+    if warehouse_before:
+        for field in InvWarehouseUpdateSchema.model_fields:
+            if field in data.model_dump(exclude_unset=True):
+                old_values[field] = getattr(warehouse_before, field, None)
 
+    try:
         warehouse = await warehouse_service.update(
             db,
             warehouse_id=warehouse_id,
@@ -166,57 +169,41 @@ async def update_warehouse(
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
         )
+
+        # ✅ Аудит обновления — в той же транзакции, через сервис
+        await audit_service.log_data_update(
+            db,
+            tenant_id=warehouse.tenant_id,
+            user_id=session.id,
+            entity_type="warehouse",
+            entity_id=warehouse.id,
+            entity_name=warehouse.name,
+            old_values=old_values,
+            new_values=data.model_dump(exclude_unset=True),
+        )
+
+
+        await db.commit()          # ✅ ОДИН коммит на update + audit
+        await db.refresh(warehouse)
     except WarehouseNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseVersionConflictError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(warehouse)
-
-    # ✅ ЗАПИСЬ В АУДИТ: обновление склада
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        # Формируем словарь изменений
-        changes = {}
-        dump = data.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
-                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
-                    if old_entity_id:
-                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
-                    else:
-                        old_name = ""
-                    if new_entity_id:
-                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
-                    else:
-                        new_name = ""
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
-
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=session.tenant_id,
-                user_id=session.id,
-                entity_type="warehouse",
-                entity_id=warehouse.id,
-                entity_name=warehouse.name,
-                action="update",
-                changes=changes if changes else None,
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+    except WarehousePermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка обновления склада %s: %s", warehouse_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка обновления склада",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -244,32 +231,35 @@ async def delete_warehouse(
             current_tenant_id=session.tenant_id,
             is_superadmin=bool(session.is_superadmin),
         )
-    except WarehouseNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except WarehouseEditingLockedError as exc:
-        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
-    except WarehousePermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
 
-    # ✅ ЗАПИСЬ В АУДИТ: удаление склада
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
+        # ✅ Аудит удаления — в той же транзакции, через сервис
+        await audit_service.log_data_delete(
+            db,
+            tenant_id=warehouse.tenant_id,
             user_id=session.id,
             entity_type="warehouse",
             entity_id=warehouse.id,
             entity_name=warehouse.name,
-            action="delete",
-            changes={"deleted": True},
         )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+
+
+        await db.commit()          # ✅ ОДИН коммит на delete + audit
+    except WarehouseNotFoundError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WarehouseEditingLockedError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
+    except WarehousePermissionError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка удаления склада %s: %s", warehouse_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка удаления склада",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -302,14 +292,28 @@ async def acquire_warehouse_lock(
             user_id=session.id,
             is_superadmin=bool(session.is_superadmin),
         )
+
+
+
+        await db.commit()
+        await db.refresh(warehouse)
     except WarehouseNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
     except WarehousePermissionError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(warehouse)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка захвата блокировки склада %s: %s", warehouse_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка захвата блокировки",
+        ) from exc
+
     return ApiResponse(
         success=True,
         message="Блокировка захвачена",
@@ -336,12 +340,25 @@ async def release_warehouse_lock(
             user_id=session.id,
             is_superadmin=bool(session.is_superadmin),
         )
+
+
+
+        await db.commit()
+        await db.refresh(warehouse)
     except WarehouseNotFoundError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WarehouseEditingLockedError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_423_LOCKED, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(warehouse)
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка освобождения блокировки склада %s: %s", warehouse_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка освобождения блокировки",
+        ) from exc
+
     return ApiResponse(
         success=True,
         message="Блокировка освобождена",

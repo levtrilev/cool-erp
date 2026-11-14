@@ -1,26 +1,33 @@
+"""backend/app/core/users/crud.py"""
 import uuid
+from typing import Any, Optional
+
 import bcrypt
-from typing import Optional, Any
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.crud.base import CRUDBase
+from app.core.tenants.models import TenantModel
 from app.core.users.models import UserModel
 from app.core.users.schemas import UserRegisterSchema, UserUpdateSchema
-# ✅ импорт для сортировки по имени организации
-from app.core.tenants.models import TenantModel
 
 # Глобальное хранилище сессий (в памяти: {session_id: {"user_id": UUID, ...}})
+# TODO(ARCH): заменить на Redis — при uvicorn --workers > 1 сессии не шарятся между процессами.
 sessions_storage: dict[str, dict[str, Any]] = {}
 
 
 class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
+    # ✅ ПРАВИЛО №40 ч.8.1: CRUD НЕ управляет транзакцией и НЕ пишет аудит.
+    #    - Никаких commit()/rollback()/refresh() — только flush().
+    #    - Аудит (DataAuditLog / AccessAuditLog) пишется в РОУТЕРЕ через
+    #      app/core/audit/service.py, в ТОЙ ЖЕ транзакции, что и бизнес-операция.
+    #    - Побочные эффекты (очистка сессий) — тоже в РОУТЕРЕ, ПОСЛЕ commit.
 
     async def get_by_email(self, db: AsyncSession, email: str) -> Optional[UserModel]:
-        """Проверка существования пользователя по email"""
+        """Проверка существования пользователя по email."""
         result = await db.execute(select(self.model).where(self.model.email == email))
         return result.scalar_one_or_none()
 
-    # ✅ НОВЫЙ МЕТОД: пагинированный список с поддержкой target_tenant_id
     async def get_multi_paginated(
         self,
         db: AsyncSession,
@@ -28,27 +35,24 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
         skip: int = 0,
         limit: int = 100,
         search: str | None = None,
-        search_field: str = "email",
+        search_field: str = "email",    
         user_is_superadmin: bool = False,
-        target_tenant_id: uuid.UUID | None = None,  # ✅ конкретный тенант или все
+        target_tenant_id: uuid.UUID | None = None,
     ) -> tuple[list[UserModel], int]:
         """
-        Получение пагинированного списка пользователей.
-        
-        Логика фильтрации (Правило №26):
+        Пагинированный список пользователей (Правило №26).
+
         - Суперадмин + target_tenant_id=None → все организации
         - Суперадмин + target_tenant_id=UUID → конкретная организация
         - Обычный пользователь → только своя организация (принудительно)
-        
+
         Сортировка: по имени организации, затем по имени пользователя.
         """
-        # ✅ JOIN с TenantModel для сортировки по имени организации
         stmt = select(self.model).join(
             TenantModel, self.model.tenant_id == TenantModel.id
         )
         count_stmt = select(func.count()).select_from(self.model)
 
-        # ✅ Определяем фактический тенант для фильтрации
         filter_tenant: uuid.UUID | None
         if target_tenant_id:
             # Суперадмин запросил конкретную организацию
@@ -58,13 +62,8 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             filter_tenant = None
         else:
             # Обычный пользователь — только своя организация
-            filter_tenant = tenant_id        # effective_tenant = (
-        #     target_tenant_id
-        #     if (user_is_superadmin and target_tenant_id)
-        #     else tenant_id
-        # )
+            filter_tenant = tenant_id
 
-        # ✅ Применяем фильтрацию только если есть конкретный тенант
         if filter_tenant:
             stmt = stmt.where(self.model.tenant_id == filter_tenant)
             count_stmt = count_stmt.where(self.model.tenant_id == filter_tenant)
@@ -80,7 +79,6 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()
 
-        # ✅ Сортировка по имени организации, затем по имени пользователя
         stmt = stmt.order_by(TenantModel.name, self.model.name)
         stmt = stmt.offset(skip).limit(limit)
 
@@ -90,7 +88,14 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
     async def register_new_user(
         self, db: AsyncSession, user_in: UserRegisterSchema
     ) -> UserModel:
-        """Регистрация с авто-хешированием пароля и прямым сохранением в БД"""
+        """Регистрация с авто-хешированием пароля.
+
+        ⚠️ ТРАНЗАКЦИЯ: только flush(), НЕ commit()/refresh().
+        Транзакцией и аудитом владеет роутер (`register` в router.py):
+            crud_user.register_new_user() → flush
+            audit_service.log_data_create() → db.add
+            db.commit() → db.refresh()
+        """
         salt = bcrypt.gensalt()
         hashed_password = bcrypt.hashpw(user_in.password.encode("utf-8"), salt)
         db_obj = self.model(
@@ -103,14 +108,29 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             role_ids=[],
         )
         db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
+        await db.flush()   # ✅ было: await db.commit(); await db.refresh(db_obj)
         return db_obj
 
     async def update_user(
         self, db: AsyncSession, db_user: UserModel, user_changes: UserUpdateSchema
-    ) -> UserModel:
-        """Обновление с авто-хешированием пароля и точечной очисткой сессий."""
+    ) -> tuple[UserModel, bool]:
+        """Обновление с авто-хешированием пароля.
+
+        ⚠️ ТРАНЗАКЦИЯ: только flush(), НЕ commit()/refresh().
+        Транзакцией и аудитом владеет роутер (`update_user` в router.py):
+            old_values = {...}                       # diff ДО update
+            crud_user.update_user() → flush
+            audit_service.log_data_update(old_values, new_values)
+            db.commit() → db.refresh()
+            if trigger_logout: clear_user_sessions()  # ✅ ПОСЛЕ commit
+
+        ⚠️ ПОБОЧНЫЕ ЭФФЕКТЫ: очистка сессий (trigger_logout) НЕ выполняется здесь.
+        Возвращаем флаг `trigger_logout` — роутер вызовет `clear_user_sessions`
+        ТОЛЬКО после успешного commit. Иначе при откате транзакции пользователь
+        останется с прежними данными, но уже разлогиненным.
+
+        Возвращает: (обновлённый пользователь, флаг «нужно ли разлогинить»).
+        """
         update_data = user_changes.model_dump(exclude_unset=True)
 
         if "password" in update_data and update_data["password"] is not None:
@@ -129,6 +149,9 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
                 trigger_logout = True
                 break
 
+        # ✅ role_names — производное поле, не должно попадать в diff аудита.
+        #    Считаем его здесь, но роутер при вызове log_data_update передаёт
+        #    new_values = user_changes.model_dump(exclude_unset=True) — без role_names.
         if "role_ids" in update_data:
             update_data["role_names"] = await self._sync_role_names(
                 db, db_user, update_data["role_ids"]
@@ -138,22 +161,32 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
             setattr(db_user, field, value)
 
         db.add(db_user)
-        await db.commit()
-        await db.refresh(db_user)
+        await db.flush()  
 
-        if trigger_logout:
-            self._clear_user_sessions(db_user.id)
-        return db_user
+        return db_user, trigger_logout
 
     async def remove(self, db: AsyncSession, id: uuid.UUID) -> UserModel | None:
-        """Удаление пользователя из БД и полная очистка его активных сессий."""
-        user = await super().remove(db, id=id)
-        if user:
-            self._clear_user_sessions(user.id)
+        """Удаление пользователя из БД.
+
+        ⚠️ ТРАНЗАКЦИЯ: только flush(), НЕ commit().
+        Транзакцией и аудитом владеет роутер (`delete_user` в router.py):
+            crud_user.remove() → flush
+            audit_service.log_data_delete() → db.add
+            db.commit()
+            clear_user_sessions()   # ✅ ПОСЛЕ commit
+
+        ⚠️ ПОБОЧНЫЕ ЭФФЕКТЫ: очистка сессий НЕ выполняется здесь —
+        роутер вызовет `clear_user_sessions` после успешного commit.
+        """
+        user = await super().remove(db, id=id)   # ✅ CRUDBase.remove делает flush, не commit
         return user
 
-    def _clear_user_sessions(self, user_id: uuid.UUID) -> None:
-        """Вспомогательный метод для удаления всех сессий пользователя из памяти."""
+    def clear_user_sessions(self, user_id: uuid.UUID) -> None:
+        """Удаляет все сессии пользователя из памяти.
+
+        ✅ Публичный метод: роутер вызывает его ПОСЛЕ commit (транзакция уже
+        зафиксирована, отката не будет — разлогин безопасен).
+        """
         for session_id, session_data in list(sessions_storage.items()):
             if session_data.get("user_id") == user_id:
                 sessions_storage.pop(session_id, None)
@@ -164,7 +197,10 @@ class CRUDUser(CRUDBase[UserModel, UserRegisterSchema, UserUpdateSchema]):
         user: UserModel,
         role_ids: list[uuid.UUID] | None,
     ) -> list[str] | None:
-        """Синхронизирует role_names на основе role_ids."""
+        """Синхронизирует role_names на основе role_ids.
+
+        ✅ чистое чтение (SELECT по ролям) — без commit/flush, к аудиту не относится.
+        """
         if not role_ids:
             return None
         from app.core.roles.models import RoleModel

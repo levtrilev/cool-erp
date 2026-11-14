@@ -3,10 +3,10 @@ import logging
 import uuid
 from typing import Any, Mapping, cast
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import text as sql_text
 
-from app.core.audit.utils import get_entity_name
+from app.core.audit import service as audit_service
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.core.users.crud import crud_user
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 # ПУБЛИЧНАЯ РЕГИСТРАЦИЯ
 # ==================================================================
 @router.post(
-    "/public/register",  # ✅ Исправлено: убран пробел в пути
+    "/public/register",
     status_code=status.HTTP_201_CREATED,
     response_model=PublicRegisterResponseSchema,
 )
@@ -39,7 +39,7 @@ async def public_register(
     user_in: PublicRegisterSchema,
     db: DBSession,
 ) -> PublicRegisterResponseSchema:
-    """Публичная регистрация гостя."""
+    """Публичная регистрация гостя (создаёт нового пользователя + возможно нового тенанта)."""
     existing_user = await crud_user.get_by_email(db, email=user_in.email)
     if existing_user:
         raise HTTPException(
@@ -57,6 +57,26 @@ async def public_register(
         new_user, is_new_tenant = await registration_service.register(
             db, user_in=user_in
         )
+
+        # ✅ Аудит создания — в той же транзакции
+        await audit_service.log_data_create(
+            db,
+            tenant_id=new_user.tenant_id,
+            user_id=new_user.id,   # публичная регистрация — «действие самого пользователя»
+            entity_type="user",
+            entity_id=new_user.id,
+            entity_name=new_user.email,
+            changes={
+                "name": new_user.name,
+                "email": new_user.email,
+                "tenant_id": str(new_user.tenant_id),
+                "is_new_tenant": is_new_tenant,
+            },
+        )
+
+
+        await db.commit()
+        await db.refresh(new_user)
     except Exception as e:
         await db.rollback()
         logger.error("Ошибка при регистрации: %s", str(e))
@@ -64,9 +84,6 @@ async def public_register(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при регистрации: {str(e)}",
         )
-
-    await db.commit()
-    await db.refresh(new_user)
 
     return PublicRegisterResponseSchema(
         id=new_user.id,
@@ -120,11 +137,31 @@ async def register(
         )
 
     try:
-        # ⚠️ ЗАМЕЧАНИЕ: crud_user.register_new_user делает commit внутри.
-        # Это нарушение Правила №40 ч.8.1, но исправление требует
-        # изменения CRUD, что выходит за рамки Этапа 1.
+        # CRUD только flush — транзакцией управляет роутер (Правило №40 ч.8.1)
         new_user = await crud_user.register_new_user(db, user_in=user_in)
+
+        # ✅ Аудит создания — в той же транзакции
+        await audit_service.log_data_create(
+            db,
+            tenant_id=new_user.tenant_id,
+            user_id=session.id,
+            entity_type="user",
+            entity_id=new_user.id,
+            entity_name=new_user.email,
+            changes={
+                "name": new_user.name,
+                "email": new_user.email,
+                "tenant_id": str(new_user.tenant_id),
+                "is_admin": new_user.is_admin,
+                "is_superadmin": new_user.is_superadmin,
+            },
+        )
+
+
+        await db.commit()
+        await db.refresh(new_user)
     except Exception as e:
+        await db.rollback()
         logger.error("Ошибка создания пользователя: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -149,8 +186,8 @@ async def read_users(
     db: DBSession,
     session: CurrentUser,
     tenant_id: uuid.UUID | None = None,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, gt=0, le=1000),   # ✅ gt=0 — защита от ZeroDivisionError
     search: str | None = None,
 ) -> ApiResponse[PaginatedResponse[UserResponseSchema]]:
     """Получение списка пользователей с пагинацией."""
@@ -175,7 +212,7 @@ async def read_users(
         data=PaginatedResponse[UserResponseSchema](
             items=[UserResponseSchema.model_validate(item) for item in items],
             total=total,
-            page=(skip // limit) + 1,
+            page=(skip // limit) + 1,   # ✅ limit > 0 гарантирован Query(gt=0)
             size=limit,
         ),
     )
@@ -360,77 +397,49 @@ async def update_user(
             detail="Назначение ролей доступно только администратору или суперадмину",
         )
 
+    # ✅ old_values собираем ДО crud.update_user — иначе diff будет old == new
     old_values: dict[str, uuid.UUID | str | bool | None] = {}
-    if db_user:
-        for field in UserUpdateSchema.model_fields:
-            if field in user_changes.model_dump(exclude_unset=True):
-                old_values[field] = getattr(db_user, field, None)
+    for field in UserUpdateSchema.model_fields:
+        if field in user_changes.model_dump(exclude_unset=True):
+            old_values[field] = getattr(db_user, field, None)
 
     try:
-        # ⚠️ ЗАМЕЧАНИЕ: crud_user.update_user делает commit внутри.
-        # Это нарушение Правила №40 ч.8.1, но исправление требует
-        # изменения CRUD, что выходит за рамки Этапа 1.
-        updated_user = await crud_user.update_user(
+        # ✅ CRUD возвращает (user, trigger_logout)
+        updated_user, trigger_logout = await crud_user.update_user(
             db, db_user=db_user, user_changes=user_changes
         )
+
+        # ✅ Аудит — в той же транзакции, через сервис
+        await audit_service.log_data_update(
+            db,
+            tenant_id=updated_user.tenant_id,
+            user_id=session.id,
+            entity_type="user",
+            entity_id=updated_user.id,
+            entity_name=updated_user.email,
+            old_values=old_values,
+            new_values=user_changes.model_dump(exclude_unset=True),
+        )
+
+
+        await db.commit()
+        await db.refresh(updated_user)
+
+        # ✅ ПОСЛЕ commit — только теперь безопасно чистить сессии
+        if trigger_logout:
+            crud_user.clear_user_sessions(updated_user.id)
     except Exception as e:
+        await db.rollback()
         logger.error("Ошибка обновления пользователя %s: %s", user_id, str(e))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ошибка обновления. Возможно ошибка БД.",
         )
 
-    # ✅ СНИМОК
-    updated_user_snapshot = UserResponseSchema.model_validate(updated_user)
-    updated_user_id = updated_user.id
-    updated_user_tenant_id = updated_user.tenant_id
-    updated_user_email = updated_user.email
-
-    # ✅ АУДИТ
-    try:
-        from app.core.audit.models import DataAuditLog
-        changes: dict[str, dict[str, str]] = {}
-        dump = user_changes.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
-                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
-                    if old_entity_id:
-                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
-                    else:
-                        old_name = ""
-                    if new_entity_id:
-                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
-                    else:
-                        new_name = ""
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
-
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=updated_user_tenant_id,
-                user_id=session.id,
-                entity_type="user",
-                entity_id=updated_user_id,
-                entity_name=updated_user_email,
-                action="update",
-                changes=changes if changes else None,
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
-
     return ApiResponse(
         success=True,
         message="Пользователь обновлён",
-        data=updated_user_snapshot,
+        data=UserResponseSchema.model_validate(updated_user),
     )
 
 
@@ -473,37 +482,45 @@ async def delete_user(
             detail="Нет доступа к пользователю другой организации",
         )
 
-    # ✅ СНИМОК до удаления
+    # Снимок до удаления (для ответа клиенту)
     user_snapshot = UserResponseSchema.model_validate(deleted_user)
     user_name = deleted_user.name
     user_id_for_audit = deleted_user.id
     tenant_id_for_audit = deleted_user.tenant_id
 
-    # ✅ УДАЛЕНИЕ
-    result = await crud_user.remove(db, id=user_id)
-    if result is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пользователь не найден",
-        )
-    await db.commit()
-
-    # ✅ АУДИТ
     try:
-        from app.core.audit.models import DataAuditLog
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
+        result = await crud_user.remove(db, id=user_id)
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Пользователь не найден",
+            )
+
+        # ✅ Аудит — в той же транзакции, через сервис
+        await audit_service.log_data_delete(
+            db,
             tenant_id=tenant_id_for_audit,
             user_id=session.id,
             entity_type="user",
             entity_id=user_id_for_audit,
-            action="delete",
-            changes={"deleted": True},
+            entity_name=user_name,
         )
-        db.add(audit_log)
+
+
         await db.commit()
+
+        # ✅ ПОСЛЕ commit — только теперь безопасно чистить сессии
+        crud_user.clear_user_sessions(user_id_for_audit)
+    except HTTPException:
+        await db.rollback()
+        raise
     except Exception as e:
-        logger.warning(f"Could not write data audit: {e}")
+        await db.rollback()
+        logger.error("Ошибка удаления пользователя %s: %s", user_id, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Ошибка удаления пользователя",
+        )
 
     return ApiResponse(
         success=True,

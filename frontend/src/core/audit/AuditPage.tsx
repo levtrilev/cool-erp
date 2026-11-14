@@ -20,6 +20,7 @@ import {
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { useReadUsersUsersGet } from "@/api/generated/users/users";
+
 import {
   useListAccessAuditApiV1AuditAccessGet,
   useListDataAuditApiV1AuditDataGet,
@@ -41,6 +42,17 @@ const getEntityTypeName = (entityType: string): string => {
     doctype: "Типы документов",
   };
   return entityNames[entityType] || entityType;
+};
+
+// ✅ Вспомогательная функция для красивого вывода длинных значений
+const formatAuditValue = (val: any) => {
+  if (val === null || val === undefined || val === "") return "пусто";
+  if (Array.isArray(val)) {
+    if (val.length === 0) return "[]";
+    return `[Массив: ${val.length}]`;
+  }
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
 };
 
 export const AuditPage = ({ className }: AuditPageProps) => {
@@ -124,7 +136,6 @@ export const AuditPage = ({ className }: AuditPageProps) => {
   };
 
   const handleExport = async () => {
-    // Формируем URL с текущими параметрами фильтров
     const params = new URLSearchParams();
     if (entityTypeFilter) params.append("entity_type", entityTypeFilter);
     if (actionFilter) params.append("action", actionFilter);
@@ -133,9 +144,12 @@ export const AuditPage = ({ className }: AuditPageProps) => {
     if (endDate) params.append("end_date", endDate);
 
     try {
-      // Делаем запрос через fetch, чтобы передать куки (credentials)
+      // ✅ Берем базовый URL из переменных окружения Vite (там, где у вас прописан путь до бэкенда)
+      // Если переменной нет, используем localhost как fallback
+      const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
       const response = await fetch(
-        `http://localhost:8000/api/v1/audit/export?${params.toString()}`,
+        `${baseUrl}/api/v1/audit/export?${params.toString()}`,
         {
           credentials: "include",
         },
@@ -146,12 +160,14 @@ export const AuditPage = ({ className }: AuditPageProps) => {
         return;
       }
 
-      // Превращаем ответ в Blob (файл) и скачиваем его
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "audit.csv"; // Имя файла
+
+      // ✅ Добавляем расширение .csv
+      a.download = `audit_${new Date().toISOString().slice(0, 10)}.csv`;
+
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -163,15 +179,15 @@ export const AuditPage = ({ className }: AuditPageProps) => {
   };
 
   return (
-    <div className={`p-6 ${className}`}>
+    <div className={`p-6 w-full max-w-full overflow-hidden ${className}`}>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Аудит</h1>
-        <div>
+        <div className="flex gap-2">
           <Button onClick={handleRefresh} variant="outline">
             Обновить
           </Button>
           {activeTab === "data" && (
-            <Button onClick={handleExport} variant="outline" className="ml-2">
+            <Button onClick={handleExport} variant="outline">
               Экспорт в CSV
             </Button>
           )}
@@ -193,47 +209,49 @@ export const AuditPage = ({ className }: AuditPageProps) => {
               {isLoadingAccess ? (
                 <div className="text-center py-8">Загрузка...</div>
               ) : accessLogs?.data?.items?.length ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Пользователь</TableHead>
-                      <TableHead>Действие</TableHead>
-                      <TableHead>Ресурс</TableHead>
-                      <TableHead>Статус</TableHead>
-                      <TableHead>IP</TableHead>
-                      <TableHead>Дата</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {accessLogs.data.items.map((log: any) => (
-                      <TableRow key={log.id}>
-                        <TableCell>{log.user_email || "Система"}</TableCell>
-                        <TableCell>{log.action}</TableCell>
-                        <TableCell>{log.resource}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              log.status === "success"
-                                ? "default"
-                                : "destructive"
-                            }
-                            className={
-                              log.status === "success"
-                                ? "bg-green-600 text-white hover:bg-green-700"
-                                : ""
-                            }
-                          >
-                            {log.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{log.ip_address}</TableCell>
-                        <TableCell>
-                          {new Date(log.created_at).toLocaleString()}
-                        </TableCell>
+                <div className="w-full overflow-x-auto rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Пользователь</TableHead>
+                        <TableHead>Действие</TableHead>
+                        <TableHead>Ресурс</TableHead>
+                        <TableHead>Статус</TableHead>
+                        <TableHead>IP</TableHead>
+                        <TableHead>Дата</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {accessLogs.data.items.map((log: any) => (
+                        <TableRow key={log.id}>
+                          <TableCell>{log.user_email || "Система"}</TableCell>
+                          <TableCell>{log.action}</TableCell>
+                          <TableCell>{log.resource}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                log.status === "success"
+                                  ? "default"
+                                  : "destructive"
+                              }
+                              className={
+                                log.status === "success"
+                                  ? "bg-green-600 text-white hover:bg-green-700"
+                                  : ""
+                              }
+                            >
+                              {log.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{log.ip_address}</TableCell>
+                          <TableCell>
+                            {new Date(log.created_at).toLocaleString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               ) : (
                 <div className="text-center py-8">Логов пока нет</div>
               )}
@@ -244,7 +262,7 @@ export const AuditPage = ({ className }: AuditPageProps) => {
         <TabsContent value="data">
           {activeTab === "data" && (
             <>
-              <div className="flex gap-4 mb-4">
+              <div className="flex flex-wrap gap-4 mb-4">
                 {/* 3. Поиск по email */}
                 <Combobox
                   value={userEmailFilter || ""}
@@ -339,49 +357,67 @@ export const AuditPage = ({ className }: AuditPageProps) => {
               {isLoadingData ? (
                 <div className="text-center py-8">Загрузка...</div>
               ) : dataChanges?.data?.items?.length ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Пользователь</TableHead>
-                      <TableHead>Сущность</TableHead>
-                      <TableHead>Действие</TableHead>
-                      <TableHead>Изменения</TableHead>
-                      <TableHead>Дата</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dataChanges.data.items.map((change: any) => (
-                      <TableRow key={change.id}>
-                        <TableCell>{change.user_email || "Система"}</TableCell>
-                        <TableCell>
-                          {change.entity_name
-                            ? `${getEntityTypeName(change.entity_type)}: ${change.entity_name} (${change.entity_id})`
-                            : `${getEntityTypeName(change.entity_type)}: ${change.entity_id}`}
-                        </TableCell>
-                        <TableCell>{change.action}</TableCell>
-                        <TableCell>
-                          {change.changes ? (
-                            <div className="space-y-1">
-                              {Object.entries(
-                                change.changes as Record<string, any>,
-                              ).map(([field, { old, new: newValue }]) => (
-                                <div key={field} className="text-sm">
-                                  <span className="font-medium">{field}:</span>{" "}
-                                  {old} → {newValue}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span>Нет изменений</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(change.created_at).toLocaleString()}
-                        </TableCell>
+                <div className="w-full overflow-x-auto rounded-md border">
+                  {/* ✅ table-fixed держит колонки на месте */}
+                  <Table className="table-fixed w-full min-w-[800px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[20%]">Пользователь</TableHead>
+                        <TableHead className="w-[25%]">Сущность</TableHead>
+                        <TableHead className="w-[10%]">Действие</TableHead>
+                        <TableHead className="w-[35%]">Изменения</TableHead>
+                        <TableHead className="w-[10%]">Дата</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {dataChanges.data.items.map((change: any) => (
+                        <TableRow key={change.id}>
+                          <TableCell className="align-top truncate">
+                            {change.user_email || "Система"}
+                          </TableCell>
+                          <TableCell className="align-top truncate whitespace-normal">
+                            {change.entity_name
+                              ? `${getEntityTypeName(change.entity_type)}: ${change.entity_name}`
+                              : `${getEntityTypeName(change.entity_type)}: ${change.entity_id}`}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            {change.action}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            {change.changes ? (
+                              // ✅ max-h и overflow-y-auto не дают колонке растянуться в высоту
+                              <div className="space-y-1 text-xs max-h-[120px] overflow-y-auto pr-2">
+                                {Object.entries(
+                                  change.changes as Record<string, any>,
+                                ).map(([field, val]: [string, any]) => (
+                                  <div key={field} className="break-all">
+                                    <span className="font-medium">
+                                      {field}:
+                                    </span>{" "}
+                                    <span className="text-red-500">
+                                      {formatAuditValue(val?.old)}
+                                    </span>
+                                    {" → "}
+                                    <span className="text-green-600">
+                                      {formatAuditValue(val?.new)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                Нет изменений
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="align-top whitespace-nowrap text-xs">
+                            {new Date(change.created_at).toLocaleString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               ) : (
                 <div className="text-center py-8">Логов пока нет</div>
               )}

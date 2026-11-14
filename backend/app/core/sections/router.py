@@ -1,7 +1,10 @@
+"""backend/app/core/sections/router.py"""
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException
 
+from fastapi import APIRouter, HTTPException, Query, status
+
+from app.core.audit import service as audit_service
 from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.schemas import ApiResponse, PaginatedResponse
 from app.core.sections.crud import crud_section
@@ -16,7 +19,6 @@ from app.core.sections.schemas import (
     SectionResponseSchema,
     SectionUpdateSchema,
 )
-from app.core.audit.utils import get_entity_name
 
 logger = logging.getLogger(__name__)
 
@@ -27,17 +29,17 @@ router = APIRouter(prefix="/sections", tags=["Sections"])
 async def get_sections(
     current_session: CurrentUser,
     db: DBSession,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
     search: str | None = None,
-    target_tenant_id: uuid.UUID | None = None,  # ✅ для суперадмина
+    target_tenant_id: uuid.UUID | None = None,
 ) -> ApiResponse[PaginatedResponse[SectionResponseSchema]]:
     """Список разделов, видимых пользователю."""
     items, total = await crud_section.list_for_user(
         db,
         tenant_id=current_session.tenant_id,
         is_superadmin=bool(current_session.is_superadmin),
-        target_tenant_id=target_tenant_id,  # ✅ Передаём параметр
+        target_tenant_id=target_tenant_id,
         skip=skip,
         limit=limit,
         search=search,
@@ -66,33 +68,34 @@ async def create_section(
             obj_in=obj_in,
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
-            is_admin=current_session.is_admin,
+            is_admin=bool(current_session.is_admin),
             is_superadmin=bool(current_session.is_superadmin),
         )
-    except SectionNotAdminError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    await db.commit()
-    await db.refresh(section)
-
-    # ✅ ЗАПИСЬ В АУДИТ: создание раздела
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=current_session.tenant_id,
+        # ✅ Аудит создания — в той же транзакции, через сервис
+        await audit_service.log_data_create(
+            db,
+            tenant_id=section.tenant_id or current_session.tenant_id,
             user_id=current_session.id,
             entity_type="section",
             entity_id=section.id,
             entity_name=section.name,
-            action="create",
-            changes=None,
+            changes=obj_in.model_dump(mode="json"),
         )
-        db.add(audit_log)
+
+
         await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+        await db.refresh(section)
+    except SectionNotAdminError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка создания раздела: %s", str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка создания раздела",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -116,7 +119,7 @@ async def get_section(
     )
 
     if section is None:
-        raise HTTPException(status_code=404, detail="Раздел не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Раздел не найден")
 
     return ApiResponse(
         success=True,
@@ -133,7 +136,7 @@ async def update_section(
     db: DBSession,
 ) -> ApiResponse[SectionResponseSchema]:
     """Переименование произвольного раздела."""
-    # ✅ Сохраняем старые значения перед обновлением (через getattr, а не model_dump)
+    # ✅ old_values собираем ДО crud.update_custom — иначе diff будет old == new
     section_before = await crud_section.get_for_user(
         db,
         section_id=section_id,
@@ -142,8 +145,10 @@ async def update_section(
     )
     old_values: dict[str, uuid.UUID | str | None] = {}
     if section_before:
-        for f in SectionUpdateSchema.model_fields:
-            old_values[f] = getattr(section_before, f, None)
+        dump = obj_in.model_dump(exclude_unset=True)
+        for field in SectionUpdateSchema.model_fields:
+            if field in dump:
+                old_values[field] = getattr(section_before, field, None)
 
     try:
         section = await crud_section.update_custom(
@@ -152,63 +157,41 @@ async def update_section(
             obj_in=obj_in,
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
-            is_admin=current_session.is_admin,
+            is_admin=bool(current_session.is_admin),
             is_superadmin=bool(current_session.is_superadmin),
         )
+
+        # ✅ Аудит обновления — в той же транзакции, через сервис
+        await audit_service.log_data_update(
+            db,
+            tenant_id=section.tenant_id or current_session.tenant_id,
+            user_id=current_session.id,
+            entity_type="section",
+            entity_id=section.id,
+            entity_name=section.name,
+            old_values=old_values,
+            new_values=obj_in.model_dump(exclude_unset=True),
+        )
+
+
+        await db.commit()
+        await db.refresh(section)
     except SectionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except SectionProtectedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except SectionNotAdminError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-
-    await db.commit()
-    await db.refresh(section)
-
-    # ✅ ЗАПИСЬ В АУДИТ: обновление раздела
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        # Формируем словарь изменений (через getattr)
-        changes: dict[str, dict[str, str]] = {}
-        for field in SectionUpdateSchema.model_fields:
-            if field not in obj_in.__pydantic_fields_set__:
-                continue
-            new_value = getattr(obj_in, field, None)
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_entity_id = uuid.UUID(str(old_values[field])) if old_values[field] else None
-                    new_entity_id = uuid.UUID(str(new_value)) if new_value else None
-                    if old_entity_id:
-                        old_name = await get_entity_name(db, field[:-3], old_entity_id)
-                    else:
-                        old_name = ""
-                    if new_entity_id:
-                        new_name = await get_entity_name(db, field[:-3], new_entity_id)
-                    else:
-                        new_name = ""
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
-
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=current_session.tenant_id,
-                user_id=current_session.id,
-                entity_type="section",
-                entity_id=section.id,
-                entity_name=section.name,
-                action="update",
-                changes=changes if changes else None,
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка обновления раздела %s: %s", section_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка обновления раздела",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -230,38 +213,41 @@ async def delete_section(
             section_id=section_id,
             tenant_id=current_session.tenant_id,
             user_id=current_session.id,
-            is_admin=current_session.is_admin,
+            is_admin=bool(current_session.is_admin),
             is_superadmin=bool(current_session.is_superadmin),
         )
-    except SectionNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except SectionProtectedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except SectionNotAdminError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except SectionHasDocumentsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    await db.commit()
-
-    # ✅ ЗАПИСЬ В АУДИТ: удаление раздела
-    try:
-        from app.core.audit.models import DataAuditLog
-
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=current_session.tenant_id,
+        # ✅ Аудит удаления — в той же транзакции, через сервис
+        await audit_service.log_data_delete(
+            db,
+            tenant_id=section.tenant_id or current_session.tenant_id,
             user_id=current_session.id,
             entity_type="section",
             entity_id=section.id,
             entity_name=section.name,
-            action="delete",
-            changes={"deleted": True},
         )
-        db.add(audit_log)
+
+
         await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+    except SectionNotFoundError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except SectionProtectedError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except SectionNotAdminError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except SectionHasDocumentsError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка удаления раздела %s: %s", section_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка удаления раздела",
+        ) from exc
 
     return ApiResponse(
         success=True,
