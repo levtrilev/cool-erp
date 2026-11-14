@@ -1,12 +1,12 @@
+"""backend/app/core/roles/router.py"""
+import logging
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
-from app.core.schemas import ApiResponse, PaginatedResponse
-from app.core.auth.dependencies import CurrentUser, DBSession, get_current_session
-from app.core.auth.models import UserSession
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
+
+from app.core.audit import service as audit_service
+from app.core.auth.dependencies import CurrentUser, DBSession
 from app.core.roles.crud import crud_role
 from app.core.roles.schemas import (
     RoleCreateSchema,
@@ -15,12 +15,10 @@ from app.core.roles.schemas import (
     RoleSaveSchema,
 )
 from app.core.roles.services import role_service
+from app.core.schemas import ApiResponse, PaginatedResponse
 from app.core.users.models import UserModel
-import logging
+
 logger = logging.getLogger(__name__)
-
-from app.core.audit.utils import get_entity_name, get_user_emails
-
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 
@@ -28,14 +26,13 @@ router = APIRouter(prefix="/roles", tags=["Roles"])
 @router.get("/", response_model=ApiResponse[PaginatedResponse[RoleResponseSchema]])
 async def get_roles(
     db: DBSession,
-    session: CurrentUser,  
-    skip: int = 0,
-    limit: int = 10,
+    session: CurrentUser,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, gt=0, le=1000),   # ✅ защита от ZeroDivisionError
     search: str | None = None,
-
-):
+) -> ApiResponse[PaginatedResponse[RoleResponseSchema]]:
     """Получение списка ролей с пагинацией и поиском."""
-    is_superadmin = session.is_superadmin if session else False
+    is_superadmin = bool(session.is_superadmin)
 
     items, total = await crud_role.get_multi(
         db,
@@ -63,10 +60,10 @@ async def get_roles(
 async def get_role(
     role_id: uuid.UUID,
     db: DBSession,
-    session: CurrentUser,  
-):
+    session: CurrentUser,
+) -> ApiResponse[RoleResponseSchema]:
     """Получение одной роли по ID."""
-    is_superadmin = session.is_superadmin if session else False
+    is_superadmin = bool(session.is_superadmin)
 
     role = await crud_role.get(
         db,
@@ -75,7 +72,7 @@ async def get_role(
         is_superadmin=is_superadmin,
     )
     if not role:
-        raise HTTPException(status_code=404, detail="Роль не найдена")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Роль не найдена")
 
     return ApiResponse(
         success=True,
@@ -89,33 +86,39 @@ async def create_role(
     data: RoleCreateSchema,
     db: DBSession,
     session: CurrentUser,
-):
+) -> ApiResponse[RoleResponseSchema]:
     """Создание новой роли."""
-    is_superadmin = session.is_superadmin if session else False
+    is_superadmin = bool(session.is_superadmin)
 
-    role = await crud_role.create(
-        db, data=data, current_tenant_id=session.tenant_id, is_superadmin=is_superadmin
-    )
-
-    # ✅ ЗАПИСЬ В АУДИТ: создание роли
     try:
-        from app.core.audit.models import DataAuditLog
+        role = await crud_role.create(
+            db, data=data, current_tenant_id=session.tenant_id, is_superadmin=is_superadmin
+        )
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
+        # ✅ Аудит создания — в той же транзакции, через сервис
+        await audit_service.log_data_create(
+            db,
+            tenant_id=role.tenant_id,
             user_id=session.id,
             entity_type="role",
             entity_id=role.id,
             entity_name=role.name,
-            action="create",
-            changes=None,
+            changes=data.model_dump(mode="json"),
         )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+
+
+        await db.commit()          # ✅ ОДИН коммит на всё
+        await db.refresh(role)
+    except HTTPException:
         await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка создания роли: %s", str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка создания роли",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -130,9 +133,9 @@ async def update_role(
     data: RoleUpdateSchema,
     db: DBSession,
     session: CurrentUser,
-):
+) -> ApiResponse[RoleResponseSchema]:
     """Обновление существующей роли."""
-    is_superadmin = session.is_superadmin if session else False
+    is_superadmin = bool(session.is_superadmin)
 
     role_before = await crud_role.get(
         db,
@@ -140,56 +143,50 @@ async def update_role(
         current_tenant_id=session.tenant_id,
         is_superadmin=is_superadmin,
     )
-    old_values = {}
-    if role_before:
-        for field in data.model_fields:
-            if field in data.model_dump(exclude_unset=True):
-                old_values[field] = getattr(role_before, field, None)
+    if role_before is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Роль не найдена")
 
-    role = await crud_role.update(
-        db,
-        item_id=role_id,
-        data=data,
-        current_tenant_id=session.tenant_id,
-        is_superadmin=is_superadmin,
-    )
+    # ✅ old_values собираем ДО crud_role.update — иначе diff будет old == new
+    old_values: dict[str, uuid.UUID | str | list[uuid.UUID] | None] = {}
+    dump = data.model_dump(exclude_unset=True)
+    for field in RoleUpdateSchema.model_fields:
+        if field in dump:
+            old_values[field] = getattr(role_before, field, None)
 
-    # ✅ ЗАПИСЬ В АУДИТ: обновление роли
     try:
-        from app.core.audit.models import DataAuditLog
+        role = await crud_role.update(
+            db,
+            item_id=role_id,
+            data=data,
+            current_tenant_id=session.tenant_id,
+            is_superadmin=is_superadmin,
+        )
 
-        # Формируем словарь изменений
-        changes = {}
-        dump = data.model_dump(exclude_unset=True)
-        for field, new_value in dump.items():
-            if field in old_values and old_values[field] != new_value:
-                if field.endswith('_id'):
-                    old_name = await get_entity_name(db, field[:-3], old_values[field])
-                    new_name = await get_entity_name(db, field[:-3], new_value)
-                    changes[field] = {
-                        "old": old_name if old_name else str(old_values[field]),
-                        "new": new_name if new_name else str(new_value)
-                    }
-                else:
-                    changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
-
-        if changes:
-            audit_log = DataAuditLog(
-                id=uuid.uuid4(),
-                tenant_id=session.tenant_id,
-                user_id=session.id,
-                entity_type="role",
-                entity_id=role.id,
+        # ✅ Аудит обновления — в той же транзакции, через сервис
+        await audit_service.log_data_update(
+            db,
+            tenant_id=role.tenant_id,
+            user_id=session.id,
+            entity_type="role",
+            entity_id=role.id,
             entity_name=role.name,
-                action="update",
-                changes=changes if changes else None,
-                
-            )
-            db.add(audit_log)
-            await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+            old_values=old_values,
+            new_values=dump,
+        )
+
+
+        await db.commit()          # ✅ ОДИН коммит (даже если changes пустой)
+        await db.refresh(role)
+    except HTTPException:
         await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка обновления роли %s: %s", role_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка обновления роли",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -202,12 +199,11 @@ async def update_role(
 async def delete_role(
     role_id: uuid.UUID,
     db: DBSession,
-    session: CurrentUser,   
-):
+    session: CurrentUser,
+) -> ApiResponse[RoleResponseSchema]:
     """Удаление роли (каскадно удалит все её permissions)."""
-    is_superadmin = session.is_superadmin if session else False
+    is_superadmin = bool(session.is_superadmin)
 
-    # 1. Проверяем существование роли (для корректного 404)
     existing_role = await crud_role.get(
         db,
         item_id=role_id,
@@ -215,68 +211,50 @@ async def delete_role(
         is_superadmin=is_superadmin,
     )
     if not existing_role:
-        raise HTTPException(status_code=404, detail="Роль не найдена")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Роль не найдена")
 
-    # 2. ✅ Очищаем роль из массивов role_ids у всех пользователей
-    # Связь в модели viewonly, поэтому каскадное удаление не сработает.
-    # Важно: Здесь добавлена ИЗБЫТОЧНАЯ логика очистки users.role_ids. 
-    # Поскольку связь RoleModel.users объявлена как viewonly=True 
-    # (массив хранится на стороне пользователя), при удалении роли 
-    # SQLAlchemy не удалит автоматически этот role_id из массивов пользователей. 
-    # Если этого не сделать, у пользователей останутся "битые" ссылки на удалённую роль.
-    # явного db.update(user) в коде нет. Это работает благодаря механизму автоматического 
-    # отслеживания изменений (dirty tracking) в SQLAlchemy 2.0.
-
-    # EditRoleModal запрещает удалять Роль, пока не удалены ее пользователи
-
-    users_stmt = select(UserModel).where(
-        UserModel.role_ids.isnot(None),
-        UserModel.role_ids.contains([role_id]),
-    )
-    users_result = await db.execute(users_stmt)
-    affected_users: list[UserModel] = list(users_result.scalars().all())
-
-    for user in affected_users:
-        if user.role_ids:
-            user.role_ids = [rid for rid in user.role_ids if rid != role_id]
-
-    # 3. Удаляем саму роль (внутри crud выполняется только flush)
-    deleted_role = await crud_role.delete(
-        db,
-        item_id=role_id,
-        current_tenant_id=session.tenant_id,
-        is_superadmin=is_superadmin,
-    )
-    
-    # role = await crud_role.delete(
-    #     db,
-    #     item_id=role_id,
-    #     current_tenant_id=session.tenant_id,
-    #     is_superadmin=is_superadmin,
-    # )
-
-    # 4. ✅ Явно фиксируем транзакцию удаления
-    await db.commit()
-
-    # ✅ ЗАПИСЬ В АУДИТ: удаление роли
     try:
-        from app.core.audit.models import DataAuditLog
+        # Очищаем роль из массивов role_ids у всех пользователей
+        users_stmt = select(UserModel).where(
+            UserModel.role_ids.isnot(None),
+            UserModel.role_ids.contains([role_id]),
+        )
+        users_result = await db.execute(users_stmt)
+        affected_users: list[UserModel] = list(users_result.scalars().all())
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
+        for user in affected_users:
+            if user.role_ids:
+                user.role_ids = [rid for rid in user.role_ids if rid != role_id]
+
+        deleted_role = await crud_role.delete(
+            db,
+            item_id=role_id,
+            current_tenant_id=session.tenant_id,
+            is_superadmin=is_superadmin,
+        )
+
+        # ✅ Аудит удаления — в той же транзакции, через сервис
+        await audit_service.log_data_delete(
+            db,
+            tenant_id=deleted_role.tenant_id,
             user_id=session.id,
             entity_type="role",
-            entity_id=role_id,
+            entity_id=deleted_role.id,
             entity_name=deleted_role.name,
-            action="delete",
-            changes={"deleted": True},
         )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+
+
+        await db.commit()          # ✅ ОДИН коммит: users + role + audit
+    except HTTPException:
         await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка удаления роли %s: %s", role_id, str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка удаления роли",
+        ) from exc
 
     return ApiResponse(
         success=True,
@@ -288,17 +266,15 @@ async def delete_role(
 @router.post("/save", response_model=ApiResponse[RoleResponseSchema], status_code=201)
 async def save_role(
     data: RoleSaveSchema,
+    db: DBSession,
+    session: CurrentUser,
     role_id: uuid.UUID | None = None,
-    db: AsyncSession = Depends(get_db),
-    session: UserSession = Depends(get_current_session),
-):
-    """
-    Агрегированное сохранение роли: создание/обновление роли + синхронизация полномочий и пользователей.
-    """
-    is_superadmin = session.is_superadmin if session else False
+) -> ApiResponse[RoleResponseSchema]:
+    """Агрегированное сохранение роли: создание/обновление + синхронизация полномочий и пользователей."""
+    is_superadmin = bool(session.is_superadmin)
 
-    # Сохраняем старые значения перед обновлением, если роль существует
-    old_values = {}
+    # ✅ old_values собираем ДО role_service.save_role
+    old_values: dict[str, uuid.UUID | str | list[uuid.UUID] | None] = {}
     if role_id:
         role_before = await crud_role.get(
             db,
@@ -306,77 +282,62 @@ async def save_role(
             current_tenant_id=session.tenant_id,
             is_superadmin=is_superadmin,
         )
-        if role_before:
-            for field in data.model_fields:
-                if field in data.model_dump(exclude_unset=True):
+        if role_before is not None:
+            dump = data.model_dump(exclude_unset=True)
+            for field in RoleSaveSchema.model_fields:
+                if field in dump:
                     old_values[field] = getattr(role_before, field, None)
 
-    role = await role_service.save_role(
-        db,
-        data=data,
-        current_tenant_id=session.tenant_id,
-        is_superadmin=is_superadmin,
-        role_id=role_id,
-    )
-
-    # ✅ ЗАПИСЬ В АУДИТ: создание или обновление роли
     try:
-        from app.core.audit.models import DataAuditLog
+        role = await role_service.save_role(
+            db,
+            data=data,
+            current_tenant_id=session.tenant_id,
+            is_superadmin=is_superadmin,
+            role_id=role_id,
+        )
 
-        # Определяем action
         action = "update" if role_id else "create"
 
-        # Формируем словарь изменений для update
-        changes = None
-        if action == "update":
-            changes = {}
-            dump = data.model_dump(exclude_unset=True)
-            for field, new_value in dump.items():
-                if field in old_values and old_values[field] != new_value:
-                    if field.endswith('_id'):
-                        old_name = await get_entity_name(db, field[:-3], old_values[field])
-                        new_name = await get_entity_name(db, field[:-3], new_value)
-                        changes[field] = {
-                            "old": old_name if old_name else str(old_values[field]),
-                            "new": new_name if new_name else str(new_value)
-                        }
-                    else:
-                        changes[field] = {"old": str(old_values[field]), "new": str(new_value)}
+        if action == "create":
+            await audit_service.log_data_create(
+                db,
+                tenant_id=role.tenant_id,
+                user_id=session.id,
+                entity_type="role",
+                entity_id=role.id,
+                entity_name=role.name,
+                changes=data.model_dump(mode="json"),
+            )
+        else:
+            await audit_service.log_data_update(
+                db,
+                tenant_id=role.tenant_id,
+                user_id=session.id,
+                entity_type="role",
+                entity_id=role.id,
+                entity_name=role.name,
+                old_values=old_values,
+                new_values=data.model_dump(exclude_unset=True),
+            )
 
-                    if field == 'user_ids':
-                        old_emails = await get_user_emails(db, old_values.get(field, []))
-                        new_emails = await get_user_emails(db, new_value)
-                        changes['user_emails'] = {
-                            "old": old_emails if old_emails else str(old_values.get(field, [])),
-                            "new": new_emails if new_emails else str(new_value)
-                        }
-                    
- 
 
-        audit_log = DataAuditLog(
-            id=uuid.uuid4(),
-            tenant_id=session.tenant_id,
-            user_id=session.id,
-            entity_type="role",
-            entity_id=role.id,
-            action=action,
-            entity_name=role.name,
-            changes=changes if changes else None,
-             
-        )
-        db.add(audit_log)
-        await db.commit()
-    except Exception as e:
-        logger.exception(f"Could not write data audit: {e}")
+
+        await db.commit()          # ✅ ОДИН коммит
+        await db.refresh(role)
+    except HTTPException:
         await db.rollback()
+        raise
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Ошибка сохранения роли: %s", str(exc), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ошибка сохранения роли",
+        ) from exc
 
     return ApiResponse(
         success=True,
         message="Роль и её полномочия успешно сохранены",
         data=RoleResponseSchema.model_validate(role),
     )
-
-# ==============================================================================
-# ✅ ЭНДПОИНТЫ add_role_permission и remove_role_permission УДАЛЕНЫ.
-# Управление полномочиями теперь осуществляется через модуль /permissions/
-# ==============================================================================

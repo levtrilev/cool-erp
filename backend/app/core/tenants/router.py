@@ -45,7 +45,7 @@ async def read_tenants(
         limit=limit,
         search=search,
         active_only=active_only,
-        user_is_superadmin=session.is_superadmin,
+        user_is_superadmin=bool(session.is_superadmin),
     )
 
     return ApiResponse(

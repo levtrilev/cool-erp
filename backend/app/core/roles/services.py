@@ -362,7 +362,8 @@ class RoleService:
         # ============================================================
         # 4. Единый commit всей агрегированной операции
         # ============================================================
-        await db.commit()
+        #await db.commit()
+        await db.flush()
         logger.info("[save_role] Transaction committed successfully")
 
         await db.refresh(role, attribute_names=["permissions"])

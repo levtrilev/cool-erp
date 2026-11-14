@@ -1,15 +1,15 @@
 # app/core/auth/dependencies.py
 from typing import Annotated
-from fastapi import Depends, HTTPException
+
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from typing import Any
-from fastapi import HTTPException, status, Depends
-from app.core.auth.security import get_current_session, UserSession, get_db  #, Cookie
+from app.core.auth.security import get_current_session, get_db
+from app.core.users.models import UserModel as User
 
-async def require_admin(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, dict[str, Any]]:
+
+async def require_admin(current_user: User = Depends(get_current_session)) -> User:
     """Зависимость для проверки прав администратора"""
-    # if not current_user.get("is_admin"):
     if not getattr(current_user, "is_admin", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -17,9 +17,9 @@ async def require_admin(current_user: dict[str, dict[str, Any]] = Depends(get_cu
         )
     return current_user
 
-async def require_superadmin(current_user: dict[str, dict[str, Any]] = Depends(get_current_session)) -> dict[str, dict[str, Any]]:
+
+async def require_superadmin(current_user: User = Depends(get_current_session)) -> User:
     """Зависимость для проверки прав суперадминистратора"""
-    # if not current_user.get("is_superadmin"):
     if not getattr(current_user, "is_superadmin", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -27,7 +27,8 @@ async def require_superadmin(current_user: dict[str, dict[str, Any]] = Depends(g
         )
     return current_user
 
+
 # ✅ Аннотированные типы для использования в роутерах
-SuperAdminUser = Annotated[UserSession, Depends(require_superadmin)]
-CurrentUser = Annotated[UserSession, Depends(get_current_session)]
+SuperAdminUser = Annotated[User, Depends(require_superadmin)]
+CurrentUser = Annotated[User, Depends(get_current_session)]
 DBSession = Annotated[AsyncSession, Depends(get_db)]

@@ -1,6 +1,5 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Any
 
 import bcrypt
 from fastapi import FastAPI
@@ -20,8 +19,9 @@ import app.core.user_preferences.models  # pyright: ignore[reportUnusedImport] #
 
 # ✅ ЭТО ДОЛЖНО БЫТЬ В САМОМ ВЕРХУ, до создания app
 # import app.core - это запустит __init__.py и импортирует все модели
-import app.core  # pyright: ignore[reportUnusedImport]
+import app.core  # pyright: ignore[reportUnusedImport]  # импорт для инициализации моделей (обязательно для Alembic)
 from app.core.auth.router import router as auth_router
+from app.core.audit.router import router as audit_router
 from app.core.config import settings
 from app.core.database import async_session
 from app.core.doctypes.router import router as doctype_router
@@ -41,15 +41,12 @@ from app.modules.business_partners.regions_replica.router import (
     router as bp_regions_replica_router,
 )
 from app.modules.sales.orders.router import router as sales_orders_router
-
-from app.core.auth.router import router as auth_router
-from app.core.audit.router import router as audit_router
 from app.core.events.replicator import replicator
 from app.core.currencies.router import router as currencies_router
 from app.core.user_preferences.router import router as user_preferences_router
 
 # Хранилище сессий в оперативной памяти сервера (токен -> метаданные)
-sessions_storage: dict[str, Any] = {}
+sessions_storage: dict[str, dict[str, str | int | bool]] = {}
 
 register_all_replication_handlers()
 

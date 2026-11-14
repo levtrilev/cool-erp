@@ -11,6 +11,10 @@ class UserBaseSchema(BaseModel):
     email: str
     tenant_id: uuid.UUID
     role_ids: Optional[list[uuid.UUID]] = None
+    # ⚠️ role_names — ПРОИЗВОДНОЕ поле (вычисляется сервером из role_ids
+    #    через CRUDUser._sync_role_names). НЕ должно приходить от клиента.
+    #    В схемах запроса (UserRegisterSchema, UserUpdateSchema) его быть не должно.
+    #    В UserResponseSchema — нужен (ответ клиенту с уже вычисленными именами).
     role_names: Optional[list[str]] = None
     tags: Optional[list[str]] = None
 
@@ -19,13 +23,17 @@ class UserBaseSchema(BaseModel):
 # ==========================================
 class UserRegisterSchema(UserBaseSchema):
     """Схема для регистрации нового пользователя"""
+    #   ⚠️ role_names НЕ должен передаваться клиентом — это производное поле.
+    #    Наследуется из UserBaseSchema для совместимости с UserResponseSchema,
+    #   но при регистрации CRUDUser.register_new_user всегда пишет role_ids=[],
+    #    а role_names вычисляется сервером при первом обновлении ролей.
     password: str
     tenant_id: uuid.UUID
     is_admin: bool = False
     is_superadmin: bool = False
 
 class PublicRegisterSchema(BaseModel):
-    """Схема для публичной регистрации гостя (создает новый тенант)"""
+    """Схема для публичной регистрации гостя (создает новый тенант)"""   
     name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=8)
@@ -39,6 +47,27 @@ class UserLoginSchema(BaseModel):
 
 class UserUpdateSchema(BaseModel):
     """Схема для обновления пользователя (все поля опциональны)"""
+
+    """⚠️ ВАЖНО: role_names здесь НЕТ и быть не должно.
+    -------------------------------------------------
+    role_names — ПРОИЗВОДНОЕ поле. Клиент передаёт только role_ids,
+    а имена ролей вычисляются на сервере в CRUDUser.update_user
+    через _sync_role_names() и записываются в модель.
+
+    Почему нельзя вернуть role_names в эту схему:
+      1. Клиент мог бы подделать имена ролей (например, передать
+         role_names=["Хакер"] при role_ids=[uuid-обычного-пользователя]).
+         В БД _sync_role_names перезапишет значение, но в АУДИТ
+         (audit_service.log_data_update) попадёт то, что прислал клиент —
+         аудит начнёт врать.
+      2. Производные поля не должны приходить от клиента — это ловушка
+         для будущих разработчиков.
+      3. При аудите (комплаенс, расследование инцидентов) diff должен
+         отражать реальные изменения в БД, а не то, что прислал клиент.
+
+    Если нужно отфильтровать role_names из new_values для аудита —
+    это делается в роутере, но правильнее — не иметь поля в схеме.
+    """
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
