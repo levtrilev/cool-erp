@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   type Dispatch,
   type SetStateAction,
 } from "react";
@@ -117,7 +118,6 @@ const fromStoredOrders = (
   return {
     columnStates,
     search: stored.search ?? "",
-    searchInput: stored.search ?? "",
     page: stored.page ?? 1,
   };
 };
@@ -176,50 +176,14 @@ type OrdersQueryFilters = Omit<
 interface OrdersTableViewState {
   columnStates: ColumnStates;
   search: string;
-  searchInput: string;
   page: number;
 }
 
 const ORDERS_TABLE_DEFAULT_STATE: OrdersTableViewState = {
   columnStates: buildInitialColumnStates(),
   search: "",
-  searchInput: "",
   page: 1,
 };
-
-// const toStoredOrders = (
-//   state: OrdersTableViewState,
-// ): TablePreferenceSchema => ({
-//   column_states: Object.fromEntries(
-//     Object.entries(state.columnStates).map(([key, value]) => [
-//       key,
-//       { sort: value.sort, filter: value.filter },
-//     ]),
-//   ),
-//   search: state.search,
-//   page: state.page,
-//   page_size: 15,
-// });
-
-// const fromStoredOrders = (
-//   stored: UiTablePreference | undefined,
-//   defaults: OrdersTableViewState,
-// ): OrdersTableViewState => {
-//   if (stored === undefined) return defaults;
-//   const columnStates: ColumnStates = buildInitialColumnStates();
-//   for (const column of SORT_FILTER_COLUMNS) {
-//     const raw: UiTableColumnState | undefined = stored.column_states[column.id];
-//     if (raw) {
-//       columnStates[column.id] = { sort: raw.sort, filter: raw.filter };
-//     }
-//   }
-//   return {
-//     columnStates,
-//     search: stored.search,
-//     searchInput: stored.search,
-//     page: stored.page,
-//   };
-// };
 
 export const OrdersPage = () => {
   const { toast } = useToast();
@@ -240,11 +204,20 @@ export const OrdersPage = () => {
 
   const columnStates: ColumnStates = viewState.columnStates;
   const search: string = viewState.search;
-  const searchInput: string = viewState.searchInput;
   const page: number = viewState.page;
   const [limit] = useState(15);
 
-  // Обёртки сохраняют прежние имена сеттеров — остальной код не меняется.
+  // ✅ Правило №22: ввод поиска — локальное транзиентное состояние,
+  // не участвующее в round-trip через серверную схему настроек.
+  const [searchInput, setSearchInput] = useState<string>("");
+  const searchInputInitializedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!isRestored || searchInputInitializedRef.current) return;
+    searchInputInitializedRef.current = true;
+    setSearchInput(search);
+  }, [isRestored, search]);
+
   const setPage = useCallback(
     (next: number): void => {
       setViewState((prev) => ({ ...prev, page: next }));
@@ -255,13 +228,6 @@ export const OrdersPage = () => {
   const setSearch = useCallback(
     (next: string): void => {
       setViewState((prev) => ({ ...prev, search: next }));
-    },
-    [setViewState],
-  );
-
-  const setSearchInput = useCallback(
-    (next: string): void => {
-      setViewState((prev) => ({ ...prev, searchInput: next }));
     },
     [setViewState],
   );

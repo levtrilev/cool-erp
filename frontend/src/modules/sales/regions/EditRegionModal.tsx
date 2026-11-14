@@ -8,7 +8,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Check, AlertCircle } from "lucide-react";
+import { Loader2, Check, AlertCircle, LockIcon } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,8 +74,10 @@ interface EditRegionModalProps {
   onOpenChange: (open: boolean) => void;
   initialData: SalesRegionResponseSchema | null;
   onSaved: (id: string, name: string) => Promise<void>;
-  /** ✅ Правило №39: режим только для чтения при блокировке */
+  /** ✅ Правило №39: режим только для чтения при блокировке / нехватке прав. */
   readOnly?: boolean;
+  /** Причина режима только чтения: выводится в алерте («нет прав» / «занят»). */
+  readOnlyReason?: string;
   /** ✅ Спецификация: режим копирования */
   copyFromData?: SalesRegionResponseSchema | null;
 }
@@ -86,6 +88,7 @@ export function EditRegionModal({
   initialData,
   onSaved,
   readOnly = false,
+  readOnlyReason,
   copyFromData,
 }: EditRegionModalProps) {
   const queryClient = useQueryClient();
@@ -291,13 +294,23 @@ export function EditRegionModal({
 
         {/* ✅ Правило №39: предупреждение в режиме только чтения */}
         {readOnly && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Регион заблокирован</AlertTitle>
-            <AlertDescription>
-              Регион редактируется другим пользователем. Вы можете только
-              просматривать данные.
-            </AlertDescription>
+          <Alert
+            variant="destructive"
+            className="flex items-center gap-3 py-2.5"
+          >
+            {readOnlyReason?.includes("редактируется другим пользователем") ? (
+              <LockIcon className="h-4 w-4 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 shrink-0" />
+            )}
+            <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+              <AlertTitle className="font-semibold mb-0">
+                Только чтение:
+              </AlertTitle>
+              <AlertDescription className="text-muted-foreground inline">
+                {readOnlyReason ?? "Регион недоступен для редактирования."}
+              </AlertDescription>
+            </div>
           </Alert>
         )}
 
@@ -361,7 +374,9 @@ export function EditRegionModal({
                   )}
                 />
                 {errors.name && (
-                  <p className="text-xs text-destructive">{errors.name.message}</p>
+                  <p className="text-xs text-destructive">
+                    {errors.name.message}
+                  </p>
                 )}
               </div>
 

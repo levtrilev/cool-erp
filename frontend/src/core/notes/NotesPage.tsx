@@ -3,6 +3,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   useMemo,
   type Dispatch,
   type SetStateAction,
@@ -175,14 +176,12 @@ const buildInitialColumnStates = (): ColumnStates =>
 interface NotesTableViewState {
   columnStates: ColumnStates;
   search: string;
-  searchInput: string;
   page: number;
 }
 
 const NOTES_TABLE_DEFAULT_STATE: NotesTableViewState = {
   columnStates: buildInitialColumnStates(),
   search: "",
-  searchInput: "",
   page: 1,
 };
 
@@ -191,9 +190,7 @@ const NOTES_TABLE_DEFAULT_STATE: NotesTableViewState = {
  * Сортировка проходит через карту enum (номинальные типы Orval),
  * фильтр нормализуется к строке (числа — строковым представлением).
  */
-const toStoredNotes = (
-  state: NotesTableViewState,
-): TablePreferenceSchema => ({
+const toStoredNotes = (state: NotesTableViewState): TablePreferenceSchema => ({
   column_states: Object.fromEntries(
     Object.entries(state.columnStates).map(([key, value]) => [
       key,
@@ -231,9 +228,6 @@ const fromStoredNotes = (
   return {
     columnStates,
     search: stored.search ?? "",
-    // Ввод поиска восстанавливаем из применённого значения,
-    // чтобы строка поиска соответствовала видимому списку.
-    searchInput: stored.search ?? "",
     page: stored.page ?? 1,
   };
 };
@@ -242,8 +236,9 @@ export const NotesPage = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // ✅ Персистентный вид таблицы: сортировки, фильтры колонок, поиск, страница.
+  // ✅ Персистентный вид таблицы: сортировки, фильтры колонок, страница.
   // Восстанавливается между переходами, сессиями и устройствами.
+  // 3) Замена блока view-state в компоненте (до обработчиков)
   const {
     state: viewState,
     setState: setViewState,
@@ -257,11 +252,23 @@ export const NotesPage = () => {
 
   const columnStates: ColumnStates = viewState.columnStates;
   const search: string = viewState.search;
-  const searchInput: string = viewState.searchInput;
   const page: number = viewState.page;
   const [limit] = useState(15);
 
-  // Обёртки сохраняют прежние имена сеттеров — остальной код не меняется.
+  // ✅ Правило №22: состояние ввода — транзиентное и живёт ВНЕ персистентного
+  // view-state: сервер хранит только применённый поиск. Иначе каждый символ
+  // проходит round-trip toStored/fromStored и сбрасывает поле в применённое
+  // значение — ввод становится невозможным.
+  const [searchInput, setSearchInput] = useState<string>("");
+  const searchInputInitializedRef = useRef<boolean>(false);
+
+  // После восстановления настроек показываем применённый поиск в поле (однократно).
+  useEffect(() => {
+    if (!isRestored || searchInputInitializedRef.current) return;
+    searchInputInitializedRef.current = true;
+    setSearchInput(search);
+  }, [isRestored, search]);
+
   const setPage = useCallback(
     (next: number): void => {
       setViewState((prev) => ({ ...prev, page: next }));
@@ -276,16 +283,7 @@ export const NotesPage = () => {
     [setViewState],
   );
 
-  const setSearchInput = useCallback(
-    (next: string): void => {
-      setViewState((prev) => ({ ...prev, searchInput: next }));
-    },
-    [setViewState],
-  );
-
-  const setColumnStates = useCallback<
-    Dispatch<SetStateAction<ColumnStates>>
-  >(
+  const setColumnStates = useCallback<Dispatch<SetStateAction<ColumnStates>>>(
     (action) => {
       setViewState((prev) => ({
         ...prev,
@@ -321,9 +319,8 @@ export const NotesPage = () => {
   // ✅ Производные значения через useMemo (Правило №46)
   const sortColumnId = useMemo(
     () =>
-      Object.keys(columnStates).find(
-        (id) => columnStates[id].sort !== null,
-      ) ?? null,
+      Object.keys(columnStates).find((id) => columnStates[id].sort !== null) ??
+      null,
     [columnStates],
   );
 
@@ -332,9 +329,7 @@ export const NotesPage = () => {
   const strFilter = useCallback(
     (columnId: string): string | undefined => {
       const value = columnStates[columnId]?.filter;
-      return typeof value === "string" && value.length > 0
-        ? value
-        : undefined;
+      return typeof value === "string" && value.length > 0 ? value : undefined;
     },
     [columnStates],
   );
